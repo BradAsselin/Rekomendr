@@ -23,8 +23,7 @@ export default function Home() {
   const [lastRun, setLastRun] = useState<{ prompt: string; refine?: string } | null>(null);
 
   useEffect(() => {
-    // ensure anon id exists
-    getAnonId();
+    getAnonId(); // ensure anon id exists
   }, []);
 
   async function run(promptText: string, refine?: string) {
@@ -49,9 +48,7 @@ export default function Home() {
         }
       }
 
-      if (!r.ok) {
-        throw new Error(`Server error: ${r.status}`);
-      }
+      if (!r.ok) throw new Error(`Server error: ${r.status}`);
 
       const j = await r.json();
       setResults(j.suggestions || []);
@@ -65,13 +62,12 @@ export default function Home() {
   async function onSurveyGranted(_n: number) {
     setShowSurvey(false);
     if (lastRun) {
-      // retry the last request with the new bonus tokens
-      await run(lastRun.prompt, lastRun.refine);
+      await run(lastRun.prompt, lastRun.refine); // retry after bonus granted
     }
   }
 
   const onSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
+    e.preventDefault(); // prevents default GET submit (which causes 405)
     if (!prompt.trim()) return;
     run(prompt.trim());
   };
