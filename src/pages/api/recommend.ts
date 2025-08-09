@@ -1,4 +1,3 @@
-// src/pages/api/recommend.ts
 import type { NextApiRequest, NextApiResponse } from 'next';
 import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions';
 import crypto from 'crypto';
@@ -9,17 +8,14 @@ type Rec = { id: string; title: string; description: string };
 
 // Successful response
 type Ok = { suggestions: Rec[] };
-
 // When user has hit their per-day free limit and must take survey
 type Gate = { needSurvey: true; message: string };
-
 // Generic error
 type Err = { error: string };
-
 type Resp = Ok | Gate | Err;
 
 // Env/config with safe defaults
-const GLOBAL_DAILY_CAP = Number(process.env.GLOBAL_DAILY_CAP || '900'); // total site-wide calls/day
+const GLOBAL_DAILY_CAP = Number(process.env.GLOBAL_DAILY_CAP || '900');      // site-wide cap/day
 const DAILY_FREE_TOKENS_ANON = Number(process.env.DAILY_FREE_TOKENS_ANON || '3'); // anon free/day
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse<Resp>) {
@@ -31,28 +27,22 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       refine?: string;
       anonId?: string;
     };
-
     if (!prompt || typeof prompt !== 'string') {
       return res.status(400).json({ error: 'Missing prompt' });
     }
 
     // 1) GLOBAL CAP CHECK
-    const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD UTC
+    const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD (UTC)
     const { data: gRow, error: gErr } = await supabase
       .from('global_usage')
       .select('*')
       .eq('usage_date', today)
       .maybeSingle();
-
-    if (gErr) {
-      console.error('global_usage read error:', gErr);
-    }
+    if (gErr) console.error('global_usage read error:', gErr);
 
     const globalCount = gRow?.count ?? 0;
     if (globalCount >= GLOBAL_DAILY_CAP) {
-      return res
-        .status(429)
-        .json({ error: 'Daily capacity reached. Please try again tomorrow.' });
+      return res.status(429).json({ error: 'Daily capacity reached. Please try again tomorrow.' });
     }
 
     // 2) PER-ANON CHECK
@@ -66,10 +56,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       .eq('usage_date', today)
       .eq('anon_id', anon)
       .maybeSingle();
-
-    if (aErr) {
-      console.error('anon_usage read error:', aErr);
-    }
+    if (aErr) console.error('anon_usage read error:', aErr);
 
     const used = aRow?.used ?? 0;
     const bonus = aRow?.bonus ?? 0;
@@ -78,7 +65,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     if (used >= allowed) {
       return res.status(403).json({
         needSurvey: true,
-        message: 'You’ve used your free recs. Take a 10-second survey to get more today.'
+        message: 'You’ve used your free recs. Take a 10-second survey to get more today.',
       });
     }
 
@@ -95,21 +82,20 @@ Return a STRICT JSON array of 5 objects like:
 ]
 No prose before or after the JSON; only JSON.
 
-User query: "${prompt}"${refine ? `\nRefine: ${refine}` : ''}`
-      }
+User query: "${prompt}"${refine ? `\nRefine: ${refine}` : ''}`,
+      },
     ];
 
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       temperature: 0.8,
-      messages
+      messages,
     });
 
     const raw = completion.choices?.[0]?.message?.content ?? '';
-
     const suggestions = parseSuggestions(raw);
 
-    // 4) INCREMENT USAGE (best-effort)
+    // 4) INCREMENT USAGE
     await upsertGlobal(today, globalCount + 1);
     await upsertAnon(today, anon, ipHash, used + 1, bonus);
 
@@ -160,7 +146,7 @@ function parseSuggestions(raw: string): Rec[] {
       return parsed.slice(0, 5).map((it: any, i: number) => ({
         id: String(it.id ?? `rec-${i + 1}`),
         title: String(it.title ?? it.name ?? `Result ${i + 1}`),
-        description: String(it.description ?? it.overview ?? '')
+        description: String(it.description ?? it.overview ?? ''),
       }));
     }
   } catch {
@@ -175,6 +161,6 @@ function parseSuggestions(raw: string): Rec[] {
     .map((line, i) => ({
       id: `rec-${i + 1}`,
       title: line.replace(/^\d+[\).\s-]*/, '').trim(),
-      description: ''
+      description: '',
     }));
 }
