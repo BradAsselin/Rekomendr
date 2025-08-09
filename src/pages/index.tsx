@@ -1,53 +1,85 @@
 // src/pages/index.tsx
-
-import Head from 'next/head';
+import { useState } from 'react';
 
 export default function Home() {
+  const [prompt, setPrompt] = useState('');
+  const [results, setResults] = useState<string[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
+    setResults([]);
+
+    try {
+      const res = await fetch('/api/recommend', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt }),
+      });
+
+      if (!res.ok) {
+        throw new Error(`Server error: ${res.status}`);
+      }
+
+      const data = await res.json();
+      setResults(data.recommendations || []);
+    } catch (err: any) {
+      setError(err.message || 'Something went wrong.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
-    <>
-      <Head>
-        <title>Rekomendr.AI</title>
-        <meta name="description" content="AI-powered recommendations for everything" />
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
-      </Head>
-      <main style={{ 
-        display: 'flex', 
-        flexDirection: 'column', 
-        alignItems: 'center', 
-        justifyContent: 'center', 
-        minHeight: '100vh', 
-        fontFamily: 'sans-serif',
-        background: '#f9f9f9'
-      }}>
-        <h1 style={{ fontSize: '3rem', marginBottom: '1rem' }}>Rekomendr.AI</h1>
-        <p style={{ fontSize: '1.5rem', color: '#666' }}>
-          It’s like we read your mind. But better.
-        </p>
-        <input 
-          placeholder="What can I find for you?" 
-          style={{ 
-            marginTop: '2rem', 
-            padding: '1rem 2rem', 
-            fontSize: '1rem', 
-            width: '300px', 
-            borderRadius: '8px', 
-            border: '1px solid #ccc' 
-          }} 
+    <div style={{ fontFamily: 'sans-serif', maxWidth: '600px', margin: '0 auto', padding: '2rem' }}>
+      <h1 style={{ textAlign: 'center' }}>Rekomendr.AI</h1>
+      <p style={{ textAlign: 'center', fontSize: '1.1rem', color: '#555' }}>
+        It’s like we read your mind. But better.
+      </p>
+
+      <form onSubmit={handleSubmit} style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
+        <input
+          type="text"
+          value={prompt}
+          onChange={(e) => setPrompt(e.target.value)}
+          placeholder="Enter what you’re looking for..."
+          style={{
+            flex: 1,
+            padding: '0.5rem',
+            fontSize: '1rem',
+            borderRadius: '4px',
+            border: '1px solid #ccc',
+          }}
         />
-        <button 
-          style={{ 
-            marginTop: '1rem', 
-            padding: '0.75rem 2rem', 
-            fontSize: '1rem', 
-            backgroundColor: '#0070f3', 
-            color: '#fff', 
-            border: 'none', 
-            borderRadius: '6px', 
-            cursor: 'pointer' 
-          }}>
-          GO
+        <button
+          type="submit"
+          disabled={!prompt || loading}
+          style={{
+            padding: '0.5rem 1rem',
+            fontSize: '1rem',
+            backgroundColor: '#0070f3',
+            color: 'white',
+            border: 'none',
+            borderRadius: '4px',
+            cursor: loading ? 'not-allowed' : 'pointer',
+          }}
+        >
+          {loading ? 'Loading...' : 'Recommend'}
         </button>
-      </main>
-    </>
+      </form>
+
+      {error && <p style={{ color: 'red', marginTop: '1rem' }}>{error}</p>}
+
+      <ul style={{ marginTop: '1.5rem', paddingLeft: '1rem' }}>
+        {results.map((r, i) => (
+          <li key={i} style={{ marginBottom: '0.5rem' }}>
+            {r}
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
