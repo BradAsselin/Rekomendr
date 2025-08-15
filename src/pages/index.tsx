@@ -1,99 +1,67 @@
 // src/pages/index.tsx
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState, useMemo } from "react";
 
-type Rec = {
-  id: string;
-  title: string;
-  summary: string;
-};
+type Rec = { id: string; title: string; summary: string };
 
+const BRAND_COLOR = "#1f5fa6";
 const PAGE_SIZE = 5;
 
-// Brand + UI knobs
-const BRAND_COLOR = "#1f5fa6";
-const ROTATING_SUGGESTIONS = [
-  "Show me true crime movies",
-  "I just finished Breaking Bad",
-  "I’m in the mood for a silly comedy movie",
-  "I just finished The Bear",
-  "Find rom-coms with a happy ending",
-  "I’d like a bottle of wine like Bonanza",
-  "A red convertible under $40k",
-];
-const HINTS = [
-  "Try “more like Amélie”",
-  "Try “newer family movies”",
-  "Try “cozy sci-fi for a date night”",
-];
-
 export default function Home() {
-  const [prompt, setPrompt] = useState("Give me 5 cozy, feel-good movies");
+  // Input + results
+  const [prompt, setPrompt] = useState("");
   const [recs, setRecs] = useState<Rec[]>([]);
   const [loading, setLoading] = useState(false);
-  const [justVoted, setJustVoted] = useState<"up" | "down" | null>(null);
-  const [page, setPage] = useState(1);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [rotIndex, setRotIndex] = useState(0);
+  const [page, setPage] = useState(1);
+
+  // Global helpfulness
+  const [justVoted, setJustVoted] = useState<"up" | "down" | null>(null);
+
+  // Breadcrumb (clean input, refinements live here)
+  const [lastBase, setLastBase] = useState<string | null>(null);
+  const [titleRefine, setTitleRefine] = useState<string | null>(null);
+  const [tagRefine, setTagRefine] = useState<string | null>(null);
 
   const inputRef = useRef<HTMLInputElement | null>(null);
-  const rotTimer = useRef<number | null>(null);
 
-  // Autofocus and support shareable ?q=
+  // Autofocus + ?q=
   useEffect(() => {
     inputRef.current?.focus();
     const url = new URL(window.location.href);
     const q = url.searchParams.get("q");
     if (q && q.trim()) {
-      setPrompt(q);
-      setTimeout(() => getRecs(q), 0);
+      getRecs(q);
     }
   }, []);
 
-  // Rotate placeholder text
-  useEffect(() => {
-    if (rotTimer.current) window.clearInterval(rotTimer.current);
-    rotTimer.current = window.setInterval(
-      () => setRotIndex((i) => (i + 1) % ROTATING_SUGGESTIONS.length),
-      3500
-    );
-    return () => {
-      if (rotTimer.current) window.clearInterval(rotTimer.current);
-    };
-  }, []);
-
-  function updateUrlWithPrompt(p: string) {
+  function updateUrl(q: string) {
     try {
       const url = new URL(window.location.href);
-      url.searchParams.set("q", p);
+      url.searchParams.set("q", q);
       window.history.replaceState({}, "", url.toString());
     } catch {}
   }
 
-  // Main search (mocked data for now)
-  async function getRecs(p?: string) {
-    const effectivePrompt = p ?? prompt;
-    if (p) setPrompt(p);
-    updateUrlWithPrompt(effectivePrompt);
+  async function getRecs(p?: string, opts?: { isRefine?: boolean }) {
+    const effectivePrompt = (p ?? prompt).trim();
+    if (!effectivePrompt) return;
 
+    // Fresh search resets refiners; refinements don’t chain
+    if (!opts?.isRefine) {
+      setLastBase(effectivePrompt);
+      setTitleRefine(null);
+      setTagRefine(null);
+    }
+
+    updateUrl(effectivePrompt);
+    setPrompt(""); // keep input visually clean
     setLoading(true);
-    setJustVoted(null);
     setErrorMsg(null);
+    setRecs([]);
+    setJustVoted(null);
     setPage(1);
 
-    const mockPool: Rec[] = [
-      { id: "the-intouchables", title: "The Intouchables", summary: "A heartwarming friendship between a quadriplegic man and his caregiver." },
-      { id: "about-time", title: "About Time", summary: "A romantic comedy that explores love and time travel." },
-      { id: "little-miss-sunshine", title: "Little Miss Sunshine", summary: "A quirky family road trip that highlights imperfection and togetherness." },
-      { id: "chef", title: "Chef", summary: "A feel-good film about a chef rediscovering his passion with his son." },
-      { id: "amelie", title: "Amélie", summary: "A whimsical Parisian waitress changes lives with small acts of kindness." },
-      { id: "paddington", title: "Paddington", summary: "A polite bear brings joy (and marmalade) to a London family." },
-      { id: "sing-street", title: "Sing Street", summary: "1980s Dublin teen starts a band to impress a girl—pure charm." },
-      { id: "julie-and-julia", title: "Julie & Julia", summary: "Cooking, blogging, and finding purpose—two timelines, one warm hug." },
-      { id: "stardust", title: "Stardust", summary: "A fairy-tale adventure with humor, romance, and sky pirates." },
-      { id: "the-grand-budapest-hotel", title: "The Grand Budapest Hotel", summary: "A candy-colored caper with impeccable symmetry and heart." },
-    ];
-
-    // fire-and-forget usage tracking
+    // track (fire-and-forget)
     try {
       fetch("/api/track", {
         method: "POST",
@@ -103,14 +71,44 @@ export default function Home() {
     } catch {}
 
     try {
-      await new Promise((r) => setTimeout(r, 320)); // tiny delay for shimmer
-      setRecs(mockPool);
+      const resp = await fetch("/api/recs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: effectivePrompt }),
+      });
+      if (!resp.ok) throw new Error(await resp.text());
+      const data = (await resp.json()) as { items: Rec[] };
+      setRecs(data.items ?? []);
     } catch (e) {
       console.error(e);
-      setErrorMsg("We’re out fishing for better picks. Try again in a sec.");
+      setErrorMsg("We couldn’t load picks. Try again in a moment.");
     } finally {
       setLoading(false);
     }
+  }
+
+  // Per-title refine (non-chaining)
+  function refineWithTitle(title: string) {
+    setTitleRefine(title);
+    const base = (lastBase || "").trim();
+    const refined =
+      base +
+      ` — more like ${title}` +
+      (tagRefine ? ` — make it ${tagRefine}` : "");
+    setPrompt("");
+    getRecs(refined, { isRefine: true });
+  }
+
+  // Tag refiners (newer / funnier / more popular / shorter)
+  function refineWithTag(tag: string) {
+    setTagRefine(tag);
+    const base = (lastBase || "").trim();
+    const refined =
+      base +
+      (titleRefine ? ` — more like ${titleRefine}` : "") +
+      ` — make it ${tag}`;
+    setPrompt("");
+    getRecs(refined, { isRefine: true });
   }
 
   async function handleVote(vote: "up" | "down") {
@@ -121,7 +119,7 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           vote,
-          prompt,
+          prompt: lastBase ?? "",
           itemId: first?.id,
           itemTitle: first?.title,
           itemSummary: first?.summary,
@@ -131,12 +129,12 @@ export default function Home() {
       if (!res.ok) throw new Error("Vote failed");
       setJustVoted(vote);
 
-      // also track
+      // track vote
       try {
         fetch("/api/track", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ event: "vote", prompt }),
+          body: JSON.stringify({ event: "vote", prompt: lastBase ?? "" }),
         }).catch(() => {});
       } catch {}
     } catch (e) {
@@ -151,21 +149,9 @@ export default function Home() {
   }, [recs, page]);
 
   const totalPages = Math.max(1, Math.ceil(recs.length / PAGE_SIZE));
-  const currentPlaceholder = ROTATING_SUGGESTIONS[rotIndex];
 
-  function onEnterSubmit(e: React.KeyboardEvent<HTMLInputElement>) {
+  function onEnter(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === "Enter" && !loading) getRecs();
-  }
-
-  async function copyShareLink() {
-    try {
-      const url = new URL(window.location.href);
-      url.searchParams.set("q", prompt);
-      await navigator.clipboard.writeText(url.toString());
-      alert("Link copied!");
-    } catch {
-      alert("Couldn’t copy. You can copy the URL from the address bar.");
-    }
   }
 
   return (
@@ -173,14 +159,14 @@ export default function Home() {
       style={{
         maxWidth: 900,
         margin: "3rem auto",
-        padding: "0 1rem",
+        padding: "0 1rem 4rem",
         fontFamily:
           'Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial',
         color: "#1c2530",
       }}
     >
-      {/* Logo + brand */}
-      <div style={{ textAlign: "center", marginTop: "3vh", marginBottom: 18 }}>
+      {/* Brand */}
+      <div style={{ textAlign: "center", marginTop: "2vh", marginBottom: 18 }}>
         <div style={{ display: "inline-flex", alignItems: "center", gap: 12 }}>
           <div
             aria-hidden
@@ -211,9 +197,12 @@ export default function Home() {
             Rekomendr.AI
           </h1>
         </div>
+        <div style={{ marginTop: 8, opacity: 0.8 }}>
+          Type anything — we’ll find it.
+        </div>
       </div>
 
-      {/* Input group (hero) */}
+      {/* Hero input */}
       <div
         style={{
           margin: "0 auto",
@@ -231,8 +220,8 @@ export default function Home() {
           ref={inputRef}
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
-          onKeyDown={onEnterSubmit}
-          placeholder={currentPlaceholder}
+          onKeyDown={onEnter}
+          placeholder="What can I find for you?"
           aria-label="What can I find for you?"
           style={{
             flex: 1,
@@ -259,69 +248,97 @@ export default function Home() {
         >
           {loading ? "…" : "GO"}
         </button>
-        <button
-          onClick={copyShareLink}
-          title="Copy link to this search"
-          style={{
-            padding: "0 16px",
-            background: "#eef3fa",
-            color: BRAND_COLOR,
-            border: "none",
-            fontWeight: 700,
-            fontSize: 14,
-            cursor: "pointer",
-          }}
-        >
-          Share
-        </button>
       </div>
 
-      {/* Try: rotating suggestion */}
-      <div style={{ textAlign: "center", marginTop: 12, color: "#3b4754" }}>
-        <span style={{ opacity: 0.9 }}>Try: </span>
-        <button
-          onClick={() => getRecs(currentPlaceholder)}
+      {/* Breadcrumb chips */}
+      {(lastBase || titleRefine || tagRefine) && (
+        <div
           style={{
-            border: "none",
-            background: "transparent",
-            textDecoration: "underline",
-            cursor: "pointer",
-            color: BRAND_COLOR,
-            fontWeight: 600,
+            marginTop: 10,
+            display: "flex",
+            gap: 8,
+            justifyContent: "center",
+            flexWrap: "wrap",
           }}
-          title="Use this suggestion"
         >
-          “{currentPlaceholder}”
-        </button>
-      </div>
+          {lastBase && (
+            <span
+              style={{
+                padding: "6px 10px",
+                borderRadius: 999,
+                border: "1px solid #d6dce3",
+                background: "#fff",
+                fontWeight: 600,
+              }}
+              title={lastBase}
+            >
+              {lastBase}
+            </span>
+          )}
+          {titleRefine && (
+            <span
+              style={{
+                padding: "6px 10px",
+                borderRadius: 999,
+                border: "1px solid #e2e6ec",
+                background: "#f8fafc",
+                opacity: 0.9,
+              }}
+            >
+              more like <strong style={{ marginLeft: 4 }}>{titleRefine}</strong>
+            </span>
+          )}
+          {tagRefine && (
+            <span
+              style={{
+                padding: "6px 10px",
+                borderRadius: 999,
+                border: "1px solid #e2e6ec",
+                background: "#f8fafc",
+                opacity: 0.9,
+              }}
+            >
+              make it <strong style={{ marginLeft: 4 }}>{tagRefine}</strong>
+            </span>
+          )}
+        </div>
+      )}
 
-      {/* Hint chips */}
-      <div
-        style={{
-          marginTop: 10,
-          display: "flex",
-          gap: 10,
-          justifyContent: "center",
-          flexWrap: "wrap",
-        }}
-      >
-        {HINTS.map((h) => (
-          <button
-            key={h}
-            onClick={() => getRecs(h)}
-            style={{
-              padding: "8px 12px",
-              border: "1px solid #d6dce3",
-              borderRadius: 999,
-              background: "#fff",
-              cursor: "pointer",
-              boxShadow: "0 2px 6px rgba(0,0,0,0.04)",
-            }}
-          >
-            {h}
-          </button>
-        ))}
-      </div>
+      {/* Helper chips (hide once results appear) */}
+      {recs.length === 0 && (
+        <div
+          style={{
+            marginTop: 14,
+            display: "flex",
+            gap: 10,
+            justifyContent: "center",
+            flexWrap: "wrap",
+          }}
+        >
+          {[
+            'Show me some rom-coms',
+            'I just finished "The Bear"',
+            "I’d like a bottle of wine like Bonanza",
+          ].map((s) => (
+            <button
+              key={s}
+              onClick={() => getRecs(s)}
+              style={{
+                padding: "10px 12px",
+                border: "1px solid #d6dce3",
+                borderRadius: 999,
+                background: "#fff",
+                cursor: "pointer",
+                boxShadow: "0 2px 6px rgba(0,0,0,0.04)",
+                whiteSpace: "nowrap",
+              }}
+              title={s}
+            >
+              {s}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Error */}
       {errorMsg && (
@@ -344,7 +361,7 @@ export default function Home() {
         </div>
       )}
 
-      {/* Skeleton loader */}
+      {/* Skeleton */}
       {loading && (
         <div style={{ maxWidth: 760, margin: "22px auto 0" }}>
           {Array.from({ length: 3 }).map((_, i) => (
@@ -359,9 +376,9 @@ export default function Home() {
                 background: "#fff",
               }}
             >
-              <div className="shimmer" style={{ height: 18, width: "40%", marginBottom: 8, background: "#e9eef6" }} />
-              <div className="shimmer" style={{ height: 12, width: "95%", marginBottom: 6, background: "#f0f4fb" }} />
-              <div className="shimmer" style={{ height: 12, width: "88%", background: "#f0f4fb" }} />
+              <div style={{ height: 18, width: "40%", marginBottom: 8, background: "#e9eef6", borderRadius: 6 }} />
+              <div style={{ height: 12, width: "95%", marginBottom: 6, background: "#f0f4fb", borderRadius: 6 }} />
+              <div style={{ height: 12, width: "88%", background: "#f0f4fb", borderRadius: 6 }} />
             </div>
           ))}
         </div>
@@ -382,15 +399,12 @@ export default function Home() {
                 boxShadow: "0 6px 20px rgba(0,0,0,0.05)",
               }}
             >
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12 }}>
-                <strong style={{ fontSize: 20 }}>{r.title}</strong>
-              </div>
-              <div style={{ marginTop: 6, color: "#2e3a47", lineHeight: 1.5 }}>
-                {r.summary}
-              </div>
-              <div style={{ marginTop: 10, display: "flex", gap: 10 }}>
+              <strong style={{ fontSize: 20 }}>{r.title}</strong>
+              <div style={{ marginTop: 6, color: "#2e3a47", lineHeight: 1.5 }}>{r.summary}</div>
+
+              <div style={{ marginTop: 10, display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
                 <button
-                  onClick={() => getRecs(`${prompt} — more like ${r.title}`)}
+                  onClick={() => refineWithTitle(r.title)}
                   style={{
                     padding: "8px 12px",
                     border: "1px solid #ccd6e2",
@@ -402,6 +416,26 @@ export default function Home() {
                 >
                   More like this
                 </button>
+
+                <a
+                  href={`https://www.google.com/search?q=${encodeURIComponent(r.title)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ textDecoration: "underline", opacity: 0.9 }}
+                  title="Search the web for this title"
+                >
+                  Learn more
+                </a>
+                <span style={{ opacity: 0.4 }}>·</span>
+                <a
+                  href={`https://www.youtube.com/results?search_query=${encodeURIComponent(r.title + " trailer")}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ textDecoration: "underline", opacity: 0.9 }}
+                  title="Find a trailer on YouTube"
+                >
+                  Trailer
+                </a>
               </div>
             </div>
           ))}
@@ -410,15 +444,7 @@ export default function Home() {
 
       {/* Pagination */}
       {!loading && recs.length > PAGE_SIZE && (
-        <div
-          style={{
-            display: "flex",
-            gap: 10,
-            alignItems: "center",
-            marginTop: 14,
-            justifyContent: "center",
-          }}
-        >
+        <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 14, justifyContent: "center" }}>
           <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1}>
             ← Prev
           </button>
@@ -429,7 +455,7 @@ export default function Home() {
         </div>
       )}
 
-      {/* Helpful? (thumbs) */}
+      {/* Helpful? + Refiners */}
       {!loading && recs.length > 0 && (
         <div style={{ marginTop: 18, textAlign: "center" }}>
           <div style={{ marginBottom: 6 }}>Helpful?</div>
@@ -441,7 +467,6 @@ export default function Home() {
               👎 No
             </button>
           </div>
-
           {justVoted && (
             <div style={{ marginTop: 8, opacity: 0.8 }}>
               Thanks! Logged your feedback ({justVoted === "up" ? "👍" : "👎"}).
@@ -449,13 +474,26 @@ export default function Home() {
           )}
 
           {justVoted === "down" && (
-            <div style={{ marginTop: 10, display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "center" }}>
-              <span>Not quite right?</span>
+            <div
+              style={{
+                marginTop: 14,
+                display: "flex",
+                gap: 8,
+                justifyContent: "center",
+                flexWrap: "wrap",
+              }}
+            >
               {["newer", "funnier", "more popular", "shorter"].map((tag) => (
                 <button
                   key={tag}
-                  onClick={() => getRecs(`${prompt} — make it ${tag}`)}
-                  style={{ padding: "6px 10px", border: "1px solid #ccc", borderRadius: 6 }}
+                  onClick={() => refineWithTag(tag)}
+                  style={{
+                    padding: "6px 12px",
+                    border: "1px solid #ccc",
+                    borderRadius: 8,
+                    cursor: "pointer",
+                    background: "#fff",
+                  }}
                 >
                   {tag === "newer"
                     ? "Something newer"
@@ -470,23 +508,6 @@ export default function Home() {
           )}
         </div>
       )}
-
-      {/* tiny shimmer CSS + mobile tweaks */}
-      <style>{`
-        .shimmer { position: relative; overflow: hidden; }
-        .shimmer::after {
-          content: ""; position: absolute; inset: 0; transform: translateX(-100%);
-          background: linear-gradient(90deg, transparent, rgba(255,255,255,0.5), transparent);
-          animation: shimmer 1.2s infinite;
-        }
-        @keyframes shimmer { 100% { transform: translateX(100%); } }
-
-        @media (max-width: 480px) {
-          h1 { font-size: 34px !important; }
-          input { font-size: 16px !important; padding: 14px 14px !important; }
-          button { font-size: 16px; }
-        }
-      `}</style>
     </main>
   );
 }
