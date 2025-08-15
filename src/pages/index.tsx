@@ -1,5 +1,5 @@
 // src/pages/index.tsx
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 type Rec = {
   id: string;
@@ -16,72 +16,87 @@ const EDITORS_PICK = {
   link: "https://www.justwatch.com/us/movie/safety-not-guaranteed",
 };
 
+const PAGE_SIZE = 5;
+
 export default function Home() {
   const [prompt, setPrompt] = useState("Give me 5 cozy, feel-good movies");
   const [recs, setRecs] = useState<Rec[]>([]);
   const [loading, setLoading] = useState(false);
   const [justVoted, setJustVoted] = useState<"up" | "down" | null>(null);
+  const [page, setPage] = useState(1);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // Accept an optional prompt so refine chips can pass a modified one.
+  // Read ?q= from the URL on first load; auto-run a search if present.
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    const q = url.searchParams.get("q");
+    if (q && q.trim().length > 0) {
+      setPrompt(q);
+      // tiny delay so input reflects before search
+      setTimeout(() => getRecs(q), 0);
+    }
+  }, []);
+
+  // Keep the address bar in sync when we search/refine
+  function updateUrlWithPrompt(p: string) {
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.set("q", p);
+      window.history.replaceState({}, "", url.toString());
+    } catch {
+      // non-fatal
+    }
+  }
+
+  // Accept an optional prompt so refine actions can pass a modified one.
   async function getRecs(p?: string) {
     const effectivePrompt = p ?? prompt;
     if (p) setPrompt(p);
+    updateUrlWithPrompt(effectivePrompt);
 
     setLoading(true);
     setJustVoted(null);
+    setErrorMsg(null);
+    setPage(1);
 
-    // Mocked results for now
-    const mock: Rec[] = [
-      {
-        id: "the-intouchables",
-        title: "The Intouchables",
-        summary:
-          "A heartwarming friendship between a quadriplegic man and his caregiver.",
-      },
-      {
-        id: "about-time",
-        title: "About Time",
-        summary:
-          "A romantic comedy that explores love and time travel.",
-      },
-      {
-        id: "little-miss-sunshine",
-        title: "Little Miss Sunshine",
-        summary:
-          "A quirky family road trip that highlights imperfection and togetherness.",
-      },
-      {
-        id: "chef",
-        title: "Chef",
-        summary:
-          "A feel-good film about a chef rediscovering his passion with his son.",
-      },
-      {
-        id: "amelie",
-        title: "Amélie",
-        summary:
-          "A whimsical Parisian waitress changes lives with small acts of kindness.",
-      },
+    // Mocked results for now — expanded to demonstrate pagination
+    const mockPool: Rec[] = [
+      { id: "the-intouchables", title: "The Intouchables", summary: "A heartwarming friendship between a quadriplegic man and his caregiver." },
+      { id: "about-time", title: "About Time", summary: "A romantic comedy that explores love and time travel." },
+      { id: "little-miss-sunshine", title: "Little Miss Sunshine", summary: "A quirky family road trip that highlights imperfection and togetherness." },
+      { id: "chef", title: "Chef", summary: "A feel-good film about a chef rediscovering his passion with his son." },
+      { id: "amelie", title: "Amélie", summary: "A whimsical Parisian waitress changes lives with small acts of kindness." },
+      { id: "paddington", title: "Paddington", summary: "A polite bear brings joy (and marmalade) to a London family." },
+      { id: "sing-street", title: "Sing Street", summary: "1980s Dublin teen starts a band to impress a girl—pure charm." },
+      { id: "julie-and-julia", title: "Julie & Julia", summary: "Cooking, blogging, and finding purpose—two timelines, one warm hug." },
+      { id: "stardust", title: "Stardust", summary: "A fairy-tale adventure with humor, romance, and sky pirates." },
+      { id: "the-grand-budapest-hotel", title: "The Grand Budapest Hotel", summary: "A candy-colored caper with impeccable symmetry and heart." },
+      { id: "the-princess-bride", title: "The Princess Bride", summary: "As you wish—classic adventure, wit, and true love." },
+      { id: "midnight-in-paris", title: "Midnight in Paris", summary: "A nostalgic stroll through literary Paris after dark." },
+      { id: "hunt-for-the-wilderpeople", title: "Hunt for the Wilderpeople", summary: "A misfit boy and grumpy guardian go bush—heart and laughs." },
+      { id: "bend-it-like-beckham", title: "Bend It Like Beckham", summary: "Chasing dreams, cultural clashes, and joyous football." },
+      { id: "la-la-land", title: "La La Land", summary: "Love, jazz, and big dreams in modern LA." },
     ];
 
-    // 🔎 Debug log
-    console.log("Sending track event:", effectivePrompt);
-
+    // 🔎 Track the search (non-blocking)
     try {
-      const res = await fetch("/api/track", {
+      fetch("/api/track", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ event: "search", prompt: effectivePrompt }),
-      });
-      const data = await res.json();
-      console.log("Track response:", data);
-    } catch (err) {
-      console.error("Track failed:", err);
-    }
+      }).catch(() => {});
+    } catch {}
 
-    await new Promise((r) => setTimeout(r, 300));
-    setRecs(mock);
-    setLoading(false);
+    try {
+      // tiny delay for UX realism
+      await new Promise((r) => setTimeout(r, 250));
+      setRecs(mockPool.slice(0, 10)); // show 10 to make pagination obvious
+    } catch (e) {
+      console.error(e);
+      setErrorMsg("We’re out fishing for better picks. Try again in a sec.");
+    } finally {
+      setLoading(false);
+    }
 
     // Local-only free token counter
     try {
@@ -108,13 +123,13 @@ export default function Home() {
       if (!res.ok) throw new Error("Vote failed");
       setJustVoted(vote);
 
-      // Also log to usage_events
+      // Also log to usage_events (non-blocking)
       try {
-        await fetch("/api/track", {
+        fetch("/api/track", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ event: "vote", prompt }),
-        });
+        }).catch(() => {});
       } catch {}
     } catch (e) {
       console.error(e);
@@ -126,6 +141,13 @@ export default function Home() {
     typeof window !== "undefined"
       ? Number(localStorage.getItem("free_used") || "0")
       : 0;
+
+  const paged = useMemo(() => {
+    const start = (page - 1) * PAGE_SIZE;
+    return recs.slice(start, start + PAGE_SIZE);
+  }, [recs, page]);
+
+  const totalPages = Math.max(1, Math.ceil(recs.length / PAGE_SIZE));
 
   return (
     <main
@@ -150,6 +172,7 @@ export default function Home() {
           onClick={() => getRecs()}
           disabled={loading}
           style={{ padding: "6px 10px" }}
+          title="Run search"
         >
           {loading ? "Working..." : "Get Recs"}
         </button>
@@ -174,27 +197,67 @@ export default function Home() {
         </a>
       </div>
 
+      {/* Error state */}
+      {errorMsg && (
+        <div
+          style={{
+            marginTop: 16,
+            padding: 12,
+            border: "1px solid #f3c5c5",
+            background: "#fff6f6",
+            borderRadius: 10,
+          }}
+        >
+          {errorMsg}{" "}
+          <button onClick={() => getRecs()} style={{ marginLeft: 8 }}>
+            Try again
+          </button>
+        </div>
+      )}
+
+      {/* Results */}
       <div style={{ marginTop: 16 }}>
-        {recs.map((r) => (
-          <div key={r.id} style={{ marginBottom: 12 }}>
+        {paged.map((r) => (
+          <div key={r.id} style={{ marginBottom: 14, paddingBottom: 10, borderBottom: "1px solid #eee" }}>
             <strong>{r.title}</strong>
             <div>{r.summary}</div>
+            <div style={{ marginTop: 6 }}>
+              <button
+                onClick={() => getRecs(`${prompt} — more like ${r.title}`)}
+                style={{ padding: "4px 8px", border: "1px solid #ccc", borderRadius: 6 }}
+                title="Refine with this title"
+              >
+                More like this
+              </button>
+            </div>
           </div>
         ))}
       </div>
 
+      {/* Pagination */}
+      {recs.length > PAGE_SIZE && (
+        <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 12 }}>
+          <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1}>
+            ← Prev
+          </button>
+          <div style={{ opacity: 0.8 }}>
+            Page {page} of {totalPages}
+          </div>
+          <button onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page === totalPages}>
+            Next →
+          </button>
+        </div>
+      )}
+
+      {/* Helpful? (thumbs) */}
       {recs.length > 0 && (
-        <div style={{ marginTop: 12 }}>
+        <div style={{ marginTop: 16 }}>
           <div style={{ marginBottom: 6 }}>Helpful?</div>
           <div style={{ display: "flex", gap: 8 }}>
             <button onClick={() => handleVote("up")} disabled={!!justVoted} title="Yes">
               👍 Yes
             </button>
-            <button
-              onClick={() => handleVote("down")}
-              disabled={!!justVoted}
-              title="No"
-            >
+            <button onClick={() => handleVote("down")} disabled={!!justVoted} title="No">
               👎 No
             </button>
           </div>
@@ -211,10 +274,7 @@ export default function Home() {
               {["newer", "funnier", "more popular", "shorter"].map((tag) => (
                 <button
                   key={tag}
-                  onClick={() => {
-                    const refined = `${prompt} — make it ${tag}`;
-                    getRecs(refined);
-                  }}
+                  onClick={() => getRecs(`${prompt} — make it ${tag}`)}
                   style={{
                     padding: "4px 8px",
                     border: "1px solid #ccc",
