@@ -1,5 +1,5 @@
 import React, { useMemo } from "react";
-import ResultsV4 from "../components/ResultsV4";
+import ResultsV4 from "../components/ResultsV4"; // note: relative path
 
 function useQueryParam(name: string) {
   const params = useMemo(
@@ -10,8 +10,8 @@ function useQueryParam(name: string) {
 }
 
 export default function ResultsPage() {
-  const q = useQueryParam("q");               // e.g. ?q=feel-good
-  const v = useQueryParam("v") || "movies";   // e.g. ?v=movies
+  const q = useQueryParam("q");
+  const v = useQueryParam("v") || "movies";
   const autoRunQuery = !!q;
   const autoRunVertical = !q && !!v;
 
