@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Rekomendr — Results v4 (final)</title>
+  <style>
+    :root {
+      --brand: #0b67d3;
+      --text: #222;
+      --muted: #6b7280;
+      --card: #ffffff;
+      --bg: #fafafa;
+      --link: #0b67d3;
+      --border: #e5e7eb;
+      --shadow: 0 2px 8px rgba(0,0,0,0.08);
+      --focus: 0 0 0 3px rgba(11,103,211,0.25);
+    }
+    *, *::before, *::after { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.45;
+      padding: 24px 16px 56px;
+    }
+    header { text-align: center; margin-bottom: 22px; }
+    header h1 {
+      margin: 0 0 8px;
+      font-size: clamp(1.6rem, 2.6vw, 2rem);
+      color: var(--brand);
+      letter-spacing: .2px;
+      font-weight: 800;
+    }
+    .search-context {
+      color: var(--muted);
+      font-size: .95rem;
+    }
+    .results { max-width: 900px; margin: 24px auto 0; }
+    .results h2 {
+      margin: 0 0 12px;
+      font-size: 1.1rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+      color: #374151;
+      border-bottom: 2px solid var(--border);
+      padding-bottom: 8px;
+    }
+    .rec-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 16px 16px 14px;
+      margin: 14px 0;
+      box-shadow: var(--shadow);
+    }
+    .rec-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .title-wrap {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      min-width: 0;
+    }
+    .title {
+      font-weight: 800;
+      font-size: 1.06rem;
+      text-decoration: none;
+      color: var(--text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 64vw;
+    }
+    .title:hover, .title:focus { color: var(--brand); text-decoration: underline; outline: none; }
+    .title:focus-visible { box-shadow: var(--focus); border-radius: 6px; }
+    .year { color: var(--muted); }
+    .thumbs {
+      display: flex;
+      gap: 10px;
+      flex-shrink: 0;
+    }
+    .thumbs button {
+      background: transparent;
+      border: 1px solid transparent;
+      border-radius: 8px;
+      padding: 4px;
+      cursor: pointer;
+      line-height: 0;
+    }
+    .thumbs button:focus-visible { box-shadow: var(--focus); outline: none; }
+    .thumbs svg {
+      width: 22px; height: 22px;
+      stroke: #4b5563; fill: none; stroke-width: 1.5;
+      transition: stroke .12s ease, transform .08s ease;
+    }
+    .thumbs button:hover svg { stroke: var(--brand); transform: translateY(-1px); }
+    .desc { margin: 10px 0 0; color: #1f2937; }
+    .links { margin-top: 8px; }
+    .links a {
+      text-decoration: none;
+      color: var(--link);
+      font-weight: 600;
+    }
+    .links a:hover { text-decoration: underline; }
+    .sep { color: #9ca3af; padding: 0 6px; user-select: none; }
+    footer {
+      max-width: 900px;
+      margin: 28px auto 0;
+      color: #374151;
+      text-align: center;
+    }
+    .helpful {
+      display: inline-flex;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    .helpful button {
+      border: 1px solid var(--border);
+      background: white;
+      padding: 8px 12px;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+    .helpful button:focus-visible { box-shadow: var(--focus); outline: none; }
+    @media (max-width: 720px) {
+      .title { max-width: 52vw; }
+      .desc { font-size: .98rem; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Rekomendr.AI</h1>
+    <div class="search-context">Results tailored to your query</div>
+  </header>
+
+  <section class="results" aria-label="Top recommendations">
+    <h2>Top Picks</h2>
+
+    <!-- Rec 1 -->
+    <article class="rec-card">
+      <div class="rec-title">
+        <div class="title-wrap">
+          <a class="title" href="https://www.google.com/search?q=The+Grand+Budapest+Hotel" target="_blank" rel="noopener">The Grand Budapest Hotel</a>
+          <span class="year">(2014)</span>
+        </div>
+        <div class="thumbs">
+          <button aria-label="Like">👍</button>
+          <button aria-label="Dislike">👎</button>
+        </div>
+      </div>
+      <p class="desc">A whimsical and visually dazzling tale from Wes Anderson, where eccentric characters weave through a fast-paced caper across a fictional European hotel.</p>
+      <p class="links"><a href="#">+ More like this</a> <span class="sep">·</span> <a href="https://www.youtube.com/results?search_query=The+Grand+Budapest+Hotel+trailer" target="_blank" rel="noopener">▶ Trailer</a></p>
+    </article>
+
+    <!-- Rec 2 -->
+    <article class="rec-card">
+      <div class="rec-title">
+        <div class="title-wrap">
+          <a class="title" href="https://www.google.com/search?q=Gone+Girl" target="_blank" rel="noopener">Gone Girl</a>
+          <span class="year">(2014)</span>
+        </div>
+        <div class="thumbs">
+          <button aria-label="Like">👍</button>
+          <button aria-label="Dislike">👎</button>
+        </div>
+      </div>
+      <p class="desc">A dark, twisty thriller where secrets unravel and perceptions are flipped, keeping viewers on edge with its sharp commentary and psychological suspense.</p>
+      <p class="links"><a href="#">+ More like this</a> <span class="sep">·</span> <a href="https://www.youtube.com/results?search_query=Gone+Girl+trailer" target="_blank" rel="noopener">▶ Trailer</a></p>
+    </article>
+
+    <!-- Rec 3 -->
+    <article class="rec-card">
+      <div class="rec-title">
+        <div class="title-wrap">
+          <a class="title" href="https://www.google.com/search?q=Inception" target="_blank" rel="noopener">Inception</a>
+          <span class="year">(2010)</span>
+        </div>
+        <div class="thumbs">
+          <button aria-label="Like">👍</button>
+          <button aria-label="Dislike">👎</button>
+        </div>
+      </div>
+      <p class="desc">Christopher Nolan’s mind-bending exploration of dreams within dreams, blending emotional stakes with spectacular action and layered storytelling.</p>
+      <p class="links"><a href="#">+ More like this</a> <span class="sep">·</span> <a href="https://www.youtube.com/results?search_query=Inception+trailer" target="_blank" rel="noopener">▶ Trailer</a></p>
+    </article>
+
+    <!-- Rec 4 -->
+    <article class="rec-card">
+      <div class="rec-title">
+        <div class="title-wrap">
+          <a class="title" href="https://www.google.com/search?q=The+Crown+Netflix" target="_blank" rel="noopener">The Crown</a>
+          <span class="year">(2016–)</span>
+        </div>
+        <div class="thumbs">
+          <button aria-label="Like">👍</button>
+          <button aria-label="Dislike">👎</button>
+        </div>
+      </div>
+      <p class="desc">Lavishly produced drama chronicling the reign of Queen Elizabeth II, offering both grandeur and intimate human struggles behind royal walls.</p>
+      <p class="links"><a href="#">+ More like this</a> <span class="sep">·</span> <a href="https://www.youtube.com/results?search_query=The+Crown+trailer" target="_blank" rel="noopener">▶ Trailer</a></p>
+    </article>
+
+    <!-- Rec 5 -->
+    <article class="rec-card">
+      <div class="rec-title">
+        <div class="title-wrap">
+          <a class="title" href="https://www.google.com/search?q=Severance+TV+Show" target="_blank" rel="noopener">Severance</a>
+          <span class="year">(2022–)</span>
+        </div>
+        <div class="thumbs">
+          <button aria-label="Like">👍</button>
+          <button aria-label="Dislike">👎</button>
+        </div>
+      </div>
+      <p class="desc">A chilling and inventive workplace sci-fi that explores identity and free will, with a haunting atmosphere and slow-burn tension that grips hard.</p>
+      <p class="links"><a href="#">+ More like this</a> <span class="sep">·</span> <a href="https://www.youtube.com/results?search_query=Severance+trailer" target="_blank" rel="noopener">▶ Trailer</a></p>
+    </article>
+
+  </section>
+
+  <footer>
+    <div>Was this list helpful?</div>
+    <div class="helpful">
+      <button>👍 Yes</button>
+      <button>👎 No</button>
+    </div>
+  </footer>
+</body>
+</html>

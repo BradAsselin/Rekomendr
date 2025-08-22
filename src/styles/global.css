@@ -1,0 +1,11 @@
+/* src/styles/global.css */
+
+/* If you’re using Tailwind (we are, based on class names): */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Optional tiny tweaks */
+
+html, body { background: #f9fafb; }
+
