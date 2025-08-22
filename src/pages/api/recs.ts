@@ -1,53 +1,58 @@
-// src/pages/api/recs.ts
-import type { NextApiRequest, NextApiResponse } from 'next';
+import type { NextApiRequest, NextApiResponse } from "next";
+import OpenAI from "openai";
 
-type RecsRequest = { prompt?: string; vertical?: string };
-type Item = { id: string; title: string; description: string; infoUrl?: string; trailerUrl?: string };
-type RecsResponse = { items: Item[] } | { error: string };
-
-export default async function handler(req: NextApiRequest, res: NextApiResponse<RecsResponse>) {
-  if (req.method !== 'POST') {
-    res.status(405).json({ error: 'Method not allowed' });
-    return;
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  if (req.method !== "POST") {
+    return res.status(405).json({ error: "Method not allowed" });
   }
 
-  const { prompt = '', vertical = 'movies' } = (req.body || {}) as RecsRequest;
-  const backend = (process.env.REKOMENDR_BACKEND_URL || '').trim();
+  // Fallback prompt values
+  const { prompt = "popular", vertical = "movies" } = req.body || {};
 
-  try {
-    // If a backend URL is configured, proxy to it.
-    if (backend) {
-      const upstream = await fetch(backend, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt, vertical }),
+  // If OpenAI mode is enabled and key is present → generate AI recs
+  if (process.env.REKOMENDR_USE_OPENAI === "true" && process.env.OPENAI_API_KEY) {
+    try {
+      const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+      // Ask GPT to generate 5 recommendations
+      const completion = await client.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [
+          {
+            role: "system",
+            content: `You are a recommendation engine. Return exactly 5 ${vertical} recommendations as JSON with "title" and "description".`,
+          },
+          {
+            role: "user",
+            content: prompt,
+          },
+        ],
+        temperature: 0.7,
+        max_tokens: 300,
       });
 
-      const text = await upstream.text(); // bubble exact response
-      res.status(upstream.status || 200).send(text as any);
-      return;
-    }
+      // Parse JSON from the assistant’s message
+      const raw = completion.choices[0].message?.content || "";
+      let items: any[] = [];
+      try {
+        items = JSON.parse(raw);
+      } catch {
+        // If model returned text instead of JSON, wrap it
+        items = [{ title: "Parse error", description: raw }];
+      }
 
-    // No backend configured → return stable mock so dev never breaks.
-    res.status(200).json({
-      items: [
-        {
-          id: 'mock-1',
-          title: 'Mock Title One',
-          description: `Seed: "${prompt}" • Vertical: ${vertical}. (Dev mock: set REKOMENDR_BACKEND_URL for live data)`,
-          infoUrl: 'https://www.google.com/search?q=movie+info',
-          trailerUrl: 'https://www.youtube.com/results?search_query=trailer',
-        },
-        {
-          id: 'mock-2',
-          title: 'Mock Title Two',
-          description: 'Second mock to prove ensure-5 backfill.',
-          infoUrl: 'https://www.google.com/search?q=movie+info',
-          trailerUrl: 'https://www.youtube.com/results?search_query=trailer',
-        },
-      ],
-    });
-  } catch (err: any) {
-    res.status(500).json({ error: err?.message || 'Unknown error' });
+      return res.status(200).json({ items });
+    } catch (err: any) {
+      console.error("OpenAI error:", err);
+      return res.status(500).json({ error: "OpenAI request failed" });
+    }
   }
+
+  // Otherwise → return mock items
+  return res.status(200).json({
+    items: [
+      { title: "Mock Title One", description: "Fallback mock item 1" },
+      { title: "Mock Title Two", description: "Fallback mock item 2" },
+    ],
+  });
 }
