@@ -1,5 +1,5 @@
 import React, { useMemo } from "react";
-import ResultsV4 from "../components/ResultsV4"; // note: relative path
+import ResultsV4 from "../components/ResultsV4"; // NOTE: relative path
 
 function useQueryParam(name: string) {
   const params = useMemo(
