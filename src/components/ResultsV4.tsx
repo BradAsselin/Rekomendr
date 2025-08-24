@@ -7,8 +7,9 @@ import React, { useEffect, useMemo, useState } from "react";
 type Item = {
   id: string;
   title: string;
+  year?: string; 
   description: string;
-  infoUrl?: string;
+  infoUrl?: string;   // kept for future use, but title link now prefers Google
   trailerUrl?: string;
 };
 
@@ -40,6 +41,7 @@ async function getRecsFromAPI(body: FetchBody): Promise<{ items: Item[] }> {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
+    cache: "no-store",
   });
   if (!r.ok) {
     const text = await r.text();
@@ -68,6 +70,12 @@ const BOTTOM_PROMPTS: Record<string, string[]> = {
   tv: ["limited series", "crime drama", "comfort watch", "docuseries", "short episodes"],
   books: ["fast-paced", "award winners", "nonfiction that reads like fiction", "cozy mystery", "space opera"],
   wine: ["bold reds under $25", "crisp whites", "food-friendly picks", "crowd pleasers", "weird & wonderful"],
+};
+
+// Helper: build Google search URL for a title (more reliable than direct IMDb)
+const googleSearchUrl = (title: string, year?: string) => {
+  const query = encodeURIComponent(year ? `${title} ${year}` : title);
+  return `https://www.google.com/search?q=${query}`;
 };
 
 function HollowThumbUp({ className = "w-5 h-5" }: { className?: string }) {
@@ -257,13 +265,14 @@ const ResultsV4: React.FC<ResultsV4Props> = ({
               {/* Title row with hollow thumbs (gated) */}
               <div className="flex items-start justify-between gap-3">
                 <a
-                  href={it.infoUrl || "#"}
+                  href={googleSearchUrl(it.title, it.year)}   // pass year for better accuracy
                   target="_blank"
-                  rel="noreferrer"
+                  rel="noopener noreferrer"
                   className="text-lg font-semibold leading-snug hover:underline"
-                >
-                  {it.title}
+               >
+                  {it.title} {it.year ? `(${it.year})` : ""} 
                 </a>
+
                 <div className="flex items-center gap-2">
                   <button
                     className="p-1 rounded-lg border border-gray-300 text-gray-500"
@@ -298,7 +307,7 @@ const ResultsV4: React.FC<ResultsV4Props> = ({
                 <a
                   className="underline underline-offset-2 hover:opacity-80"
                   target="_blank"
-                  rel="noreferrer"
+                  rel="noopener noreferrer"
                   href={
                     it.trailerUrl ||
                     `https://www.youtube.com/results?search_query=${encodeURIComponent(

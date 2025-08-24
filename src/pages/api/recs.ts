@@ -1,125 +1,141 @@
 // src/pages/api/recs.ts
 import type { NextApiRequest, NextApiResponse } from "next";
-import OpenAI from "openai";
 
-type Item = { id?: string; title: string; description: string; infoUrl?: string; trailerUrl?: string; };
-type Wire = { items: Item[] };
-type RecsResponse = Wire | { error: string };
+// ----- Types -----
+type ItemOut = {
+  id: string;
+  title: string;
+  year?: string;            // <-- we want a 4-digit string for movies/TV if known
+  description: string;
+  infoUrl?: string;
+  trailerUrl?: string;
+};
 
-const MODEL = "gpt-4o-mini";
+type ApiOut = { items: ItemOut[] };
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse<RecsResponse>) {
-  if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+// ----- Helpers -----
+function coerceYear(y?: string): string | undefined {
+  if (!y) return undefined;
+  const m = String(y).match(/\b(19\d{2}|20\d{2})\b/);
+  return m ? m[1] : undefined;
+}
 
-  const { prompt = "popular", vertical = "movies" } = (req.body || {}) as { prompt?: string; vertical?: string; };
-  const BACKEND = (process.env.REKOMENDR_BACKEND_URL || "").trim();
-  const USE_OPENAI = process.env.REKOMENDR_USE_OPENAI === "true";
-  const API_KEY = process.env.OPENAI_API_KEY || "";
+function ensureIds(items: ItemOut[]): ItemOut[] {
+  return items.map((it, i) => ({
+    ...it,
+    id: it.id || `ai-${Date.now()}-${i}`,
+  }));
+}
+
+function sanitizeItems(items: any[]): ItemOut[] {
+  if (!Array.isArray(items)) return [];
+  return ensureIds(
+    items
+      .slice(0, 5)
+      .map((raw) => {
+        const year = coerceYear(raw.year);
+        return {
+          id: String(raw.id || ""),
+          title: String(raw.title || "").trim(),
+          year,
+          description: String(raw.description || "").trim(),
+          infoUrl: raw.infoUrl ? String(raw.infoUrl) : undefined,
+          trailerUrl: raw.trailerUrl ? String(raw.trailerUrl) : undefined,
+        } as ItemOut;
+      })
+      .filter((it) => it.title)
+  );
+}
+
+// ----- OpenAI call -----
+async function getRecs(prompt: string, vertical: string): Promise<ApiOut> {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) throw new Error("Missing OPENAI_API_KEY");
+
+  // System message: force a strict JSON shape and include YEAR
+  const system = `
+You are a concise recommendation engine. Return STRICT JSON (no prose) with this shape:
+{
+  "items": [
+    {
+      "id": "string",                  // unique id
+      "title": "string",               // exact official title
+      "year": "YYYY",                  // 4-digit release year for movies/TV if known, else empty or omit
+      "description": "string",         // 1–2 sentences, specific and helpful
+      "infoUrl": "string",             // optional, if you know a reliable info link
+      "trailerUrl": "string"           // optional, YouTube link preferred if known
+    }
+  ]
+}
+
+Rules:
+- Always include "year" for movies/TV when available. Use the widely accepted original release year.
+- Keep description tight and useful (no spoilers).
+- Limit to 5 items max.
+- Do not include any text outside of the JSON object.
+`.trim();
+
+  const user = `
+Give 5 ${vertical} recommendations for: "${prompt}"
+`.trim();
+
+  const resp = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "gpt-4o-mini",
+      response_format: { type: "json_object" },
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: user },
+      ],
+      temperature: 0.7,
+      max_tokens: 800,
+    }),
+  });
+
+  if (!resp.ok) {
+    const t = await resp.text();
+    throw new Error(`OpenAI error ${resp.status}: ${t.slice(0, 400)}`);
+  }
+
+  const data = await resp.json();
+  // data.choices[0].message.content should be a JSON string per response_format
+  let parsed: ApiOut = { items: [] };
+  try {
+    parsed = JSON.parse(data.choices?.[0]?.message?.content ?? "{}");
+  } catch {
+    // If parsing fails, keep empty
+  }
+
+  const items = sanitizeItems(parsed.items || []);
+  return { items };
+}
+
+// ----- Handler -----
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  // Always enforce "no-store" so the frontend gets fresh results
+  res.setHeader("Cache-Control", "no-store");
+
+  if (req.method !== "POST") {
+    res.status(405).json({ error: "Method not allowed" });
+    return;
+  }
 
   try {
-    // 1) Proxy to external backend if configured
-    if (BACKEND) {
-      const upstream = await fetch(BACKEND, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt, vertical }),
-      });
-      const text = await upstream.text();
-      res.status(upstream.status || 200).send(text as any);
+    const { prompt, vertical } = req.body || {};
+    if (!prompt || !vertical) {
+      res.status(400).json({ error: "Missing 'prompt' or 'vertical' in body" });
       return;
     }
 
-    // 2) OpenAI mode
-    if (USE_OPENAI && API_KEY) {
-      const client = new OpenAI({ apiKey: API_KEY });
-
-      const system = `
-You are a recommendation engine. Return ONLY valid JSON (no code fences, no prose).
-Schema:
-{
-  "items": [
-    { "title": string, "description": string, "infoUrl"?: string, "trailerUrl"?: string }
-  ]
-}
-- 5 items max
-- Descriptions 1–2 sentences
-`;
-
-      const user = `Seed: "${prompt}" • Vertical: "${vertical}". Output exactly the JSON schema above.`;
-
-      const completion = await client.chat.completions.create({
-        model: MODEL,
-        messages: [
-          { role: "system", content: system },
-          { role: "user", content: user },
-        ],
-        temperature: 0.7,
-        // 🔒 Force pure JSON so we don't get quoted/fenced text
-        response_format: { type: "json_object" },
-      });
-
-      const raw = completion.choices?.[0]?.message?.content ?? "{}";
-
-      // Direct parse (should always work with response_format=json_object)
-      let obj: any;
-      try {
-        obj = JSON.parse(raw);
-      } catch {
-        // tiny fallback: strip fences/whitespace and try again
-        const cleaned = raw.replace(/```json/gi, "").replace(/```/g, "").trim();
-        obj = JSON.parse(cleaned);
-      }
-
-      const items = normalizeItems(obj?.items, vertical);
-      return res.status(200).json({ items });
-    }
-
-    // 3) Stable mock fallback
-    return res.status(200).json({
-      items: [
-        {
-          id: "mock-1",
-          title: "Mock Title One",
-          description: `Seed: "${prompt}" • Vertical: ${vertical}. (Dev mock: set REKOMENDR_USE_OPENAI=true or REKOMENDR_BACKEND_URL)`,
-          infoUrl: "https://www.google.com/search?q=movie+info",
-          trailerUrl: "https://www.youtube.com/results?search_query=trailer",
-        },
-        {
-          id: "mock-2",
-          title: "Mock Title Two",
-          description: "Second mock to prove ensure-5 backfill.",
-          infoUrl: "https://www.google.com/search?q=movie+info",
-          trailerUrl: "https://www.youtube.com/results?search_query=trailer",
-        },
-      ],
-    });
+    const out = await getRecs(String(prompt), String(vertical));
+    res.status(200).json(out);
   } catch (err: any) {
     console.error("API /recs error:", err?.message || err);
-    return res.status(500).json({ error: "OpenAI request failed" });
+    res.status(500).json({ items: [] });
   }
-}
-
-/* ---------- helpers ---------- */
-function normalizeItems(input: any, vertical: string): Item[] {
-  const arr: any[] = Array.isArray(input) ? input : [];
-  const list = arr.slice(0, 5).map((x, i) => {
-    const title = String(x?.title || `Untitled ${i + 1}`);
-    const description = String(x?.description || `Recommended ${vertical} pick.`);
-    const infoUrl = x?.infoUrl || "https://www.google.com/search?q=" + encodeURIComponent(title);
-    const trailerUrl =
-      x?.trailerUrl ||
-      "https://www.youtube.com/results?search_query=" + encodeURIComponent(`${title} trailer`);
-    return { id: `ai-${Date.now()}-${i}`, title, description, infoUrl, trailerUrl };
-  });
-
-  if (list.length < 2) {
-    list.push({
-      id: `fill-${Date.now()}-1`,
-      title: "Editor’s Pick",
-      description: `Hand-curated ${vertical} pick to round out your list.`,
-      infoUrl: "https://www.google.com/",
-      trailerUrl: "https://www.youtube.com/",
-    });
-  }
-  return list;
 }
