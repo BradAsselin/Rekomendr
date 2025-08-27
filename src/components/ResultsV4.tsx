@@ -1,103 +1,114 @@
 // src/components/ResultsV4.tsx
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 
 /** -------------------------------
- *  Small types
+ *  Types
  *  ------------------------------- */
 type Item = {
   id: string;
   title: string;
-  year?: string; 
+  year?: string;
   description: string;
-  infoUrl?: string;   // kept for future use, but title link now prefers Google
+  infoUrl?: string;
   trailerUrl?: string;
 };
 
 type FetchBody = { prompt: string; vertical: string };
 
 type ResultsV4Props = {
-  /** Optional seed values (e.g., from /results?q=...&v=...) */
   initialQuery?: string;
   initialVertical?: "movies" | "tv" | "books" | "wine" | string;
-  /** If true and initialQuery present, auto-runs a recs fetch on mount */
   autoRunQuery?: boolean;
-  /** If true and initialVertical present, auto-runs a "popular" query for that vertical */
-  autoRunVertical?: boolean;
 };
 
-/** -------------------------------
- *  Config helpers
- *  ------------------------------- */
-function getApiUrl(): string {
-  const cfg = process.env.NEXT_PUBLIC_REKOMENDR_API || "/api/recs";
-  if (/^https?:\/\//i.test(cfg)) return cfg;
-  if (typeof window !== "undefined") return `${window.location.origin}${cfg}`;
-  return cfg;
-}
+type FeedbackSignal = "up" | "down";
+type Feedback = { itemId: string; title: string; year?: string; signal: FeedbackSignal };
 
-async function getRecsFromAPI(body: FetchBody): Promise<{ items: Item[] }> {
-  const url = getApiUrl();
-  const r = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-    cache: "no-store",
-  });
-  if (!r.ok) {
-    const text = await r.text();
-    throw new Error(`Fetch failed: ${url} ${r.status} :: ${text.slice(0, 200)}`);
+/** -------------------------------
+ *  Session / Storage helpers
+ *  ------------------------------- */
+const SESSION_KEY = "rekomendr.sessionId.v1";
+const FEEDBACK_KEY = "rekomendr.sessionFeedback.v1";
+
+function ensureSessionId(): string {
+  if (typeof window === "undefined") return "server";
+  let sid = window.localStorage.getItem(SESSION_KEY);
+  if (!sid) {
+    sid = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    window.localStorage.setItem(SESSION_KEY, sid);
   }
-  return r.json();
+  return sid;
+}
+
+function loadFeedback(): Feedback[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(FEEDBACK_KEY);
+    return raw ? (JSON.parse(raw) as Feedback[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveFeedback(list: Feedback[]) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(FEEDBACK_KEY, JSON.stringify(list));
+}
+
+function clearFeedback() {
+  if (typeof window === "undefined") return;
+  window.localStorage.removeItem(FEEDBACK_KEY);
 }
 
 /** -------------------------------
- *  UI helpers / constants
+ *  Icons — outline, consistent geometry
  *  ------------------------------- */
-const VERTICALS = ["movies", "tv", "books", "wine"] as const;
-
-const RANDOM_SEEDS = [
-  "feel-good",
-  "smart and twisty",
-  "underrated gems",
-  "edge-of-seat thriller",
-  "big crowd-pleaser",
-  "date night",
-  "mind-bending",
-];
-
-const BOTTOM_PROMPTS: Record<string, string[]> = {
-  movies: ["true crime vibe", "laugh-out-loud", "critically acclaimed", "hidden gems", "based on a book"],
-  tv: ["limited series", "crime drama", "comfort watch", "docuseries", "short episodes"],
-  books: ["fast-paced", "award winners", "nonfiction that reads like fiction", "cozy mystery", "space opera"],
-  wine: ["bold reds under $25", "crisp whites", "food-friendly picks", "crowd pleasers", "weird & wonderful"],
-};
-
-// Helper: build Google search URL for a title (more reliable than direct IMDb)
-const googleSearchUrl = (title: string, year?: string) => {
-  const query = encodeURIComponent(year ? `${title} ${year}` : title);
-  return `https://www.google.com/search?q=${query}`;
-};
-
-function HollowThumbUp({ className = "w-5 h-5" }: { className?: string }) {
+function IconThumbUpOutline({ className = "w-5 h-5" }) {
   return (
-    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
-      strokeWidth={1.5} stroke="currentColor" className={className} aria-hidden>
-      <path strokeLinecap="round" strokeLinejoin="round"
-        d="M6.633 10.25c.806 0 1.533-.446 2.031-1.08a9.041 9.041 0 0 1 2.861-2.4c.723-.384 1.35-.956 1.653-1.715a4.498 4.498 0 0 0 .322-1.672V2.75a.75.75 0 0 1 .75-.75 2.25 2.25 0 0 1 2.25 2.25c0 1.152-.26 2.243-.723 3.218-.266.558.107 1.282.725 1.282h2.146a2.25 2.25 0 0 1 2.25 2.25v1.433c0 .31-.053.617-.156.905l-1.2 3.3a4.5 4.5 0 0 1-4.243 3.062H9a3.75 3.75 0 0 1-3.75-3.75v-4.5a.75.75 0 0 1 .75-.75Z" />
-      <path strokeLinecap="round" strokeLinejoin="round"
-        d="M2.25 10.25h4.125a.375.375 0 0 1 .375.375v6.75a.375.375 0 0 1-.375.375H2.25a.75.75 0 0 1-.75-.75v-6a.75.75 0 0 1 .75-.75Z" />
+    <svg
+      className={className}
+      aria-hidden
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.5}
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M14.25 9V5.75A2.75 2.75 0 0 0 11.5 3L8.91 8.023a2 2 0 0 1-.186.306l-.007.01c-.312.427-.468.64-.596.844A3 3 0 0 0 8 10.1V18a2 2 0 0 0 2 2h5.764c1.332 0 2.523-.86 2.897-2.137l1.74-5.957A2.25 2.25 0 0 0 18.257 9H14.25Z"
+      />
+      <path
+        d="M7.5 10.5v8.25A1.25 1.25 0 0 1 6.25 20H5A1.25 1.25 0 0 1 3.75 18.75v-7A1.25 1.25 0 0 1 5 10.5h2.5Z"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   );
 }
 
-function HollowThumbDown({ className = "w-5 h-5" }: { className?: string }) {
+function IconThumbDownOutline({ className = "w-5 h-5" }) {
   return (
-    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
-      strokeWidth={1.5} stroke="currentColor" className={className} aria-hidden>
-      <path strokeLinecap="round" strokeLinejoin="round"
-        d="M17.367 13.75c-.806 0-1.533.446-2.031 1.08a9.041 9.041 0 0 1-2.861 2.4c-.723.384-1.35.956-1.653 1.715a4.498 4.498 0 0 0-.322 1.672v.633a.75.75 0 0 1-.75.75A2.25 2.25 0 0 1 7.5 20.75c0-1.152.26-2.243.723-3.218.266-.558-.107-1.282-.725-1.282H5.352A2.25 2.25 0 0 1 3.102 14v-1.433c0-.31.053-.617.156-.905l1.2-3.3A4.5 4.5 0 0 1 8.701 5.3H15a3.75 3.75 0 0 1 3.75 3.75v4.5a.75.75 0 0 1-.75.75Z" />
-      <path strokeLinecap="round" strokeLinejoin="round"
-        d="M21.75 13.75H17.625a.375.375 0 0 0-.375.375v6.75c0 .207.168.375.375.375h4.125a.75.75 0 0 0 .75-.75v-6a.75.75 0 0 0-.75-.75Z" />
+    <svg
+      className={className}
+      aria-hidden
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.5}
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M9.75 15v3.25A2.75 2.75 0 0 0 12.5 21l2.59-5.023a2 2 0 0 1 .186-.306l.007-.01c.312-.427.468-.64.596-.844.379-.606.493-1.132.493-1.917V5a2 2 0 0 0-2-2H8.608C7.276 3 6.085 3.86 5.711 5.137l-1.74 5.957A2.25 2.25 0 0 0 5.743 15H9.75Z"
+      />
+      <path
+        d="M16.5 13.5V5.25A1.25 1.25 0 0 1 17.75 4H19a1.25 1.25 0 0 1 1.25 1.25v7A1.25 1.25 0 0 1 19 13.5h-2.5Z"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   );
 }
@@ -109,235 +120,332 @@ const ResultsV4: React.FC<ResultsV4Props> = ({
   initialQuery = "",
   initialVertical = "movies",
   autoRunQuery = false,
-  autoRunVertical = false,
 }) => {
-  const [query, setQuery] = useState(initialQuery);
-  const [vertical, setVertical] = useState<string>(initialVertical);
-  const [loading, setLoading] = useState(false);
+  // ensure session id exists
+  useMemo(ensureSessionId, []);
+
+  const [vertical, setVertical] = useState<string>(initialVertical || "movies");
+  const [prompt, setPrompt] = useState<string>(initialQuery || "");
   const [items, setItems] = useState<Item[]>([]);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Gate thumbs unless you wire auth later
-  const isSignedIn = false;
+  const [feedback, setFeedback] = useState<Feedback[]>([]);
+  const [showSignInNudge, setShowSignInNudge] = useState(false);
+  const nudgeShownRef = useRef(false);
 
-  // Build 5 items minimum by backfilling editor picks
-  const ensuredItems = useMemo(() => {
-    if ((items?.length || 0) >= 5) return items.slice(0, 5);
-    const need = 5 - (items?.length || 0);
-    const picks: Item[] = Array.from({ length: need }, (_, i) => ({
-      id: `pick-${Date.now()}-${i}`,
-      title: `Editor’s Pick #${i + 1}`,
-      description: `Hand-curated ${vertical} pick to round out your list.`,
-      infoUrl: "https://www.google.com/",
-      trailerUrl: "https://www.youtube.com/",
-    }));
-    return [...(items || []), ...picks].slice(0, 5);
-  }, [items, vertical]);
+  // dynamic chips
+  const [selectedChips, setSelectedChips] = useState<string[]>([]);
 
-  async function runSearch(seed: string, v: string) {
+  useEffect(() => {
+    setFeedback(loadFeedback());
+  }, []);
+
+  useEffect(() => {
+    if (autoRunQuery && (initialQuery || initialVertical)) {
+      fetchRecs({ mode: "seed" });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const dislikedTitles = useMemo(
+    () =>
+      new Set(
+        feedback
+          .filter((f) => f.signal === "down")
+          .map((f) => `${f.title}${f.year ? ` (${f.year})` : ""}`)
+      ),
+    [feedback]
+  );
+
+  const hasAnyThumbs = feedback.length > 0;
+
+  const filteredItems = useMemo(() => {
+    if (!items.length || dislikedTitles.size === 0) return items;
+    return items.filter((it) => !dislikedTitles.has(`${it.title}${it.year ? ` (${it.year})` : ""}`));
+  }, [items, dislikedTitles]);
+
+  /** -------------------------------
+   *  Suggestion chips (client-only heuristics)
+   *  ------------------------------- */
+  const SUGGESTION_DEFS: Array<{ key: string; label: string; test: (s: string) => boolean }> = useMemo(
+    () => [
+      { key: "feel-good", label: "feel-good", test: s => /heartwarming|uplifting|feel[- ]?good|redemption|friendship/i.test(s) },
+      { key: "mind-bending", label: "mind-bending", test: s => /dream|memory|time|twist|puzzle|mind[- ]?bend/i.test(s) },
+      { key: "true-crime", label: "true crime vibe", test: s => /crime|trial|murder|case|detective|investigat/i.test(s) },
+      { key: "critically-acclaimed", label: "critically acclaimed", test: s => /acclaimed|award|oscar|masterpiece|critically/i.test(s) },
+      { key: "hidden-gems", label: "hidden gems", test: s => /overlooked|underrated|cult|gem/i.test(s) },
+      { key: "based-on-book", label: "based on a book", test: s => /novel|based on the book|adapted/i.test(s) },
+      { key: "funnier", label: "laugh-out-loud", test: s => /comedy|hilarious|funny|satire/i.test(s) },
+      { key: "darker", label: "darker", test: s => /dark|gritty|noir|bleak/i.test(s) },
+      // runtime toggles available even if heuristic doesn't detect
+      { key: "shorter", label: "shorter", test: _ => false },
+      { key: "longer", label: "longer", test: _ => false },
+    ],
+    []
+  );
+
+  const suggestedChips = useMemo(() => {
+    if (!items.length) return [];
+    const text = items.map(i => `${i.title} ${i.year ?? ""}. ${i.description}`).join(" \n");
+    const hits = SUGGESTION_DEFS.filter(def => def.test(text));
+    const fallback = SUGGESTION_DEFS.filter(def => ["critically-acclaimed","hidden-gems","based-on-book"].includes(def.key));
+    const merged = Array.from(new Map([...hits, ...fallback].map(d => [d.key, d])).values());
+    return merged.slice(0, 6);
+  }, [items, SUGGESTION_DEFS]);
+
+  function toggleChip(key: string) {
+    setSelectedChips(prev => prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]);
+  }
+
+  function clearRefinements() {
+    setSelectedChips([]);
+    setFeedback([]);
+    clearFeedback();
+  }
+
+  /** -------------------------------
+   *  Fetch Helpers
+   *  ------------------------------- */
+  async function fetchRecs(opts?: { mode?: "seed" | "refine" }) {
     setLoading(true);
     setError(null);
+
+    // Base prompt
+    let effectivePrompt = prompt?.trim();
+    if (!effectivePrompt) {
+      effectivePrompt = `Find 5 popular ${vertical}`;
+    }
+
+    // Refine with session thumbs
+    if (opts?.mode === "refine" && hasAnyThumbs) {
+      const ups = feedback.filter((f) => f.signal === "up").slice(-6);
+      const downs = feedback.filter((f) => f.signal === "down").slice(-10);
+
+      if (ups.length) {
+        const likeList = ups.map(f => `${f.title}${f.year ? ` (${f.year})` : ""}`).join(", ");
+        effectivePrompt += `. Prefer items similar to: ${likeList}. Keep it fresh; avoid near-duplicates.`;
+      }
+      if (downs.length) {
+        const avoidList = downs.map(f => `${f.title}${f.year ? ` (${f.year})` : ""}`).join(", ");
+        effectivePrompt += ` Avoid: ${avoidList}.`;
+      }
+    }
+
+    // Fold in chips (either mode can include chips)
+    if (selectedChips.length) {
+      const labels = selectedChips
+        .map(k => SUGGESTION_DEFS.find(d => d.key === k)?.label ?? k)
+        .join(", ");
+      effectivePrompt += `. Bias toward: ${labels}.`;
+      if (selectedChips.includes("shorter")) effectivePrompt += " Prefer runtime under ~110 minutes.";
+      if (selectedChips.includes("longer")) effectivePrompt += " Prefer epic/longer titles over ~140 minutes.";
+    }
+
+    // Always add soft exclude for all 👎 this session
+    if (dislikedTitles.size > 0) {
+      const avoid = Array.from(dislikedTitles).slice(0, 10).join(", ");
+      effectivePrompt += ` Avoid: ${avoid}.`;
+    }
+
     try {
-      const out = await getRecsFromAPI({ prompt: seed, vertical: v });
-      setItems(Array.isArray(out.items) ? out.items : []);
+      const res = await fetch("/api/recs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: effectivePrompt, vertical } as FetchBody),
+      });
+
+      if (!res.ok) {
+        const txt = await res.text();
+        throw new Error(txt || `HTTP ${res.status}`);
+      }
+
+      const data = await res.json();
+      const nextItems: Item[] = Array.isArray(data) ? data : data.items ?? [];
+      setItems(nextItems);
     } catch (e: any) {
-      console.error("getRecsFromAPI failed:", e);
-      setError(e?.message || "Unknown error");
-      setItems([]);
+      setError(e?.message || "Something went wrong.");
     } finally {
       setLoading(false);
     }
   }
 
-  // Auto-run behaviors
-  useEffect(() => {
-    if (autoRunQuery && initialQuery) {
-      runSearch(initialQuery, vertical);
-      return;
+  /** -------------------------------
+   *  Thumb actions (no auto-fetch)
+   *  ------------------------------- */
+  function recordFeedback(item: Item, signal: FeedbackSignal) {
+    const entry: Feedback = { itemId: item.id, title: item.title, year: item.year, signal };
+    const next = [...feedback, entry];
+    setFeedback(next);
+    saveFeedback(next);
+
+    if (!nudgeShownRef.current) {
+      nudgeShownRef.current = true;
+      setShowSignInNudge(true);
+      setTimeout(() => setShowSignInNudge(false), 3500);
     }
-    if (autoRunVertical && initialVertical) {
-      runSearch("popular", initialVertical);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Suggestion “Play” button — insert randomized prompt (does not auto-submit)
-  function insertRandomPrompt() {
-    const r = RANDOM_SEEDS[Math.floor(Math.random() * RANDOM_SEEDS.length)];
-    setQuery(r);
   }
 
-  // “More like this” refines based on title
-  function refineFromTitle(title: string) {
-    const seed = `more like "${title}"`;
-    setQuery(seed);
-    runSearch(seed, vertical);
+  function onLike(item: Item) {
+    recordFeedback(item, "up");
   }
 
-  // Reset clears UI
-  function resetAll() {
-    setQuery("");
-    setItems([]);
-    setError(null);
+  function onDislike(item: Item) {
+    recordFeedback(item, "down");
   }
 
-  const bottomChips = BOTTOM_PROMPTS[vertical] || BOTTOM_PROMPTS["movies"];
-
+  /** -------------------------------
+   *  Render
+   *  ------------------------------- */
   return (
-    <div className="max-w-3xl mx-auto px-4 py-6">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-4">
-        <h1 className="text-xl font-semibold">Rekomendr.AI</h1>
-        <button
-          onClick={resetAll}
-          className="text-sm rounded-xl px-3 py-1 border border-gray-300 hover:bg-gray-50"
-          title="Reset"
-        >
-          Reset
-        </button>
-      </div>
-
-      {/* Search bar */}
-      <div className="flex items-stretch gap-2 mb-3">
-        <button
-          onClick={insertRandomPrompt}
-          className="rounded-2xl px-3 py-2 border border-gray-300 hover:bg-gray-50"
-          title="Surprise me"
-        >
-          ▶
-        </button>
+    <div className="mx-auto max-w-3xl px-4 py-6">
+      {/* Header / Query Row */}
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center">
         <input
-          className="flex-1 rounded-2xl px-3 py-2 border border-gray-300 outline-none"
+          value={prompt}
+          onChange={(e) => setPrompt(e.target.value)}
           placeholder="What can I find for you?"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") runSearch(query || "popular", vertical);
-          }}
+          className="w-full rounded-2xl border border-gray-300 px-4 py-3 outline-none focus:border-black"
         />
+        <select
+          value={vertical}
+          onChange={(e) => setVertical(e.target.value)}
+          className="rounded-2xl border border-gray-300 px-3 py-3 outline-none focus:border-black"
+        >
+          <option value="movies">Movies</option>
+          <option value="tv">TV Shows</option>
+          <option value="books">Books</option>
+          <option value="wine">Wine</option>
+        </select>
         <button
-          onClick={() => runSearch(query || "popular", vertical)}
-          className="rounded-2xl px-4 py-2 bg-black text-white hover:opacity-90"
+          onClick={() => fetchRecs({ mode: "seed" })}
+          className="rounded-2xl px-5 py-3 bg-black text-white shadow hover:shadow-md active:translate-y-px"
         >
           GO
         </button>
       </div>
 
-      {/* Category bubbles */}
-      <div className="flex flex-wrap gap-2 mb-6">
-        {VERTICALS.map((v) => (
-          <button
-            key={v}
-            onClick={() => {
-              setVertical(v);
-              runSearch("popular", v);
-            }}
-            className={`text-sm px-3 py-1 rounded-full border ${
-              vertical === v
-                ? "border-black bg-black text-white"
-                : "border-gray-300 hover:bg-gray-50"
-            }`}
-          >
-            {v === "tv" ? "TV Shows" : v[0].toUpperCase() + v.slice(1)}
-          </button>
-        ))}
-      </div>
+      {showSignInNudge && (
+        <div className="mb-3 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm">
+          Like what you see? <span className="font-medium">Sign in</span> to save your picks across sessions.
+        </div>
+      )}
 
-      {/* Error */}
+      {loading && (
+        <div className="rounded-2xl border border-gray-200 px-4 py-6 text-sm">
+          Finding your next favorite…
+        </div>
+      )}
+
       {error && (
-        <div className="mb-4 text-sm text-red-600 border border-red-200 bg-red-50 rounded-xl p-3">
+        <div className="mb-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           {error}
         </div>
       )}
 
       {/* Results */}
-      <div className="grid gap-4">
-        {loading && (
-          <div className="text-sm text-gray-500">Fetching recommendations…</div>
-        )}
-
-        {!loading &&
-          ensuredItems.map((it) => (
-            <div
-              key={it.id}
-              className="rounded-2xl border border-gray-200 p-4 shadow-sm hover:shadow-md transition-shadow"
-            >
-              {/* Title row with hollow thumbs (gated) */}
-              <div className="flex items-start justify-between gap-3">
-                <a
-                  href={googleSearchUrl(it.title, it.year)}   // pass year for better accuracy
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-lg font-semibold leading-snug hover:underline"
-               >
-                  {it.title} {it.year ? `(${it.year})` : ""} 
-                </a>
-
-                <div className="flex items-center gap-2">
-                  <button
-                    className="p-1 rounded-lg border border-gray-300 text-gray-500"
-                    title={isSignedIn ? "Like" : "Sign in to personalize"}
-                    disabled={!isSignedIn}
-                  >
-                    <HollowThumbUp className="w-5 h-5" />
-                  </button>
-                  <button
-                    className="p-1 rounded-lg border border-gray-300 text-gray-500"
-                    title={isSignedIn ? "Dislike" : "Sign in to personalize"}
-                    disabled={!isSignedIn}
-                  >
-                    <HollowThumbDown className="w-5 h-5" />
-                  </button>
-                </div>
+      <div className="space-y-4">
+        {filteredItems.map((it) => (
+          <div
+            key={it.id}
+            className="rounded-2xl border border-gray-200 p-4 shadow-sm hover:shadow"
+          >
+            {/* Title row with right-aligned hollow thumbs */}
+            <div className="flex items-center gap-3">
+              <div className="text-lg font-semibold leading-snug">
+                {it.title}
+                {it.year ? <span className="text-gray-500"> ({it.year})</span> : null}
               </div>
 
-              {/* Description */}
-              <p className="text-sm text-gray-700 mt-2">
-                {it.description || "—"}
-              </p>
-
-              {/* Links row */}
-              <div className="mt-3 text-sm flex items-center gap-4">
+              <div className="ml-auto flex items-center gap-3">
                 <button
-                  onClick={() => refineFromTitle(it.title)}
-                  className="underline underline-offset-2 hover:opacity-80"
+                  onClick={() => onLike(it)}
+                  aria-label="Like"
+                  className="group rounded-full p-1 outline-none ring-0 transition hover:scale-110 focus-visible:ring-2 focus-visible:ring-black"
+                  title="Mark as Like (will refine when you press Next)"
                 >
-                  + More like this
+                  <IconThumbUpOutline className="w-5 h-5" />
                 </button>
-                <a
-                  className="underline underline-offset-2 hover:opacity-80"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  href={
-                    it.trailerUrl ||
-                    `https://www.youtube.com/results?search_query=${encodeURIComponent(
-                      `${it.title} trailer`
-                    )}`
-                  }
+                <button
+                  onClick={() => onDislike(it)}
+                  aria-label="Dislike"
+                  className="group rounded-full p-1 outline-none ring-0 transition hover:scale-110 focus-visible:ring-2 focus-visible:ring-black"
+                  title="Mark as Dislike (will refine when you press Next)"
                 >
-                  ▶ Trailer
-                </a>
+                  <IconThumbDownOutline className="w-5 h-5" />
+                </button>
               </div>
             </div>
-          ))}
+
+            {/* Description */}
+            <p className="mt-2 text-sm leading-relaxed text-gray-700">{it.description}</p>
+
+            {/* Inline actions */}
+            <div className="mt-2 text-sm text-gray-600">
+              <button
+                onClick={() => onLike(it)}
+                className="underline underline-offset-4 hover:no-underline"
+                title="Shortcut to Like (use Next to refine)"
+              >
+                + More like this
+              </button>
+              {it.trailerUrl ? (
+                <>
+                  <span className="mx-2">•</span>
+                  <a
+                    href={it.trailerUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="underline underline-offset-4 hover:no-underline"
+                  >
+                    ▶ Trailer
+                  </a>
+                </>
+              ) : null}
+            </div>
+          </div>
+        ))}
       </div>
 
-      {/* Bottom suggestions */}
-      <div className="mt-6">
-        <div className="text-sm text-gray-500 mb-2">Try these:</div>
-        <div className="flex flex-wrap gap-2">
-          {bottomChips.map((chip) => (
+      {/* Bottom controls: chips (left) + Clear + Next/More (right) */}
+      <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        {/* Chips + Clear */}
+        <div className="flex flex-wrap items-center gap-2 text-sm text-gray-700">
+          {suggestedChips.map(def => {
+            const active = selectedChips.includes(def.key);
+            return (
+              <button
+                key={def.key}
+                onClick={() => toggleChip(def.key)}
+                className={`rounded-full border px-3 py-1 transition ${
+                  active ? "bg-black text-white border-black" : "border-gray-300 hover:border-black"
+                }`}
+                title={active ? "Selected" : "Add to refine"}
+              >
+                {def.label}
+              </button>
+            );
+          })}
+          {(hasAnyThumbs || selectedChips.length) ? (
             <button
-              key={chip}
-              onClick={() => {
-                setQuery(chip);
-                runSearch(chip, vertical);
-              }}
-              className="text-sm px-3 py-1 rounded-full border border-gray-300 hover:bg-gray-50"
+              onClick={clearRefinements}
+              className="ml-1 rounded-full border border-gray-300 px-3 py-1 text-gray-700 hover:border-black transition"
+              title="Clear chips & session thumbs"
             >
-              {chip}
+              Clear
             </button>
-          ))}
+          ) : null}
+        </div>
+
+        {/* Next/More */}
+        <div className="flex justify-end">
+          <button
+            onClick={() => fetchRecs({ mode: (hasAnyThumbs || selectedChips.length) ? "refine" : "seed" })}
+            className="rounded-2xl px-5 py-3 bg-black text-white shadow hover:shadow-md active:translate-y-px"
+            title={(hasAnyThumbs || selectedChips.length) ? "Use your picks & chips to refine" : "Get more results"}
+          >
+            {(hasAnyThumbs || selectedChips.length) ? "Next" : "More"}
+          </button>
         </div>
       </div>
     </div>
