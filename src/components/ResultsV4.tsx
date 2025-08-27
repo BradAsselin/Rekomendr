@@ -18,6 +18,7 @@ type FetchBody = { prompt: string; vertical: string };
 type ResultsV4Props = {
   initialQuery?: string;
   initialVertical?: "movies" | "tv" | "books" | "wine" | string;
+  /** If true and initialQuery/initialVertical present, auto-runs a recs fetch on mount */
   autoRunQuery?: boolean;
 };
 
@@ -61,9 +62,9 @@ function clearFeedback() {
 }
 
 /** -------------------------------
- *  Icons — outline, consistent geometry
+ *  Icons — outline, consistent geometry (24x24)
  *  ------------------------------- */
-function IconThumbUpOutline({ className = "w-5 h-5" }) {
+function IconThumbUpOutline({ className = "w-5 h-5" }: { className?: string }) {
   return (
     <svg
       className={className}
@@ -88,7 +89,7 @@ function IconThumbUpOutline({ className = "w-5 h-5" }) {
   );
 }
 
-function IconThumbDownOutline({ className = "w-5 h-5" }) {
+function IconThumbDownOutline({ className = "w-5 h-5" }: { className?: string }) {
   return (
     <svg
       className={className}
@@ -121,8 +122,10 @@ const ResultsV4: React.FC<ResultsV4Props> = ({
   initialVertical = "movies",
   autoRunQuery = false,
 }) => {
-  // ensure session id exists
-  useMemo(ensureSessionId, []);
+  // Ensure a session id exists (side-effect belongs in useEffect, not useMemo)
+  useEffect(() => {
+    ensureSessionId();
+  }, []);
 
   const [vertical, setVertical] = useState<string>(initialVertical || "movies");
   const [prompt, setPrompt] = useState<string>(initialQuery || "");
@@ -143,7 +146,7 @@ const ResultsV4: React.FC<ResultsV4Props> = ({
 
   useEffect(() => {
     if (autoRunQuery && (initialQuery || initialVertical)) {
-      fetchRecs({ mode: "seed" });
+      void fetchRecs({ mode: "seed" });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -179,8 +182,8 @@ const ResultsV4: React.FC<ResultsV4Props> = ({
       { key: "funnier", label: "laugh-out-loud", test: s => /comedy|hilarious|funny|satire/i.test(s) },
       { key: "darker", label: "darker", test: s => /dark|gritty|noir|bleak/i.test(s) },
       // runtime toggles available even if heuristic doesn't detect
-      { key: "shorter", label: "shorter", test: _ => false },
-      { key: "longer", label: "longer", test: _ => false },
+      { key: "shorter", label: "shorter", test: () => false },
+      { key: "longer", label: "longer", test: () => false },
     ],
     []
   );
@@ -189,13 +192,13 @@ const ResultsV4: React.FC<ResultsV4Props> = ({
     if (!items.length) return [];
     const text = items.map(i => `${i.title} ${i.year ?? ""}. ${i.description}`).join(" \n");
     const hits = SUGGESTION_DEFS.filter(def => def.test(text));
-    const fallback = SUGGESTION_DEFS.filter(def => ["critically-acclaimed","hidden-gems","based-on-book"].includes(def.key));
+    const fallback = SUGGESTION_DEFS.filter(def => ["critically-acclaimed", "hidden-gems", "based-on-book"].includes(def.key));
     const merged = Array.from(new Map([...hits, ...fallback].map(d => [d.key, d])).values());
     return merged.slice(0, 6);
   }, [items, SUGGESTION_DEFS]);
 
   function toggleChip(key: string) {
-    setSelectedChips(prev => prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]);
+    setSelectedChips(prev => (prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]));
   }
 
   function clearRefinements() {
@@ -260,11 +263,12 @@ const ResultsV4: React.FC<ResultsV4Props> = ({
         throw new Error(txt || `HTTP ${res.status}`);
       }
 
-      const data = await res.json();
-      const nextItems: Item[] = Array.isArray(data) ? data : data.items ?? [];
+      const data = (await res.json()) as unknown;
+      const nextItems: Item[] = Array.isArray(data) ? (data as Item[]) : (data as { items?: Item[] }).items ?? [];
       setItems(nextItems);
-    } catch (e: any) {
-      setError(e?.message || "Something went wrong.");
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Something went wrong.";
+      setError(msg);
     } finally {
       setLoading(false);
     }
@@ -282,7 +286,7 @@ const ResultsV4: React.FC<ResultsV4Props> = ({
     if (!nudgeShownRef.current) {
       nudgeShownRef.current = true;
       setShowSignInNudge(true);
-      setTimeout(() => setShowSignInNudge(false), 3500);
+      window.setTimeout(() => setShowSignInNudge(false), 3500);
     }
   }
 
@@ -318,7 +322,7 @@ const ResultsV4: React.FC<ResultsV4Props> = ({
           <option value="wine">Wine</option>
         </select>
         <button
-          onClick={() => fetchRecs({ mode: "seed" })}
+          onClick={() => void fetchRecs({ mode: "seed" })}
           className="rounded-2xl px-5 py-3 bg-black text-white shadow hover:shadow-md active:translate-y-px"
         >
           GO
@@ -440,7 +444,7 @@ const ResultsV4: React.FC<ResultsV4Props> = ({
         {/* Next/More */}
         <div className="flex justify-end">
           <button
-            onClick={() => fetchRecs({ mode: (hasAnyThumbs || selectedChips.length) ? "refine" : "seed" })}
+            onClick={() => void fetchRecs({ mode: (hasAnyThumbs || selectedChips.length) ? "refine" : "seed" })}
             className="rounded-2xl px-5 py-3 bg-black text-white shadow hover:shadow-md active:translate-y-px"
             title={(hasAnyThumbs || selectedChips.length) ? "Use your picks & chips to refine" : "Get more results"}
           >
