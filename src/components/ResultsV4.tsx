@@ -9,7 +9,7 @@ type Item = {
   title: string;
   year?: string;
   description: string;
-  infoUrl?: string;
+  infoUrl?: string;   // if missing, we'll fall back to Google search
   trailerUrl?: string;
 };
 
@@ -62,54 +62,36 @@ function clearFeedback() {
 }
 
 /** -------------------------------
- *  Icons — outline, consistent geometry (24x24)
+ *  Icons — outline + filled variants (24x24)
  *  ------------------------------- */
 function IconThumbUpOutline({ className = "w-5 h-5" }: { className?: string }) {
   return (
-    <svg
-      className={className}
-      aria-hidden
-      xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.5}
-    >
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        d="M14.25 9V5.75A2.75 2.75 0 0 0 11.5 3L8.91 8.023a2 2 0 0 1-.186.306l-.007.01c-.312.427-.468.64-.596.844A3 3 0 0 0 8 10.1V18a2 2 0 0 0 2 2h5.764c1.332 0 2.523-.86 2.897-2.137l1.74-5.957A2.25 2.25 0 0 0 18.257 9H14.25Z"
-      />
-      <path
-        d="M7.5 10.5v8.25A1.25 1.25 0 0 1 6.25 20H5A1.25 1.25 0 0 1 3.75 18.75v-7A1.25 1.25 0 0 1 5 10.5h2.5Z"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
+    <svg className={className} aria-hidden xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+      fill="none" stroke="currentColor" strokeWidth={1.5}>
+      <path strokeLinecap="round" strokeLinejoin="round"
+        d="M14.25 9V5.75A2.75 2.75 0 0 0 11.5 3L8.91 8.023a2 2 0 0 1-.186.306l-.007.01c-.312.427-.468.64-.596.844A3 3 0 0 0 8 10.1V18a2 2 0 0 0 2 2h5.764c1.332 0 2.523-.86 2.897-2.137l1.74-5.957A2.25 2.25 0 0 0 18.257 9H14.25Z" />
+      <path d="M7.5 10.5v8.25A1.25 1.25 0 0 1 6.25 20H5A1.25 1.25 0 0 1 3.75 18.75v-7A1.25 1.25 0 0 1 5 10.5h2.5Z"
+        strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
-
+function IconThumbUpSolid({ className = "w-5 h-5" }: { className?: string }) {
+  return (
+    <svg className={className} aria-hidden xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+      fill="currentColor">
+      <path fillRule="evenodd" clipRule="evenodd"
+        d="M7.5 10.5v8.25c0 .69-.56 1.25-1.25 1.25H5c-.69 0-1.25-.56-1.25-1.25v-7C3.75 10.81 4.31 10.25 5 10.25h2.5Zm6.75-1.5V5.75A2.75 2.75 0 0 0 11.5 3L8.91 8.023a2 2 0 0 1-.186.306c-.312.427-.468.64-.596.844A3 3 0 0 0 8 10.1V18a2 2 0 0 0 2 2h5.764c1.332 0 2.523-.86 2.897-2.137l1.74-5.957A2.25 2.25 0 0 0 18.257 9H14.25Z" />
+    </svg>
+  );
+}
 function IconThumbDownOutline({ className = "w-5 h-5" }: { className?: string }) {
   return (
-    <svg
-      className={className}
-      aria-hidden
-      xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.5}
-    >
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        d="M9.75 15v3.25A2.75 2.75 0 0 0 12.5 21l2.59-5.023a2 2 0 0 1 .186-.306l.007-.01c.312-.427.468-.64.596-.844.379-.606.493-1.132.493-1.917V5a2 2 0 0 0-2-2H8.608C7.276 3 6.085 3.86 5.711 5.137l-1.74 5.957A2.25 2.25 0 0 0 5.743 15H9.75Z"
-      />
-      <path
-        d="M16.5 13.5V5.25A1.25 1.25 0 0 1 17.75 4H19a1.25 1.25 0 0 1 1.25 1.25v7A1.25 1.25 0 0 1 19 13.5h-2.5Z"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
+    <svg className={className} aria-hidden xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+      fill="none" stroke="currentColor" strokeWidth={1.5}>
+      <path strokeLinecap="round" strokeLinejoin="round"
+        d="M9.75 15v3.25A2.75 2.75 0 0 0 12.5 21l2.59-5.023a2 2 0 0 1 .186-.306l.007-.01c.312-.427.468-.64.596-.844.379-.606.493-1.132.493-1.917V5a2 2 0 0 0-2-2H8.608C7.276 3 6.085 3.86 5.711 5.137l-1.74 5.957A2.25 2.25 0 0 0 5.743 15H9.75Z" />
+      <path d="M16.5 13.5V5.25A1.25 1.25 0 0 1 17.75 4H19a1.25 1.25 0 0 1 1.25 1.25v7A1.25 1.25 0 0 1 19 13.5h-2.5Z"
+        strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
@@ -122,10 +104,8 @@ const ResultsV4: React.FC<ResultsV4Props> = ({
   initialVertical = "movies",
   autoRunQuery = false,
 }) => {
-  // Ensure a session id exists (side-effect belongs in useEffect, not useMemo)
-  useEffect(() => {
-    ensureSessionId();
-  }, []);
+  // Ensure a session id exists
+  useEffect(() => { ensureSessionId(); }, []);
 
   const [vertical, setVertical] = useState<string>(initialVertical || "movies");
   const [prompt, setPrompt] = useState<string>(initialQuery || "");
@@ -139,10 +119,10 @@ const ResultsV4: React.FC<ResultsV4Props> = ({
 
   // dynamic chips
   const [selectedChips, setSelectedChips] = useState<string[]>([]);
+  // local removal animation tracker for 👎
+  const [removingIds, setRemovingIds] = useState<Set<string>>(new Set());
 
-  useEffect(() => {
-    setFeedback(loadFeedback());
-  }, []);
+  useEffect(() => { setFeedback(loadFeedback()); }, []);
 
   useEffect(() => {
     if (autoRunQuery && (initialQuery || initialVertical)) {
@@ -152,20 +132,18 @@ const ResultsV4: React.FC<ResultsV4Props> = ({
   }, []);
 
   const dislikedTitles = useMemo(
-    () =>
-      new Set(
-        feedback
-          .filter((f) => f.signal === "down")
-          .map((f) => `${f.title}${f.year ? ` (${f.year})` : ""}`)
-      ),
+    () => new Set(feedback.filter(f => f.signal === "down").map(f => `${f.title}${f.year ? ` (${f.year})` : ""}`)),
     [feedback]
   );
-
+  const likedIds = useMemo(
+    () => new Set(feedback.filter(f => f.signal === "up").map(f => f.itemId)),
+    [feedback]
+  );
   const hasAnyThumbs = feedback.length > 0;
 
   const filteredItems = useMemo(() => {
     if (!items.length || dislikedTitles.size === 0) return items;
-    return items.filter((it) => !dislikedTitles.has(`${it.title}${it.year ? ` (${it.year})` : ""}`));
+    return items.filter(it => !dislikedTitles.has(`${it.title}${it.year ? ` (${it.year})` : ""}`));
   }, [items, dislikedTitles]);
 
   /** -------------------------------
@@ -181,7 +159,6 @@ const ResultsV4: React.FC<ResultsV4Props> = ({
       { key: "based-on-book", label: "based on a book", test: s => /novel|based on the book|adapted/i.test(s) },
       { key: "funnier", label: "laugh-out-loud", test: s => /comedy|hilarious|funny|satire/i.test(s) },
       { key: "darker", label: "darker", test: s => /dark|gritty|noir|bleak/i.test(s) },
-      // runtime toggles available even if heuristic doesn't detect
       { key: "shorter", label: "shorter", test: () => false },
       { key: "longer", label: "longer", test: () => false },
     ],
@@ -216,9 +193,7 @@ const ResultsV4: React.FC<ResultsV4Props> = ({
 
     // Base prompt
     let effectivePrompt = prompt?.trim();
-    if (!effectivePrompt) {
-      effectivePrompt = `Find 5 popular ${vertical}`;
-    }
+    if (!effectivePrompt) effectivePrompt = `Find 5 popular ${vertical}`;
 
     // Refine with session thumbs
     if (opts?.mode === "refine" && hasAnyThumbs) {
@@ -257,12 +232,10 @@ const ResultsV4: React.FC<ResultsV4Props> = ({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ prompt: effectivePrompt, vertical } as FetchBody),
       });
-
       if (!res.ok) {
         const txt = await res.text();
         throw new Error(txt || `HTTP ${res.status}`);
       }
-
       const data = (await res.json()) as unknown;
       const nextItems: Item[] = Array.isArray(data) ? (data as Item[]) : (data as { items?: Item[] }).items ?? [];
       setItems(nextItems);
@@ -271,6 +244,8 @@ const ResultsV4: React.FC<ResultsV4Props> = ({
       setError(msg);
     } finally {
       setLoading(false);
+      // clear zap state after fetch just in case
+      setRemovingIds(new Set());
     }
   }
 
@@ -291,11 +266,30 @@ const ResultsV4: React.FC<ResultsV4Props> = ({
   }
 
   function onLike(item: Item) {
+    // toggle-like: if already liked, remove that like
+    const already = likedIds.has(item.id);
+    if (already) {
+      const next = feedback.filter(f => !(f.itemId === item.id && f.signal === "up"));
+      setFeedback(next);
+      saveFeedback(next);
+      return;
+    }
     recordFeedback(item, "up");
   }
 
   function onDislike(item: Item) {
+    // optimistic zap animation, then record and let filter remove it
+    setRemovingIds(prev => new Set(prev).add(item.id));
     recordFeedback(item, "down");
+    // no fetch until user presses Next — this just zaps the card
+  }
+
+  /** -------------------------------
+   *  Helpers
+   *  ------------------------------- */
+  function googleLinkFor(it: Item) {
+    const q = `${it.title}${it.year ? ` (${it.year})` : ""}`;
+    return `https://www.google.com/search?q=${encodeURIComponent(q)}`;
   }
 
   /** -------------------------------
@@ -305,25 +299,37 @@ const ResultsV4: React.FC<ResultsV4Props> = ({
     <div className="mx-auto max-w-3xl px-4 py-6">
       {/* Header / Query Row */}
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center">
+        {/* Small play button to the left (quick run) */}
+        <button
+          onClick={() => void fetchRecs({ mode: "seed" })}
+          className="sm:order-none order-2 rounded-2xl px-4 py-3 bg-black text-white shadow hover:shadow-md active:translate-y-px sm:hidden"
+          aria-label="Run search"
+          title="Run search"
+        >
+          ▶
+        </button>
+
         <input
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
           placeholder="What can I find for you?"
-          className="w-full rounded-2xl border border-gray-300 px-4 py-3 outline-none focus:border-black"
+          className="order-1 w-full rounded-2xl border border-gray-300 px-4 py-3 outline-none focus:border-black"
         />
+
         <select
           value={vertical}
           onChange={(e) => setVertical(e.target.value)}
-          className="rounded-2xl border border-gray-300 px-3 py-3 outline-none focus:border-black"
+          className="order-3 rounded-2xl border border-gray-300 px-3 py-3 outline-none focus:border-black"
         >
           <option value="movies">Movies</option>
           <option value="tv">TV Shows</option>
           <option value="books">Books</option>
           <option value="wine">Wine</option>
         </select>
+
         <button
           onClick={() => void fetchRecs({ mode: "seed" })}
-          className="rounded-2xl px-5 py-3 bg-black text-white shadow hover:shadow-md active:translate-y-px"
+          className="order-4 rounded-2xl px-5 py-3 bg-black text-white shadow hover:shadow-md active:translate-y-px"
         >
           GO
         </button>
@@ -349,66 +355,79 @@ const ResultsV4: React.FC<ResultsV4Props> = ({
 
       {/* Results */}
       <div className="space-y-4">
-        {filteredItems.map((it) => (
-          <div
-            key={it.id}
-            className="rounded-2xl border border-gray-200 p-4 shadow-sm hover:shadow"
-          >
-            {/* Title row with right-aligned hollow thumbs */}
-            <div className="flex items-center gap-3">
-              <div className="text-lg font-semibold leading-snug">
-                {it.title}
-                {it.year ? <span className="text-gray-500"> ({it.year})</span> : null}
-              </div>
-
-              <div className="ml-auto flex items-center gap-3">
-                <button
-                  onClick={() => onLike(it)}
-                  aria-label="Like"
-                  className="group rounded-full p-1 outline-none ring-0 transition hover:scale-110 focus-visible:ring-2 focus-visible:ring-black"
-                  title="Mark as Like (will refine when you press Next)"
-                >
-                  <IconThumbUpOutline className="w-5 h-5" />
-                </button>
-                <button
-                  onClick={() => onDislike(it)}
-                  aria-label="Dislike"
-                  className="group rounded-full p-1 outline-none ring-0 transition hover:scale-110 focus-visible:ring-2 focus-visible:ring-black"
-                  title="Mark as Dislike (will refine when you press Next)"
-                >
-                  <IconThumbDownOutline className="w-5 h-5" />
-                </button>
-              </div>
-            </div>
-
-            {/* Description */}
-            <p className="mt-2 text-sm leading-relaxed text-gray-700">{it.description}</p>
-
-            {/* Inline actions */}
-            <div className="mt-2 text-sm text-gray-600">
-              <button
-                onClick={() => onLike(it)}
-                className="underline underline-offset-4 hover:no-underline"
-                title="Shortcut to Like (use Next to refine)"
-              >
-                + More like this
-              </button>
-              {it.trailerUrl ? (
-                <>
-                  <span className="mx-2">•</span>
+        {filteredItems.map((it) => {
+          const liked = likedIds.has(it.id);
+          const zapping = removingIds.has(it.id);
+          return (
+            <div
+              key={it.id}
+              className={`rounded-2xl border border-gray-200 p-4 shadow-sm hover:shadow transition
+                ${zapping ? "opacity-0 scale-[0.98] -translate-y-1 duration-200" : "opacity-100 duration-200"}`}
+            >
+              {/* Title row with right-aligned thumbs */}
+              <div className="flex items-center gap-3">
+                <div className="text-lg font-semibold leading-snug">
                   <a
-                    href={it.trailerUrl}
+                    href={it.infoUrl || googleLinkFor(it)}
                     target="_blank"
                     rel="noreferrer"
-                    className="underline underline-offset-4 hover:no-underline"
+                    className="hover:underline underline-offset-4"
+                    title="Open info"
                   >
-                    ▶ Trailer
+                    {it.title}
+                    {it.year ? <span className="text-gray-500"> ({it.year})</span> : null}
                   </a>
-                </>
-              ) : null}
+                </div>
+
+                <div className="ml-auto flex items-center gap-3">
+                  <button
+                    onClick={() => onLike(it)}
+                    aria-label="Like"
+                    className={`group rounded-full p-1 outline-none ring-0 transition hover:scale-110 focus-visible:ring-2 focus-visible:ring-black ${liked ? "text-black" : ""}`}
+                    title={liked ? "Unlike" : "Mark as Like (will refine when you press Next)"}
+                  >
+                    {liked ? <IconThumbUpSolid className="w-5 h-5" /> : <IconThumbUpOutline className="w-5 h-5" />}
+                  </button>
+                  <button
+                    onClick={() => onDislike(it)}
+                    aria-label="Dislike"
+                    className="group rounded-full p-1 outline-none ring-0 transition hover:scale-110 focus-visible:ring-2 focus-visible:ring-black"
+                    title="Mark as Dislike (will refine when you press Next)"
+                  >
+                    <IconThumbDownOutline className="w-5 h-5" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Description */}
+              <p className="mt-2 text-sm leading-relaxed text-gray-700">{it.description}</p>
+
+              {/* Inline actions */}
+              <div className="mt-2 text-sm text-gray-600">
+                <button
+                  onClick={() => onLike(it)}
+                  className="underline underline-offset-4 hover:no-underline"
+                  title="Shortcut to Like (use Next to refine)"
+                >
+                  + More like this
+                </button>
+                {it.trailerUrl ? (
+                  <>
+                    <span className="mx-2">•</span>
+                    <a
+                      href={it.trailerUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="underline underline-offset-4 hover:no-underline"
+                    >
+                      ▶ Trailer
+                    </a>
+                  </>
+                ) : null}
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       {/* Bottom controls: chips (left) + Clear + Next/More (right) */}
@@ -433,7 +452,7 @@ const ResultsV4: React.FC<ResultsV4Props> = ({
           {(hasAnyThumbs || selectedChips.length) ? (
             <button
               onClick={clearRefinements}
-              className="ml-1 rounded-full border border-gray-300 px-3 py-1 text-gray-700 hover:border-black transition"
+              className="ml-1 rounded-full border border-gray-300 px-3 py-1 text-gray-700 hover:border-black hover:bg-gray-50 transition"
               title="Clear chips & session thumbs"
             >
               Clear
@@ -445,10 +464,12 @@ const ResultsV4: React.FC<ResultsV4Props> = ({
         <div className="flex justify-end">
           <button
             onClick={() => void fetchRecs({ mode: (hasAnyThumbs || selectedChips.length) ? "refine" : "seed" })}
-            className="rounded-2xl px-5 py-3 bg-black text-white shadow hover:shadow-md active:translate-y-px"
+            disabled={loading}
+            className={`rounded-2xl px-5 py-3 text-white shadow hover:shadow-md active:translate-y-px
+              ${loading ? "bg-gray-500 cursor-not-allowed" : "bg-black"}`}
             title={(hasAnyThumbs || selectedChips.length) ? "Use your picks & chips to refine" : "Get more results"}
           >
-            {(hasAnyThumbs || selectedChips.length) ? "Next" : "More"}
+            {loading ? "Loading…" : (hasAnyThumbs || selectedChips.length) ? "Next" : "More"}
           </button>
         </div>
       </div>
