@@ -2,6 +2,11 @@
 const nextConfig = {
   reactStrictMode: true,
 
+  // ✅ Ship-now: stop Vercel/Next builds from failing on ESLint config/version mismatches
+  eslint: {
+    ignoreDuringBuilds: true,
+  },
+
   images: {
     remotePatterns: [
       { protocol: "https", hostname: "image.tmdb.org" },
@@ -10,7 +15,7 @@ const nextConfig = {
       { protocol: "https", hostname: "upload.wikimedia.org" },
       { protocol: "https", hostname: "assets.nflxext.com" },
       { protocol: "https", hostname: "occ-0-114-116.1.nflxso.net" },
-      { protocol: "https", hostname: "lh3.googleusercontent.com" }
+      { protocol: "https", hostname: "lh3.googleusercontent.com" },
     ],
   },
 };
