@@ -1,0 +1,208 @@
+// src/data/starterDecks.ts
+
+export interface StarterDeck {
+  id: string;
+  label: string;
+  rekTitles: string[]; // ✅ title-based, future-proof
+}
+
+/**
+ * Starter Decks (Vibe Seeds)
+ * - These are canonical definers, not the full catalog.
+ * - Title-based matching so deck integrity survives pool edits.
+ * - Engine uses these as deterministic "Deer Trails" for instant cold start.
+ */
+export const STARTER_DECKS: StarterDeck[] = [
+  {
+    id: "comfort-core",
+    label: "Comfort Watch",
+    rekTitles: [
+      "The Princess Bride",
+      "Back to the Future",
+      "The Shawshank Redemption",
+      "Forrest Gump",
+      "The Sandlot",
+      "Ocean's Eleven",
+      "Chef",
+      "Groundhog Day",
+      "The Goonies",
+      "School of Rock",
+    ],
+  },
+  {
+    id: "goofy-fun",
+    label: "Goofy / Silly Fun",
+    rekTitles: [
+      "Dumb and Dumber",
+      "Anchorman",
+      "Step Brothers",
+      "Talladega Nights",
+      "Superbad",
+      "Hot Rod",
+      "The Hangover",
+      "Borat",
+      "Ace Ventura: Pet Detective",
+      "Eurovision Song Contest: The Story of Fire Saga",
+    ],
+  },
+  {
+    id: "feelgood-crowd",
+    label: "Feel-Good Crowd Pleaser",
+    rekTitles: [
+      "The Greatest Showman",
+      "Moneyball",
+      "The Blind Side",
+      "Remember the Titans",
+      "The Martian",
+      "The Intern",
+      "Hidden Figures",
+      "The Pursuit of Happyness",
+      "Apollo 13",
+      "Cool Runnings",
+    ],
+  },
+  {
+    id: "smart-witty",
+    label: "Smart & Witty",
+    rekTitles: [
+      "The Big Short",
+      "Knives Out",
+      "The Social Network",
+      "Moneyball",
+      "In Bruges",
+      "Thank You for Smoking",
+      "The Nice Guys",
+      "Catch Me If You Can",
+      "Ocean's Eleven",
+      "The Grand Budapest Hotel",
+    ],
+  },
+  {
+    id: "romantic-heartfelt",
+    label: "Romantic / Heartfelt",
+    rekTitles: [
+      "When Harry Met Sally",
+      "You've Got Mail",
+      "Notting Hill",
+      "About Time",
+      "The Notebook",
+      "La La Land",
+      "Pride & Prejudice",
+      "A Star Is Born",
+      "Crazy, Stupid, Love.",
+      "Sleepless in Seattle",
+    ],
+  },
+  {
+    id: "dark-twisty",
+    label: "Dark & Twisty",
+    rekTitles: [
+      "Se7en",
+      "Gone Girl",
+      "Zodiac",
+      "Prisoners",
+      "Nightcrawler",
+      "Shutter Island",
+      "The Girl with the Dragon Tattoo",
+      "Black Swan",
+      "No Country for Old Men",
+      "The Silence of the Lambs",
+    ],
+  },
+  {
+    id: "edge-seat",
+    label: "Suspense / Edge-of-Seat",
+    rekTitles: [
+      "The Fugitive",
+      "Argo",
+      "Sicario",
+      "Heat",
+      "The Bourne Identity",
+      "Speed",
+      "Taken",
+      "Enemy of the State",
+      "Inside Man",
+      "The Hunt for Red October",
+    ],
+  },
+  {
+    id: "epic-immersive",
+    label: "Epic / Immersive",
+    rekTitles: [
+      "Gladiator",
+      "Braveheart",
+      "The Last Samurai",
+      "Interstellar",
+      "Inception",
+      "The Lord of the Rings: The Fellowship of the Ring",
+      "The Lord of the Rings: The Two Towers",
+      "The Lord of the Rings: The Return of the King",
+      "Master and Commander: The Far Side of the World",
+      "Dune",
+    ],
+  },
+  {
+    id: "action-adrenaline",
+    label: "Action / Adrenaline",
+    rekTitles: [
+      "Die Hard",
+      "Mad Max: Fury Road",
+      "The Dark Knight",
+      "John Wick",
+      "Top Gun: Maverick",
+      "Terminator 2: Judgment Day",
+      "Mission: Impossible - Fallout",
+      "Predator",
+      "The Rock",
+      "Edge of Tomorrow",
+    ],
+  },
+  {
+    id: "thoughtful-meaningful",
+    label: "Thought-Provoking / Meaningful",
+    rekTitles: [
+      "Arrival",
+      "Good Will Hunting",
+      "The Truman Show",
+      "Dead Poets Society",
+      "Eternal Sunshine of the Spotless Mind",
+      "Her",
+      "Life of Pi",
+      "Manchester by the Sea",
+      "Sound of Metal",
+      "The Father",
+    ],
+  },
+  {
+    id: "weird-offbeat",
+    label: "Weird / Offbeat",
+    rekTitles: [
+      "Being John Malkovich",
+      "Adaptation",
+      "Swiss Army Man",
+      "Sorry to Bother You",
+      "Jojo Rabbit",
+      "The Lobster",
+      "The Big Lebowski",
+      "Donnie Darko",
+      "Everything Everywhere All at Once",
+      "The Menu",
+    ],
+  },
+  {
+    id: "doc-real",
+    label: "Documentary / Real Stories",
+    rekTitles: [
+      "Free Solo",
+      "Man on Wire",
+      "Jiro Dreams of Sushi",
+      "Won't You Be My Neighbor?",
+      "Apollo 11",
+      "Searching for Sugar Man",
+      "The Fog of War",
+      "Inside Job",
+      "Three Identical Strangers",
+      "My Octopus Teacher",
+    ],
+  },
+];

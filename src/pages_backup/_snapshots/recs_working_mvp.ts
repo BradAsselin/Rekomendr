@@ -5,7 +5,7 @@ import type { NextApiRequest, NextApiResponse } from "next";
 type ItemOut = {
   id: string;
   title: string;
-  year?: string;            // <-- we want a 4-digit string for movies/TV if known
+  year?: string;
   description: string;
   infoUrl?: string;
   trailerUrl?: string;
@@ -52,32 +52,29 @@ async function getRecs(prompt: string, vertical: string): Promise<ApiOut> {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) throw new Error("Missing OPENAI_API_KEY");
 
-  // System message: force a strict JSON shape and include YEAR
   const system = `
 You are a concise recommendation engine. Return STRICT JSON (no prose) with this shape:
 {
   "items": [
     {
-      "id": "string",                  // unique id
-      "title": "string",               // exact official title
-      "year": "YYYY",                  // 4-digit release year for movies/TV if known, else empty or omit
-      "description": "string",         // 1–2 sentences, specific and helpful
-      "infoUrl": "string",             // optional, if you know a reliable info link
-      "trailerUrl": "string"           // optional, YouTube link preferred if known
+      "id": "string",
+      "title": "string",
+      "year": "YYYY",
+      "description": "string",
+      "infoUrl": "string",
+      "trailerUrl": "string"
     }
   ]
 }
 
 Rules:
-- Always include "year" for movies/TV when available. Use the widely accepted original release year.
+- Always include "year" for movies/TV when available.
 - Keep description tight and useful (no spoilers).
 - Limit to 5 items max.
-- Do not include any text outside of the JSON object.
+- No text outside the JSON.
 `.trim();
 
-  const user = `
-Give 5 ${vertical} recommendations for: "${prompt}"
-`.trim();
+  const user = `Give 5 ${vertical} recommendations for: "${prompt}"`;
 
   const resp = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
@@ -103,21 +100,25 @@ Give 5 ${vertical} recommendations for: "${prompt}"
   }
 
   const data = await resp.json();
-  // data.choices[0].message.content should be a JSON string per response_format
   let parsed: ApiOut = { items: [] };
   try {
     parsed = JSON.parse(data.choices?.[0]?.message?.content ?? "{}");
-  } catch {
-    // If parsing fails, keep empty
-  }
+  } catch {}
 
   const items = sanitizeItems(parsed.items || []);
   return { items };
 }
+// Allow larger image payloads for RekSnap
+export const config = {
+  api: {
+    bodyParser: {
+      sizeLimit: "10mb", // increase from 1MB → 10MB
+    },
+  },
+};
 
 // ----- Handler -----
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  // Always enforce "no-store" so the frontend gets fresh results
   res.setHeader("Cache-Control", "no-store");
 
   if (req.method !== "POST") {
@@ -126,13 +127,29 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   try {
-    const { prompt, vertical } = req.body || {};
-    if (!prompt || !vertical) {
-      res.status(400).json({ error: "Missing 'prompt' or 'vertical' in body" });
+    const { prompt, vertical, referenced_image } = req.body || {};
+
+    if (!vertical) {
+      res.status(400).json({ error: "Missing 'vertical' in body" });
       return;
     }
 
-    const out = await getRecs(String(prompt), String(vertical));
+    // 🧠 Branch logic — support image input or text input
+    let queryPrompt = "";
+
+    if (referenced_image) {
+      // Image RekSnap input path
+      console.log("📸 RekSnap image received");
+      queryPrompt = `Analyze this image and infer its content (e.g., wine label, book cover, movie poster). Then give 5 ${vertical} recommendations based on it.`;
+    } else if (prompt) {
+      // Text prompt path
+      queryPrompt = String(prompt);
+    } else {
+      res.status(400).json({ error: "Missing 'prompt' or 'referenced_image' in body" });
+      return;
+    }
+
+    const out = await getRecs(queryPrompt, String(vertical));
     res.status(200).json(out);
   } catch (err: any) {
     console.error("API /recs error:", err?.message || err);

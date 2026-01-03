@@ -1,0 +1,18 @@
+import { NextResponse } from 'next/server';
+
+export async function POST(req: any) {
+  let body: any = {};
+  try {
+    body = await req.json();
+  } catch {
+    body = {};
+  }
+
+  console.log(
+    'PING key present?',
+    Boolean(process.env.OPENAI_API_KEY),
+    (process.env.OPENAI_API_KEY ?? '').slice(0, 7) + '…'
+  );
+
+  return NextResponse.json({ ok: true, received: body }, { status: 200 });
+}

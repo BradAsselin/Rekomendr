@@ -1,345 +1,591 @@
-// src/components/ResultsV4.tsx
-import React, { useEffect, useMemo, useState } from "react";
+"use client";
 
-/** -------------------------------
- *  Small types
- *  ------------------------------- */
-type Item = {
-  id: string;
-  title: string;
-  year?: string; 
-  description: string;
-  infoUrl?: string;   // kept for future use, but title link now prefers Google
-  trailerUrl?: string;
-};
+import React, { useEffect, useState, useRef } from "react";
+import {
+  ThumbsUp,
+  ThumbsDown,
+  Heart,
+  Bookmark,
+  ChevronDown,
+  ChevronUp,
+  Play,
+} from "lucide-react";
 
-type FetchBody = { prompt: string; vertical: string };
+import DescriptorLine from "./DescriptorLine";
 
-type ResultsV4Props = {
-  /** Optional seed values (e.g., from /results?q=...&v=...) */
-  initialQuery?: string;
-  initialVertical?: "movies" | "tv" | "books" | "wine" | string;
-  /** If true and initialQuery present, auto-runs a recs fetch on mount */
-  autoRunQuery?: boolean;
-  /** If true and initialVertical present, auto-runs a "popular" query for that vertical */
-  autoRunVertical?: boolean;
-};
+// Engine helpers
+import { getBackfillRek, getMoreLikeThisSet } from "../engine/rekomendrEngine";
+import type { Rek } from "../engine/rekomendrEngine";
 
-/** -------------------------------
- *  Config helpers
- *  ------------------------------- */
-function getApiUrl(): string {
-  const cfg = process.env.NEXT_PUBLIC_REKOMENDR_API || "/api/recs";
-  if (/^https?:\/\//i.test(cfg)) return cfg;
-  if (typeof window !== "undefined") return `${window.location.origin}${cfg}`;
-  return cfg;
+// ✅ Descriptor typing (canonical categories)
+import type { RekCategory } from "../lib/descriptors";
+
+// UI-facing category labels (keep as-is)
+type Category = "Movies" | "TV Shows" | "Books" | "Wine";
+
+// ✅ Map UI label → canonical key used by descriptors/engine helpers
+function toRekCategory(category: Category): RekCategory {
+  if (category === "TV Shows") return "TV";
+  return category; // Movies, Books, Wine already match
 }
 
-async function getRecsFromAPI(body: FetchBody): Promise<{ items: Item[] }> {
-  const url = getApiUrl();
-  const r = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-    cache: "no-store",
-  });
-  if (!r.ok) {
-    const text = await r.text();
-    throw new Error(`Fetch failed: ${url} ${r.status} :: ${text.slice(0, 200)}`);
-  }
-  return r.json();
+interface ResultsProps {
+  loading: boolean;
+  reks: Rek[];
+  sourceImage?: string | null;
+  category: Category;
+  onPlayVibe?: () => void;
 }
 
-/** -------------------------------
- *  UI helpers / constants
- *  ------------------------------- */
-const VERTICALS = ["movies", "tv", "books", "wine"] as const;
-
-const RANDOM_SEEDS = [
-  "feel-good",
-  "smart and twisty",
-  "underrated gems",
-  "edge-of-seat thriller",
-  "big crowd-pleaser",
-  "date night",
-  "mind-bending",
-];
-
-const BOTTOM_PROMPTS: Record<string, string[]> = {
-  movies: ["true crime vibe", "laugh-out-loud", "critically acclaimed", "hidden gems", "based on a book"],
-  tv: ["limited series", "crime drama", "comfort watch", "docuseries", "short episodes"],
-  books: ["fast-paced", "award winners", "nonfiction that reads like fiction", "cozy mystery", "space opera"],
-  wine: ["bold reds under $25", "crisp whites", "food-friendly picks", "crowd pleasers", "weird & wonderful"],
-};
-
-// Helper: build Google search URL for a title (more reliable than direct IMDb)
-const googleSearchUrl = (title: string, year?: string) => {
-  const query = encodeURIComponent(year ? `${title} ${year}` : title);
-  return `https://www.google.com/search?q=${query}`;
-};
-
-function HollowThumbUp({ className = "w-5 h-5" }: { className?: string }) {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
-      strokeWidth={1.5} stroke="currentColor" className={className} aria-hidden>
-      <path strokeLinecap="round" strokeLinejoin="round"
-        d="M6.633 10.25c.806 0 1.533-.446 2.031-1.08a9.041 9.041 0 0 1 2.861-2.4c.723-.384 1.35-.956 1.653-1.715a4.498 4.498 0 0 0 .322-1.672V2.75a.75.75 0 0 1 .75-.75 2.25 2.25 0 0 1 2.25 2.25c0 1.152-.26 2.243-.723 3.218-.266.558.107 1.282.725 1.282h2.146a2.25 2.25 0 0 1 2.25 2.25v1.433c0 .31-.053.617-.156.905l-1.2 3.3a4.5 4.5 0 0 1-4.243 3.062H9a3.75 3.75 0 0 1-3.75-3.75v-4.5a.75.75 0 0 1 .75-.75Z" />
-      <path strokeLinecap="round" strokeLinejoin="round"
-        d="M2.25 10.25h4.125a.375.375 0 0 1 .375.375v6.75a.375.375 0 0 1-.375.375H2.25a.75.75 0 0 1-.75-.75v-6a.75.75 0 0 1 .75-.75Z" />
-    </svg>
-  );
-}
-
-function HollowThumbDown({ className = "w-5 h-5" }: { className?: string }) {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
-      strokeWidth={1.5} stroke="currentColor" className={className} aria-hidden>
-      <path strokeLinecap="round" strokeLinejoin="round"
-        d="M17.367 13.75c-.806 0-1.533.446-2.031 1.08a9.041 9.041 0 0 1-2.861 2.4c-.723.384-1.35.956-1.653 1.715a4.498 4.498 0 0 0-.322 1.672v.633a.75.75 0 0 1-.75.75A2.25 2.25 0 0 1 7.5 20.75c0-1.152.26-2.243.723-3.218.266-.558-.107-1.282-.725-1.282H5.352A2.25 2.25 0 0 1 3.102 14v-1.433c0-.31.053-.617.156-.905l1.2-3.3A4.5 4.5 0 0 1 8.701 5.3H15a3.75 3.75 0 0 1 3.75 3.75v4.5a.75.75 0 0 1-.75.75Z" />
-      <path strokeLinecap="round" strokeLinejoin="round"
-        d="M21.75 13.75H17.625a.375.375 0 0 0-.375.375v6.75c0 .207.168.375.375.375h4.125a.75.75 0 0 0 .75-.75v-6a.75.75 0 0 0-.75-.75Z" />
-    </svg>
-  );
-}
-
-/** -------------------------------
- *  Component
- *  ------------------------------- */
-const ResultsV4: React.FC<ResultsV4Props> = ({
-  initialQuery = "",
-  initialVertical = "movies",
-  autoRunQuery = false,
-  autoRunVertical = false,
+const ResultsV4: React.FC<ResultsProps> = ({
+  loading,
+  reks: incomingReks,
+  category,
+  onPlayVibe,
 }) => {
-  const [query, setQuery] = useState(initialQuery);
-  const [vertical, setVertical] = useState<string>(initialVertical);
-  const [loading, setLoading] = useState(false);
-  const [items, setItems] = useState<Item[]>([]);
-  const [error, setError] = useState<string | null>(null);
 
-  // Gate thumbs unless you wire auth later
-  const isSignedIn = false;
+  const [reks, setReks] = useState<Rek[]>([]);
+  const [liked, setLiked] = useState<Rek[]>([]);
+  const [saved, setSaved] = useState<Rek[]>([]);
+  const [expanded, setExpanded] = useState<number | null>(null);
+  const [expandedTop, setExpandedTop] = useState<number | null>(null);
+  const [exiting, setExiting] = useState<number | null>(null);
+  const [showLoader, setShowLoader] = useState(false);
+  const [visibleIds, setVisibleIds] = useState<number[]>([]);
+  const loaderTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Build 5 items minimum by backfilling editor picks
-  const ensuredItems = useMemo(() => {
-    if ((items?.length || 0) >= 5) return items.slice(0, 5);
-    const need = 5 - (items?.length || 0);
-    const picks: Item[] = Array.from({ length: need }, (_, i) => ({
-      id: `pick-${Date.now()}-${i}`,
-      title: `Editor’s Pick #${i + 1}`,
-      description: `Hand-curated ${vertical} pick to round out your list.`,
-      infoUrl: "https://www.google.com/",
-      trailerUrl: "https://www.youtube.com/",
-    }));
-    return [...(items || []), ...picks].slice(0, 5);
-  }, [items, vertical]);
+  // ✅ Safety valve: pool exhaustion notice
+  const [exhaustedMessage, setExhaustedMessage] = useState<string | null>(null);
+  const clearExhausted = () => setExhaustedMessage(null);
 
-  async function runSearch(seed: string, v: string) {
-    setLoading(true);
-    setError(null);
-    try {
-      const out = await getRecsFromAPI({ prompt: seed, vertical: v });
-      setItems(Array.isArray(out.items) ? out.items : []);
-    } catch (e: any) {
-      console.error("getRecsFromAPI failed:", e);
-      setError(e?.message || "Unknown error");
-      setItems([]);
-    } finally {
-      setLoading(false);
-    }
-  }
+  // Clarify tile
+  const [clarifyTarget, setClarifyTarget] = useState<Rek | null>(null);
+  const [clarifyOptions, setClarifyOptions] = useState<string[]>([]);
+  const [clarifyVisible, setClarifyVisible] = useState(false);
+  const clarifyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Auto-run behaviors
+  // Keep latest state for async handlers
+  const reksRef = useRef<Rek[]>([]);
   useEffect(() => {
-    if (autoRunQuery && initialQuery) {
-      runSearch(initialQuery, vertical);
+    reksRef.current = reks;
+  }, [reks]);
+
+  // Auto-clear exhaustion notice when fresh results arrive
+  useEffect(() => {
+    if (incomingReks.length > 0) {
+      setExhaustedMessage(null);
+    }
+  }, [incomingReks]);
+
+  /* -----------------------------
+   * STAGGER ANIMATION
+   * ----------------------------- */
+  const animateIn = (ids: number[]) => {
+    setVisibleIds([]);
+    ids.forEach((id, index) => {
+      setTimeout(() => setVisibleIds((p) => [...p, id]), index * 80);
+    });
+  };
+
+  /* -----------------------------
+   * SYNC WITH PROPS (ENGINE → UI)
+   * ----------------------------- */
+  useEffect(() => {
+    if (!incomingReks || incomingReks.length === 0) {
+      setReks([]);
+      setVisibleIds([]);
       return;
     }
-    if (autoRunVertical && initialVertical) {
-      runSearch("popular", initialVertical);
+
+    const normalized = incomingReks.map((r) => ({
+      ...r,
+      isFavorite: r.isFavorite ?? false,
+    }));
+
+    setReks(normalized);
+    animateIn(normalized.map((r) => r.id));
+  }, [incomingReks]);
+
+  /* -----------------------------
+   * LOADER (DELAYED)
+   * ----------------------------- */
+  useEffect(() => {
+    if (loading) {
+      if (loaderTimer.current) clearTimeout(loaderTimer.current);
+      loaderTimer.current = setTimeout(() => setShowLoader(true), 120);
+    } else {
+      if (loaderTimer.current) clearTimeout(loaderTimer.current);
+      setShowLoader(false);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [loading]);
 
-  // Suggestion “Play” button — insert randomized prompt (does not auto-submit)
-  function insertRandomPrompt() {
-    const r = RANDOM_SEEDS[Math.floor(Math.random() * RANDOM_SEEDS.length)];
-    setQuery(r);
-  }
+  /* -----------------------------
+   * CLARIFY LOGIC
+   * ----------------------------- */
+  const getClarifyOptions = (_rek: Rek) => [
+    "Too slow",
+    "Too dark / intense",
+    "Not my genre",
+    "Seen it already",
+  ];
 
-  // “More like this” refines based on title
-  function refineFromTitle(title: string) {
-    const seed = `more like "${title}"`;
-    setQuery(seed);
-    runSearch(seed, vertical);
-  }
+  const startClarifyFor = (rek: Rek) => {
+    if (clarifyTimeoutRef.current) clearTimeout(clarifyTimeoutRef.current);
 
-  // Reset clears UI
-  function resetAll() {
-    setQuery("");
-    setItems([]);
-    setError(null);
-  }
+    setClarifyTarget(rek);
+    setClarifyOptions(getClarifyOptions(rek));
+    setClarifyVisible(true);
 
-  const bottomChips = BOTTOM_PROMPTS[vertical] || BOTTOM_PROMPTS["movies"];
+    clarifyTimeoutRef.current = setTimeout(() => finalizeClarify(), 4000);
+  };
+
+  const finalizeClarify = (_reason?: string) => {
+    if (!clarifyTarget) return;
+
+    if (clarifyTimeoutRef.current) clearTimeout(clarifyTimeoutRef.current);
+
+    setClarifyVisible(false);
+    const target = clarifyTarget;
+    setClarifyTarget(null);
+
+    setReks((prev) => prev.filter((r) => r.id !== target.id));
+    handleBackfill(target);
+  };
+
+  /* -----------------------------
+   * FAVORITE TOGGLE
+   * ----------------------------- */
+  const toggleFavorite = (rekId: number) => {
+    const toggle = (list: Rek[]) =>
+      list.map((r) =>
+        r.id === rekId ? { ...r, isFavorite: !r.isFavorite } : r
+      );
+
+    setReks((prev) => toggle(prev));
+    setLiked((prev) => toggle(prev));
+    setSaved((prev) => toggle(prev));
+  };
+
+  /* -----------------------------
+   * BACKFILL — CATEGORY EXPLICIT ✅
+   * ----------------------------- */
+  const handleBackfill = async (_removed: Rek) => {
+    try {
+      const currentNow = reksRef.current;
+
+      const next = await getBackfillRek({
+        current: currentNow,
+        category,
+      });
+
+      if (!next) {
+        setExhaustedMessage(
+          "You’ve drained this path. Hit Play for a new vibe, or switch category to keep it fresh."
+        );
+        return;
+      }
+
+      clearExhausted();
+
+      setReks((prev) => {
+        if (prev.length >= 5) return prev;
+
+        const updated = [
+          ...prev,
+          { ...next, isFavorite: next.isFavorite ?? false },
+        ];
+
+        animateIn(updated.map((r) => r.id));
+        return updated;
+      });
+    } catch (err) {
+      console.error("Backfill via engine failed:", err);
+    }
+  };
+
+  /* -----------------------------
+   * MORE LIKE THIS — CATEGORY EXPLICIT ✅
+   * ----------------------------- */
+  const handleMoreLikeThis = async (rek: Rek) => {
+    setExiting(rek.id);
+
+    setTimeout(async () => {
+      try {
+        setLiked((p) => [...p, rek]);
+
+        const nextFive = await getMoreLikeThisSet({ seed: rek, category });
+
+        if (!nextFive || nextFive.length === 0) {
+          setExhaustedMessage(
+            "No fresh Reks left for this path. Hit Play for a new vibe or try a different seed."
+          );
+          return;
+        }
+
+        clearExhausted();
+        setReks(nextFive);
+        animateIn(nextFive.map((r) => r.id));
+      } catch (err) {
+        console.error("More Like This via engine failed:", err);
+      } finally {
+        setExiting(null);
+      }
+    }, 250);
+  };
+
+  /* -----------------------------
+   * LIKE / DISLIKE / SAVE
+   * ----------------------------- */
+  const handleLike = (rek: Rek) => {
+    setExiting(rek.id);
+    setTimeout(() => {
+      setLiked((p) => [...p, rek]);
+      setReks((p) => p.filter((r) => r.id !== rek.id));
+      handleBackfill(rek);
+      setExiting(null);
+    }, 250);
+  };
+
+  const handleDislike = (rek: Rek) => startClarifyFor(rek);
+
+  const handleSaveFromTop = (rek: Rek) => {
+    setExiting(rek.id);
+    setTimeout(() => {
+      setSaved((p) => [...p, rek]);
+      setReks((p) => p.filter((r) => r.id !== rek.id));
+      handleBackfill(rek);
+      setExiting(null);
+    }, 250);
+  };
+
+  const handleSaveFromLiked = (rek: Rek) => {
+    setLiked((p) => p.filter((r) => r.id !== rek.id));
+    setSaved((p) => [...p, rek]);
+  };
+
+  /* -----------------------------
+   * EXPANDERS
+   * ----------------------------- */
+  const toggleExpand = (id: number) =>
+    setExpanded((prev) => (prev === id ? null : id));
+
+  const toggleTopExpand = (id: number) =>
+    setExpandedTop((prev) => (prev === id ? null : id));
+
+  /* -----------------------------
+   * TRAILER OPEN
+   * ----------------------------- */
+  const openTrailer = (rek: Rek) => {
+    const url =
+      rek.trailerUrl ||
+      `https://www.youtube.com/results?search_query=${encodeURIComponent(
+        rek.title + " trailer"
+      )}`;
+    window.open(url, "_blank");
+  };
 
   return (
-    <div className="max-w-3xl mx-auto px-4 py-6">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-4">
-        <h1 className="text-xl font-semibold">Rekomendr.AI</h1>
-        <button
-          onClick={resetAll}
-          className="text-sm rounded-xl px-3 py-1 border border-gray-300 hover:bg-gray-50"
-          title="Reset"
-        >
-          Reset
-        </button>
+    <div className="w-full flex flex-col items-center px-4 pb-24 select-none">
+      <h2 className="text-lg font-semibold text-center mt-4 mb-2">
+        Your Top 5 Reks
+      </h2>
+
+      {/* Loader */}
+      <div
+        className={[
+          "text-sm text-gray-600 mb-3 transition-all duration-300",
+          showLoader
+            ? "opacity-100 max-h-8"
+            : "opacity-0 max-h-0 overflow-hidden",
+        ].join(" ")}
+      >
+        Getting your Reks…
       </div>
 
-      {/* Search bar */}
-      <div className="flex items-stretch gap-2 mb-3">
-        <button
-          onClick={insertRandomPrompt}
-          className="rounded-2xl px-3 py-2 border border-gray-300 hover:bg-gray-50"
-          title="Surprise me"
-        >
-          ▶
-        </button>
-        <input
-          className="flex-1 rounded-2xl px-3 py-2 border border-gray-300 outline-none"
-          placeholder="What can I find for you?"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") runSearch(query || "popular", vertical);
-          }}
-        />
-        <button
-          onClick={() => runSearch(query || "popular", vertical)}
-          className="rounded-2xl px-4 py-2 bg-black text-white hover:opacity-90"
-        >
-          GO
-        </button>
-      </div>
+      {/* ✅ Safety Valve Notice */}
+      {exhaustedMessage && (
+        <div className="w-full max-w-xl mb-3">
+          <div className="bg-white border border-amber-300 rounded-2xl p-4 shadow-sm">
+            <div className="text-sm text-gray-800">{exhaustedMessage}</div>
 
-      {/* Category bubbles */}
-      <div className="flex flex-wrap gap-2 mb-6">
-        {VERTICALS.map((v) => (
-          <button
-            key={v}
-            onClick={() => {
-              setVertical(v);
-              runSearch("popular", v);
-            }}
-            className={`text-sm px-3 py-1 rounded-full border ${
-              vertical === v
-                ? "border-black bg-black text-white"
-                : "border-gray-300 hover:bg-gray-50"
-            }`}
-          >
-            {v === "tv" ? "TV Shows" : v[0].toUpperCase() + v.slice(1)}
-          </button>
-        ))}
-      </div>
+            <div className="mt-3 flex gap-2">
+              <button
+                onClick={() => onPlayVibe?.()}
+                className="px-3 py-2 rounded-xl text-sm bg-gray-900 text-white hover:opacity-90"
+              >
+                <Play size={16} className="inline-block mr-1" />
+                New vibe
+              </button>
 
-      {/* Error */}
-      {error && (
-        <div className="mb-4 text-sm text-red-600 border border-red-200 bg-red-50 rounded-xl p-3">
-          {error}
+              <button
+                onClick={() => setExhaustedMessage(null)}
+                className="px-3 py-2 rounded-xl text-sm border border-gray-300 bg-white hover:bg-gray-50"
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
-      {/* Results */}
-      <div className="grid gap-4">
-        {loading && (
-          <div className="text-sm text-gray-500">Fetching recommendations…</div>
-        )}
+      {/* Top 5 Cards */}
+      <div className="w-full max-w-xl space-y-4">
+        {reks.map((rek, index) => {
+          const isVisible = visibleIds.includes(rek.id);
+          const isExiting = exiting === rek.id;
+          const isClarify = clarifyVisible && clarifyTarget?.id === rek.id;
+          const isFavorite = !!rek.isFavorite;
 
-        {!loading &&
-          ensuredItems.map((it) => (
+          if (isClarify) {
+            return (
+              <div
+                key={rek.id}
+                className={[
+                  "bg-white border border-blue-300 rounded-2xl p-5 shadow-md",
+                  isVisible
+                    ? "opacity-100 translate-y-0"
+                    : "opacity-0 translate-y-2",
+                  "transition-all duration-300 ease-out",
+                ].join(" ")}
+                style={{ transitionDelay: `${index * 60}ms` }}
+              >
+                <p className="text-sm font-semibold text-gray-800">
+                  Why wasn’t this a fit?
+                </p>
+                <p className="text-xs text-gray-600 mt-1 mb-3">
+                  Help us learn your taste.
+                </p>
+
+                <div className="flex flex-wrap gap-2">
+                  {clarifyOptions.map((opt) => (
+                    <button
+                      key={opt}
+                      onClick={() => finalizeClarify(opt)}
+                      className="px-3 py-1.5 rounded-full border border-gray-300 text-xs text-gray-700 hover:bg-gray-100"
+                    >
+                      {opt}
+                    </button>
+                  ))}
+                  <button
+                    onClick={() => finalizeClarify()}
+                    className="text-[11px] uppercase tracking-wide text-gray-400 hover:text-gray-600"
+                  >
+                    Skip
+                  </button>
+                </div>
+              </div>
+            );
+          }
+
+          return (
             <div
-              key={it.id}
-              className="rounded-2xl border border-gray-200 p-4 shadow-sm hover:shadow-md transition-shadow"
+              key={rek.id}
+              className={[
+                "bg-white border border-gray-300 rounded-2xl p-5 shadow-sm",
+                isExiting
+                  ? "opacity-0 translate-x-3 scale-[0.97]"
+                  : isVisible
+                  ? "opacity-100 translate-y-0"
+                  : "opacity-0 translate-y-2",
+                "transition-all duration-300 ease-out",
+              ].join(" ")}
+              style={{ transitionDelay: `${index * 60}ms` }}
             >
-              {/* Title row with hollow thumbs (gated) */}
-              <div className="flex items-start justify-between gap-3">
+              {/* ✅ Descriptor line: Structural → Experience */}
+              <DescriptorLine rek={rek} category={toRekCategory(category)} />
+
+
+              {/* TITLE + THUMBS */}
+              <div className="flex justify-between items-start mb-2">
                 <a
-                  href={googleSearchUrl(it.title, it.year)}   // pass year for better accuracy
+                  href={`https://www.google.com/search?q=${encodeURIComponent(
+                    `${rek.title} ${rek.year}`
+                  )}`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-lg font-semibold leading-snug hover:underline"
-               >
-                  {it.title} {it.year ? `(${it.year})` : ""} 
+                  className="font-semibold text-[17px] hover:underline"
+                >
+                  {rek.title} ({rek.year})
                 </a>
 
                 <div className="flex items-center gap-2">
                   <button
-                    className="p-1 rounded-lg border border-gray-300 text-gray-500"
-                    title={isSignedIn ? "Like" : "Sign in to personalize"}
-                    disabled={!isSignedIn}
+                    onClick={() => handleLike(rek)}
+                    className="p-1 rounded-full border border-gray-400 text-gray-500 hover:border-black hover:text-black"
                   >
-                    <HollowThumbUp className="w-5 h-5" />
+                    <ThumbsUp size={18} />
                   </button>
+
                   <button
-                    className="p-1 rounded-lg border border-gray-300 text-gray-500"
-                    title={isSignedIn ? "Dislike" : "Sign in to personalize"}
-                    disabled={!isSignedIn}
+                    onClick={() => handleDislike(rek)}
+                    className="p-1 rounded-full border border-gray-400 text-gray-500 hover:border-black hover:text-black"
                   >
-                    <HollowThumbDown className="w-5 h-5" />
+                    <ThumbsDown size={18} />
                   </button>
                 </div>
               </div>
 
-              {/* Description */}
-              <p className="text-sm text-gray-700 mt-2">
-                {it.description || "—"}
+              {/* SHORT DESCRIPTION + EXPAND */}
+              <p className="text-sm text-gray-700 mb-2">
+                {rek.short}{" "}
+                <button
+                  onClick={() => toggleTopExpand(rek.id)}
+                  className="text-xs text-gray-500 hover:underline"
+                >
+                  {expandedTop === rek.id ? "Hide details" : "Show details"}
+                </button>
               </p>
 
-              {/* Links row */}
-              <div className="mt-3 text-sm flex items-center gap-4">
+              {expandedTop === rek.id && (
+                <p className="text-sm text-gray-600 mb-3">
+                  {rek.long.length > 420
+                    ? rek.long.slice(0, 420).trim() + "…"
+                    : rek.long}
+                </p>
+              )}
+
+
+              {/* INLINE ACTION ROW */}
+              <div className="flex items-center gap-4 text-sm text-gray-700 mt-1">
                 <button
-                  onClick={() => refineFromTitle(it.title)}
-                  className="underline underline-offset-2 hover:opacity-80"
+                  onClick={() => handleMoreLikeThis(rek)}
+                  className="hover:underline"
                 >
                   + More like this
                 </button>
-                <a
-                  className="underline underline-offset-2 hover:opacity-80"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  href={
-                    it.trailerUrl ||
-                    `https://www.youtube.com/results?search_query=${encodeURIComponent(
-                      `${it.title} trailer`
-                    )}`
-                  }
+
+                <button
+                  onClick={() => openTrailer(rek)}
+                  className="hover:underline flex items-center gap-1"
                 >
-                  ▶ Trailer
-                </a>
+                  <span>▶</span> Trailer
+                </button>
+
+                <button
+                  onClick={() => handleSaveFromTop(rek)}
+                  className="hover:underline flex items-center gap-1"
+                >
+                  <Bookmark size={16} />
+                  Save
+                </button>
+
+                {/* Favorite */}
+                <button
+                  onClick={() => toggleFavorite(rek.id)}
+                  className="ml-auto p-1 rounded-full border border-gray-300 text-gray-500 hover:text-gray-700 hover:border-gray-500 transition"
+                >
+                  <Heart
+                    size={18}
+                    strokeWidth={1.6}
+                    fill={isFavorite ? "#666666" : "none"}
+                  />
+                </button>
               </div>
             </div>
-          ))}
+          );
+        })}
       </div>
 
-      {/* Bottom suggestions */}
-      <div className="mt-6">
-        <div className="text-sm text-gray-500 mb-2">Try these:</div>
-        <div className="flex flex-wrap gap-2">
-          {bottomChips.map((chip) => (
-            <button
-              key={chip}
-              onClick={() => {
-                setQuery(chip);
-                runSearch(chip, vertical);
-              }}
-              className="text-sm px-3 py-1 rounded-full border border-gray-300 hover:bg-gray-50"
-            >
-              {chip}
-            </button>
-          ))}
+      {/* SAVED REKS */}
+      {saved.length > 0 && (
+        <div className="w-full max-w-xl mt-10 px-1 mx-auto">
+          <h3 className="text-lg font-semibold text-center mb-3">
+            Your Saved Reks
+          </h3>
+
+          <ul className="space-y-3">
+            {saved.map((rek) => {
+              const isFavorite = !!rek.isFavorite;
+              const open = expanded === rek.id;
+
+              return (
+                <li
+                  key={rek.id}
+                  className="bg-white border border-gray-300 rounded-2xl p-4 shadow-sm w-full"
+                >
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm font-medium">
+                      {rek.title} ({rek.year})
+                    </span>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => toggleFavorite(rek.id)}
+                        className="p-1 rounded-full border border-gray-300 text-gray-500 transition"
+                      >
+                        <Heart size={16} fill={isFavorite ? "#666666" : "none"} />
+                      </button>
+
+                      <button
+                        onClick={() => toggleExpand(rek.id)}
+                        className="text-gray-500"
+                      >
+                        {open ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                      </button>
+                    </div>
+                  </div>
+
+                  {open && <p className="text-sm text-gray-600 mt-2">{rek.long}</p>}
+                </li>
+              );
+            })}
+          </ul>
         </div>
-      </div>
+      )}
+
+      {/* LIKED REKS */}
+      {liked.length > 0 && (
+        <div className="w-full max-w-xl mt-10">
+          <h3 className="text-lg font-semibold text-center mb-3">
+            Your Liked Reks
+          </h3>
+
+          <ul className="space-y-3">
+            {liked.map((rek) => {
+              const isFavorite = !!rek.isFavorite;
+              const open = expanded === rek.id;
+
+              return (
+                <li
+                  key={rek.id}
+                  className="bg-white border border-gray-300 rounded-xl p-4 shadow-sm"
+                >
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm font-medium">
+                      {rek.title} ({rek.year})
+                    </span>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => toggleFavorite(rek.id)}
+                        className="p-1 rounded-full border border-gray-300 text-gray-500 transition"
+                      >
+                        <Heart size={16} fill={isFavorite ? "#666666" : "none"} />
+                      </button>
+
+                      <button
+                        onClick={() => handleSaveFromLiked(rek)}
+                        className="p-1 rounded-full border border-gray-300 text-gray-500"
+                      >
+                        <Bookmark size={16} />
+                      </button>
+
+                      <button
+                        onClick={() => toggleExpand(rek.id)}
+                        className="text-gray-500"
+                      >
+                        {open ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                      </button>
+                    </div>
+                  </div>
+
+                  {open && <p className="text-sm text-gray-600 mt-2">{rek.long}</p>}
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
     </div>
   );
 };
