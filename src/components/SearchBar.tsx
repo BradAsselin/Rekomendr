@@ -47,13 +47,7 @@ const VIBES_BY_CATEGORY: Record<string, string[]> = {
     "Smart & Witty",
     "Dark & Twisty",
   ],
-  Wine: [
-    "Crisp & Dry",
-    "Easy Sipper",
-    "Special Occasion",
-    "Bright & Fresh",
-    "Rich & Cozy",
-  ],
+  Wine: ["Crisp & Dry", "Easy Sipper", "Special Occasion", "Bright & Fresh", "Rich & Cozy"],
 };
 
 // Always returns a valid vibe list
@@ -222,7 +216,6 @@ const SearchBar: React.FC<SearchBarProps> = ({
       const q = buildQuery(cat, `vibe:${vibeName}`, "");
       startSearch(q, cat);
     },
-    // startSearch uses refs; safe to keep deps empty-ish besides functions created here
     // eslint-disable-next-line react-hooks/exhaustive-deps
     []
   );
@@ -560,8 +553,8 @@ const SearchBar: React.FC<SearchBarProps> = ({
         </button>
       </form>
 
-      {/* ✅ FEELING (ALWAYS VISIBLE) + CHEVRON */}
-      <div className="mt-2 text-xs text-gray-500 pl-1 flex items-center gap-1">
+      {/* ✅ FEELING (ALWAYS VISIBLE) + CHEVRON + OVERLAY ANCHOR */}
+      <div className="relative mt-2 text-xs text-gray-500 pl-1 flex items-center gap-1">
         <span>
           Feeling: <span className="font-semibold text-gray-700">{feelingLabel}</span>
         </span>
@@ -579,22 +572,22 @@ const SearchBar: React.FC<SearchBarProps> = ({
         >
           {openVibes ? <ChevronUp size={14} strokeWidth={1.8} /> : <ChevronDown size={14} strokeWidth={1.8} />}
         </button>
-      </div>
 
-      {/* ✅ VIBE DROPDOWN (UNDER FEELING LINE) */}
-      {openVibes && (
-        <div className="mt-2 w-full max-w-[320px] bg-white border border-gray-300 rounded-xl shadow-lg py-2 z-40">
-          {getVibesForCategory(category).map((v, idx) => (
-            <button
-              key={v}
-              onClick={() => runVibe(v, category, idx)}
-              className="block w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 transition"
-            >
-              {v}
-            </button>
-          ))}
-        </div>
-      )}
+        {/* ✅ VIBE DROPDOWN (OVERLAY — DOES NOT PUSH CARDS) */}
+        {openVibes && (
+          <div className="absolute left-0 top-[calc(100%+8px)] w-full max-w-[320px] bg-white border border-gray-300 rounded-xl shadow-lg py-2 z-50">
+            {getVibesForCategory(category).map((v, idx) => (
+              <button
+                key={v}
+                onClick={() => runVibe(v, category, idx)}
+                className="block w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 transition"
+              >
+                {v}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
 
       {/* CATEGORY DROPDOWN */}
       {openCategory && (

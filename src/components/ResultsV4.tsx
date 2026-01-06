@@ -43,7 +43,6 @@ const ResultsV4: React.FC<ResultsProps> = ({
   category,
   onPlayVibe,
 }) => {
-
   const [reks, setReks] = useState<Rek[]>([]);
   const [liked, setLiked] = useState<Rek[]>([]);
   const [saved, setSaved] = useState<Rek[]>([]);
@@ -285,15 +284,17 @@ const ResultsV4: React.FC<ResultsProps> = ({
   };
 
   return (
-    <div className="w-full flex flex-col items-center px-4 pb-24 select-none">
-      <h2 className="text-lg font-semibold text-center mt-4 mb-2">
-        Your Top 5 Reks
-      </h2>
+    // ✅ Mobile-first space reclaim:
+    // - slightly less top padding
+    // - slightly less bottom padding (was pb-24)
+    <div className="w-full flex flex-col items-center px-4 pt-2 pb-14 select-none">
+      {/* ✅ Removed: "Your Top 5 Reks" header */}
 
       {/* Loader */}
       <div
         className={[
-          "text-sm text-gray-600 mb-3 transition-all duration-300",
+          // was mb-3; tighten a hair
+          "text-sm text-gray-600 mb-2 transition-all duration-300",
           showLoader
             ? "opacity-100 max-h-8"
             : "opacity-0 max-h-0 overflow-hidden",
@@ -329,7 +330,7 @@ const ResultsV4: React.FC<ResultsProps> = ({
       )}
 
       {/* Top 5 Cards */}
-      <div className="w-full max-w-xl space-y-4">
+      <div className="w-full max-w-xl space-y-3">
         {reks.map((rek, index) => {
           const isVisible = visibleIds.includes(rek.id);
           const isExiting = exiting === rek.id;
@@ -341,7 +342,8 @@ const ResultsV4: React.FC<ResultsProps> = ({
               <div
                 key={rek.id}
                 className={[
-                  "bg-white border border-blue-300 rounded-2xl p-5 shadow-md",
+                  // was p-5; tighten to p-4
+                  "bg-white border border-blue-300 rounded-2xl p-4 shadow-md",
                   isVisible
                     ? "opacity-100 translate-y-0"
                     : "opacity-0 translate-y-2",
@@ -381,7 +383,8 @@ const ResultsV4: React.FC<ResultsProps> = ({
             <div
               key={rek.id}
               className={[
-                "bg-white border border-gray-300 rounded-2xl p-5 shadow-sm",
+                // was p-5; tighten to p-4 (mobile wins, still comfy)
+                "bg-white border border-gray-300 rounded-2xl p-4 shadow-sm",
                 isExiting
                   ? "opacity-0 translate-x-3 scale-[0.97]"
                   : isVisible
@@ -393,7 +396,6 @@ const ResultsV4: React.FC<ResultsProps> = ({
             >
               {/* ✅ Descriptor line: Structural → Experience */}
               <DescriptorLine rek={rek} category={toRekCategory(category)} />
-
 
               {/* TITLE + THUMBS */}
               <div className="flex justify-between items-start mb-2">
@@ -444,7 +446,6 @@ const ResultsV4: React.FC<ResultsProps> = ({
                 </p>
               )}
 
-
               {/* INLINE ACTION ROW */}
               <div className="flex items-center gap-4 text-sm text-gray-700 mt-1">
                 <button
@@ -488,7 +489,7 @@ const ResultsV4: React.FC<ResultsProps> = ({
 
       {/* SAVED REKS */}
       {saved.length > 0 && (
-        <div className="w-full max-w-xl mt-10 px-1 mx-auto">
+        <div className="w-full max-w-xl mt-8 px-1 mx-auto">
           <h3 className="text-lg font-semibold text-center mb-3">
             Your Saved Reks
           </h3>
@@ -520,7 +521,11 @@ const ResultsV4: React.FC<ResultsProps> = ({
                         onClick={() => toggleExpand(rek.id)}
                         className="text-gray-500"
                       >
-                        {open ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                        {open ? (
+                          <ChevronUp size={16} />
+                        ) : (
+                          <ChevronDown size={16} />
+                        )}
                       </button>
                     </div>
                   </div>
@@ -535,7 +540,7 @@ const ResultsV4: React.FC<ResultsProps> = ({
 
       {/* LIKED REKS */}
       {liked.length > 0 && (
-        <div className="w-full max-w-xl mt-10">
+        <div className="w-full max-w-xl mt-8">
           <h3 className="text-lg font-semibold text-center mb-3">
             Your Liked Reks
           </h3>
@@ -574,7 +579,11 @@ const ResultsV4: React.FC<ResultsProps> = ({
                         onClick={() => toggleExpand(rek.id)}
                         className="text-gray-500"
                       >
-                        {open ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                        {open ? (
+                          <ChevronUp size={16} />
+                        ) : (
+                          <ChevronDown size={16} />
+                        )}
                       </button>
                     </div>
                   </div>
