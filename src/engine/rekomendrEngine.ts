@@ -1,24 +1,19 @@
-// src/engine/rekomendrEngine.ts
-
 /* ------------------------------------------------------------------
-   Rekomendr Engine – V2
+   Rekomendr Engine – V2 (with Intent Persistence – Phase 1)
    - Category-aware pools via /api/recs?category=
    - Supports both "Movies|Comedy|text" AND "Movies||Comedy||text" formats
    - Starter decks (Deer Trails) + safe fallbacks
    - Vibe Play: clarifier = "vibe:<name>" → starterDeckId
-   - NEW: Pool exhaustion safety valve (soft reset per category)
+   - Pool exhaustion safety valve (soft reset per category)
+   - Per-tile vibe tags: rek.vibeTags?: string[]
+   - Tier progression bias: rek.tier?: "T1" | "T2" | "T3"
 
-   ✅ NEW (Per-tile clickable vibe tags)
-   - Rek can include vibeTags?: string[] (1–2 tags)
-   - clarifier "vibe:<X>" now supports two meanings:
-       1) If X matches one of the 12 locked Play Vibes → starter deck path
-       2) Else → tag-branch path (deterministic, no AI)
-   - Export getSetFromVibeTag() for direct UI wiring if desired
+   ✅ NEW (Phase 1): Intent Persistence
+   - Engine stores last intent per category (clarifier + typed text + deck/tag)
+   - Backfill and +MoreLikeThis use that intent to prevent lane drift
 
-   ✅ NEW (Tier progression)
-   - Rek can include tier?: "T1" | "T2" | "T3"
-   - Used only as a *bias* when selecting fallback/backfill items
-   - Fails open if tiers are missing
+   ✅ FIX: Robust genre tokenization
+   - Split genre strings on bullets, commas, pipes, slashes, etc.
 ------------------------------------------------------------------- */
 
 import { getTop5FromDeck } from "./deckSelector";
@@ -43,18 +38,18 @@ export interface Rek {
   genre?: string;
   isFavorite?: boolean;
 
-  // ✅ per-tile vibe tags (navigation-only, 1–2)
+  // per-tile vibe tags (navigation-only, 1–2)
   vibeTags?: string[];
 
-  // ✅ NEW: tier progression (trust → refined → discovery)
+  // tier progression (trust → refined → discovery)
   tier?: "T1" | "T2" | "T3";
 }
+
+export type Category = "Movies" | "TV Shows" | "Books" | "Wine";
 
 /* ------------------------------------------------------------------
    SESSION-LEVEL MEMORY (NO REPEATS PER SESSION, PER CATEGORY)
 ------------------------------------------------------------------- */
-export type Category = "Movies" | "TV Shows" | "Books" | "Wine";
-
 const sessionSeenByCategory: Record<Category, Set<string>> = {
   Movies: new Set(),
   "TV Shows": new Set(),
@@ -67,19 +62,41 @@ function getSessionSeen(category: Category): Set<string> {
 }
 
 /* ------------------------------------------------------------------
+   ✅ INTENT PERSISTENCE (PHASE 1)
+------------------------------------------------------------------- */
+type Intent = {
+  category: Category;
+  clarifier: string; // raw clarifier string (may be "vibe:...")
+  text: string; // typed query text (e.g., "sports")
+  deckId: string | null; // if locked vibe maps to a deck
+  vibeTag: string | null; // if vibe:<X> is NOT a locked vibe, treat as tag branch
+  isVibeClarifier: boolean; // startsWith("vibe:")
+};
+
+const lastIntentByCategory: Record<Category, Intent | null> = {
+  Movies: null,
+  "TV Shows": null,
+  Books: null,
+  Wine: null,
+};
+
+function setLastIntent(intent: Intent) {
+  lastIntentByCategory[intent.category] = intent;
+}
+
+function getLastIntent(category: Category): Intent | null {
+  return lastIntentByCategory[category] ?? null;
+}
+
+/* ------------------------------------------------------------------
    ✅ TIER PROGRESSION (TRUST → REFINED → DISCOVERY)
    - Pure bias helper. Never hard-filters.
 ------------------------------------------------------------------- */
 type Tier = "T1" | "T2" | "T3";
 
 function tierWeights(sessionSeenCount: number) {
-  // Stage A: early session = trust
   if (sessionSeenCount <= 10) return { T1: 0.7, T2: 0.3, T3: 0.0 };
-
-  // Stage B: mid session = refined familiar
   if (sessionSeenCount <= 35) return { T1: 0.2, T2: 0.7, T3: 0.1 };
-
-  // Stage C: deep session = safe discovery
   return { T1: 0.1, T2: 0.5, T3: 0.4 };
 }
 
@@ -100,16 +117,13 @@ function pickWithTierBias(args: {
   const weights = tierWeights(sessionSeenCount);
   const preferred = pickTier(weights);
 
-  // Prefer tier-matching if present
   const tiered = candidates.filter((r) => r.tier === preferred);
-
   const bucket = tiered.length > 0 ? tiered : candidates;
   return bucket[Math.floor(Math.random() * bucket.length)] ?? null;
 }
 
 /* ------------------------------------------------------------------
    VIBE → STARTER DECK MAP (LOCKED 12 VIBES)
-   NOTE: deck ids should exist in starterDecks.ts
 ------------------------------------------------------------------- */
 const VIBE_TO_DECK: Record<string, string> = {
   "Comfort Watch": "comfort-core",
@@ -131,7 +145,7 @@ function deckFromClarifier(clarifier: string): string | null {
   if (!c) return null;
 
   if (c.toLowerCase().startsWith("vibe:")) {
-    const vibeName = c.slice(5).trim(); // after "vibe:"
+    const vibeName = c.slice(5).trim();
     return VIBE_TO_DECK[vibeName] ?? null;
   }
 
@@ -139,7 +153,7 @@ function deckFromClarifier(clarifier: string): string | null {
 }
 
 /* ------------------------------------------------------------------
-   ✅ TAG FROM CLARIFIER (vibe:<tag>) IF NOT A LOCKED VIBE
+   TAG FROM CLARIFIER (vibe:<tag>) IF NOT A LOCKED VIBE
 ------------------------------------------------------------------- */
 function tagFromClarifier(clarifier: string): string | null {
   const c = (clarifier || "").trim();
@@ -148,10 +162,7 @@ function tagFromClarifier(clarifier: string): string | null {
 
   const name = c.slice(5).trim();
   if (!name) return null;
-
-  // If it matches a locked vibe, it is NOT a tag branch.
-  if (VIBE_TO_DECK[name]) return null;
-
+  if (VIBE_TO_DECK[name]) return null; // locked vibe => deck path, not tag branch
   return name;
 }
 
@@ -179,7 +190,6 @@ function parseRawQuery(rawQuery: string): {
   context: string;
 } {
   const q = (rawQuery ?? "").trim();
-
   const parts = q.includes("||") ? q.split("||") : q.split("|");
 
   const rawCategory = (parts[0] ?? "Movies").trim();
@@ -243,21 +253,78 @@ function normalize(list: Rek[]): Rek[] {
 }
 
 /* ------------------------------------------------------------------
-   CLARIFIER FILTER (data-only enforcement, graceful fallback)
+   ✅ ROBUST GENRE TOKENIZATION (FIXES DRIFT)
 ------------------------------------------------------------------- */
 function tokensFromGenre(genre?: string): string[] {
   return (genre ?? "")
-    .split("•")
-    .map((t) => t.trim().toLowerCase())
+    .toLowerCase()
+    // normalize separators into commas
+    .replace(/[•|/]+/g, ",")
+    .replace(/\s*&\s*/g, ",")
+    // also split on commas
+    .split(",")
+    .map((t) => t.trim())
     .filter(Boolean);
 }
 
+/* ------------------------------------------------------------------
+   CLARIFIER FILTER (data-only enforcement, graceful fallback)
+------------------------------------------------------------------- */
 function applyClarifierFilter(pool: Rek[], clarifier: string): Rek[] {
   const c = (clarifier || "").trim().toLowerCase();
   if (!c) return pool;
 
   const filtered = pool.filter((r) => tokensFromGenre(r.genre).includes(c));
   return filtered.length >= 5 ? filtered : pool;
+}
+
+/* ------------------------------------------------------------------
+   TEXT (TYPED) INTENT FILTER (SOFT, FAILS OPEN)
+------------------------------------------------------------------- */
+function tokenizeText(s: string): string[] {
+  return (s || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .map((t) => t.trim())
+    .filter(Boolean);
+}
+
+function matchesTextIntent(rek: Rek, tokens: string[]): boolean {
+  if (!tokens.length) return true;
+
+  const hay = [
+    rek.title,
+    String(rek.year ?? ""),
+    rek.genre ?? "",
+    rek.short ?? "",
+    rek.long ?? "",
+    Array.isArray(rek.vibeTags) ? rek.vibeTags.join(" ") : "",
+  ]
+    .join(" ")
+    .toLowerCase();
+
+  // require at least 1 token hit
+  return tokens.some((t) => hay.includes(t));
+}
+
+function applyIntentFilters(pool: Rek[], intent: Intent | null): Rek[] {
+  if (!intent) return pool;
+
+  // Tag branch (hardest constraint, but fail-open)
+  if (intent.vibeTag) {
+    const tagged = pool.filter((r) => hasVibeTag(r, intent.vibeTag!));
+    if (tagged.length >= 5) return tagged;
+    // if too small, fail open to full pool
+  }
+
+  // Clarifier (non-vibe)
+  if (!intent.isVibeClarifier && intent.clarifier) {
+    return applyClarifierFilter(pool, intent.clarifier);
+  }
+
+  // Vibe-deck clarifier: do NOT apply clarifier filter (vibe is not a genre)
+  return pool;
 }
 
 /* ------------------------------------------------------------------
@@ -325,28 +392,18 @@ function tokenize(s: string): string[] {
 
 function rekTokens(r: any): Set<string> {
   const parts: string[] = [];
-
   if (r?.title) parts.push(r.title);
   if (r?.genre) parts.push(r.genre);
-  if (r?.vibe) parts.push(r.vibe);
-  if (r?.tone) parts.push(r.tone);
-
-  if (Array.isArray(r?.tags)) parts.push(r.tags.join(" "));
-  else if (typeof r?.tags === "string") parts.push(r.tags);
-
   if (Array.isArray(r?.vibeTags)) parts.push(r.vibeTags.join(" "));
-
   return new Set(tokenize(parts.join(" ")));
 }
 
 function jaccard(a: Set<string>, b: Set<string>): number {
   if (a.size === 0 || b.size === 0) return 0;
-
   let inter = 0;
   a.forEach((x) => {
     if (b.has(x)) inter++;
   });
-
   const union = a.size + b.size - inter;
   return union === 0 ? 0 : inter / union;
 }
@@ -387,7 +444,6 @@ function pickCohesiveFive(args: {
     .sort((a, b) => b.score - a.score);
 
   const picked: any[] = [anchor];
-
   for (const s of scored) {
     if (picked.length >= 5) break;
     picked.push(s.r);
@@ -418,7 +474,6 @@ export async function getSetFromVibeTag(args: {
   const tagged = pool.filter(
     (r) => hasVibeTag(r, tag) && !sessionSeen.has(r.title)
   );
-
   if (tagged.length === 0) return [];
 
   const used = new Set<string>();
@@ -440,7 +495,6 @@ export async function getSetFromVibeTag(args: {
   }
 
   if (picked.length === 0) return [];
-
   picked.forEach((r) => sessionSeen.add(r.title));
   return normalize(picked);
 }
@@ -455,7 +509,7 @@ export async function getTop5FromEngine({
   rawQuery: string;
   starterDeckId?: string;
 }): Promise<Rek[]> {
-  const { category, clarifier, context } = parseRawQuery(rawQuery);
+  const { category, clarifier, text, context } = parseRawQuery(rawQuery);
   const sessionSeen = getSessionSeen(category);
 
   const pool = await fetchPool(category);
@@ -464,16 +518,38 @@ export async function getTop5FromEngine({
     .trim()
     .toLowerCase()
     .startsWith("vibe:");
-  const poolForSelection = isVibeClarifier
-    ? pool
-    : applyClarifierFilter(pool, clarifier);
 
-  const vibeDeck = deckFromClarifier(clarifier);
-  const chosenDeckId = vibeDeck ?? starterDeckId;
-
+  const deckId = deckFromClarifier(clarifier);
   const vibeTag = tagFromClarifier(clarifier);
+
+  // ✅ Store intent for this category so +MoreLikeThis/backfill obey it
+  setLastIntent({
+    category,
+    clarifier,
+    text,
+    deckId: deckId ?? null,
+    vibeTag,
+    isVibeClarifier,
+  });
+
+  // Start with raw pool, then apply intent filters (tag/clarifier)
+  const poolForSelection = applyIntentFilters(pool, getLastIntent(category));
+
+  // If typed text exists, bias selection to it (fails open)
+  const textTokens = tokenizeText(text);
+  const textFiltered =
+    textTokens.length > 0
+      ? poolForSelection.filter((r) => matchesTextIntent(r, textTokens))
+      : poolForSelection;
+
+  const finalPoolForSelection =
+    textTokens.length > 0 && textFiltered.length >= 5
+      ? textFiltered
+      : poolForSelection;
+
+  /* ------------------ TAG BRANCH (vibe:<tag>) ------------------ */
   if (vibeTag) {
-    const tagged = pool.filter(
+    const tagged = finalPoolForSelection.filter(
       (r) => hasVibeTag(r, vibeTag) && !sessionSeen.has(r.title)
     );
 
@@ -505,20 +581,16 @@ export async function getTop5FromEngine({
 
   /* ------------------ V2: STARTER DECK PATH ------------------ */
   if (USE_DEER_TRAILS) {
-    const fromDeck = getTop5FromDeck(
-      chosenDeckId,
-      poolForSelection,
-      sessionSeen
-    );
+    const chosenDeckId = deckId ?? starterDeckId;
+    const fromDeck = getTop5FromDeck(chosenDeckId, finalPoolForSelection, sessionSeen);
     if (fromDeck.length === 5) return normalize(fromDeck);
   }
 
   /* ------------------ V1: AI FALLBACK ------------------ */
-  const aiTitles = await getAITop5Titles(poolForSelection, context, sessionSeen);
-
+  const aiTitles = await getAITop5Titles(finalPoolForSelection, context, sessionSeen);
   if (aiTitles) {
     const chosen = aiTitles
-      .map((t) => poolForSelection.find((r) => r.title === t))
+      .map((t) => finalPoolForSelection.find((r) => r.title === t))
       .filter(Boolean) as Rek[];
 
     if (chosen.length === 5) {
@@ -531,46 +603,40 @@ export async function getTop5FromEngine({
   const usedTitles = new Set<string>();
   sessionSeen.forEach((t) => usedTitles.add(t));
 
-  // Build a "candidate list" that excludes seen
-  const candidates = poolForSelection.filter((r) => !usedTitles.has(r.title));
+  const candidates = finalPoolForSelection.filter((r) => !usedTitles.has(r.title));
 
-  // Prefer tier-biased pick as anchorHint (safe, soft influence)
   const tierAnchor =
     pickWithTierBias({ candidates, sessionSeenCount: sessionSeen.size }) ?? null;
 
   let fallback = pickCohesiveFive({
-    pool: poolForSelection,
+    pool: finalPoolForSelection,
     usedTitles,
     anchorHint: tierAnchor,
     preferGenre: null,
   });
 
-  // ✅ Safety valve: if we can't make 5, soft-reset and try once.
+  // Safety valve: if we can't make 5, soft-reset and try once
   if (fallback.length < 5) {
     sessionSeen.clear();
 
     const usedAfterReset = new Set<string>();
-    const candidatesAfterReset = poolForSelection.filter(
+    const candidatesAfterReset = finalPoolForSelection.filter(
       (r) => !usedAfterReset.has(r.title)
     );
 
     const tierAnchor2 =
-      pickWithTierBias({
-        candidates: candidatesAfterReset,
-        sessionSeenCount: 0,
-      }) ?? null;
+      pickWithTierBias({ candidates: candidatesAfterReset, sessionSeenCount: 0 }) ?? null;
 
     fallback = pickCohesiveFive({
-      pool,
+      pool: finalPoolForSelection,
       usedTitles: usedAfterReset,
       anchorHint: tierAnchor2,
       preferGenre: null,
     });
   }
 
-  // If still short, last resort: just take any unseen
   if (fallback.length < 5) {
-    const anyUnseen = poolForSelection.filter((r) => !sessionSeen.has(r.title));
+    const anyUnseen = finalPoolForSelection.filter((r) => !sessionSeen.has(r.title));
     fallback = [...fallback, ...anyUnseen].slice(0, 5);
   }
 
@@ -580,7 +646,7 @@ export async function getTop5FromEngine({
 
 /* ------------------------------------------------------------------
    BACKFILL (NO AUTO-RESET — LET UI HANDLE EXHAUSTION)
-   ✅ tier bias: prefer tiered unseen item first, fallback to any unseen
+   ✅ obeys last intent for that category
 ------------------------------------------------------------------- */
 export async function getBackfillRek(args: {
   current: Rek[];
@@ -598,11 +664,23 @@ export async function getBackfillRek(args: {
 
   const pool = await fetchPool(category);
 
+  const intent = getLastIntent(category);
+  const filteredPool = applyIntentFilters(pool, intent);
+
+  const textTokens = tokenizeText(intent?.text ?? "");
+  const textFiltered =
+    textTokens.length > 0
+      ? filteredPool.filter((r) => matchesTextIntent(r, textTokens))
+      : filteredPool;
+
+  const poolForBackfill =
+    textTokens.length > 0 && textFiltered.length >= 5 ? textFiltered : filteredPool;
+
   const used = new Set<string>();
   current.forEach((r) => used.add(r.title));
   sessionSeen.forEach((title) => used.add(title));
 
-  const unseenCandidates = pool.filter((r) => !used.has(r.title));
+  const unseenCandidates = poolForBackfill.filter((r) => !used.has(r.title));
   if (unseenCandidates.length === 0) return null;
 
   const candidate =
@@ -617,7 +695,7 @@ export async function getBackfillRek(args: {
 
 /* ------------------------------------------------------------------
    + MORE LIKE THIS (NO AUTO-RESET — LET UI HANDLE EXHAUSTION)
-   ✅ IMPROVED: genre-token matching (prevents drift)
+   ✅ obeys last intent for that category
 ------------------------------------------------------------------- */
 export async function getMoreLikeThisSet(args: {
   seed: Rek;
@@ -631,13 +709,35 @@ export async function getMoreLikeThisSet(args: {
 
   const pool = await fetchPool(category);
 
+  const intent = getLastIntent(category);
+  const filteredPool = applyIntentFilters(pool, intent);
+
+  // Apply typed text bias if present (sports, etc.)
+  const textTokens = tokenizeText(intent?.text ?? "");
+  const textFiltered =
+    textTokens.length > 0
+      ? filteredPool.filter((r) => matchesTextIntent(r, textTokens))
+      : filteredPool;
+
+  const poolForSet =
+    textTokens.length > 0 && textFiltered.length >= 5 ? textFiltered : filteredPool;
+
+  // If we're in a locked vibe deck lane, prefer staying on that deck
+  // (This is the simplest “stay in vibe lane” enforcement without touching UI.)
+  if (USE_DEER_TRAILS && intent?.deckId) {
+    const fromDeck = getTop5FromDeck(intent.deckId, poolForSet, sessionSeen);
+    if (fromDeck.length === 5) return normalize(fromDeck);
+    // fail open to similarity below
+  }
+
+  // Similarity: seed genre tokens (now robust)
   const seedGenres = tokensFromGenre(seed.genre);
   const seedGenreSet = new Set(seedGenres);
 
   let matches: Rek[] = [];
 
   if (seedGenres.length) {
-    const genreMatches = pool.filter((r) => {
+    const genreMatches = poolForSet.filter((r) => {
       if (sessionSeen.has(r.title)) return false;
       const g = tokensFromGenre(r.genre);
       return g.some((x) => seedGenreSet.has(x));
@@ -653,8 +753,9 @@ export async function getMoreLikeThisSet(args: {
     }
   }
 
+  // Fallback within intent-filtered pool (NOT full pool)
   if (matches.length < 5) {
-    const anyUnseen = pool.filter((r) => !sessionSeen.has(r.title));
+    const anyUnseen = poolForSet.filter((r) => !sessionSeen.has(r.title));
     const used = new Set(matches.map((r) => r.title));
     for (const r of anyUnseen) {
       if (matches.length >= 5) break;
