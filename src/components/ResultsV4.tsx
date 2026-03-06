@@ -17,20 +17,21 @@ import DescriptorLine from "./DescriptorLine";
 import { getBackfillRek, getMoreLikeThisSet } from "../engine/rekomendrEngine";
 import type { Rek } from "../engine/rekomendrEngine";
 
-// ✅ Descriptor typing (canonical categories)
+// Descriptor typing
 import type { RekCategory } from "../lib/descriptors";
 
-// UI-facing category labels (keep as-is)
+// UI-facing category labels
 type Category = "Movies" | "TV Shows" | "Books" | "Wine";
 
-// ✅ Map UI label → canonical key used by descriptors/engine helpers
+// Map UI label → canonical key used by descriptors/engine helpers
 function toRekCategory(category: Category): RekCategory {
   if (category === "TV Shows") return "TV";
-  return category; // Movies, Books, Wine already match
+  return category;
 }
 
 interface ResultsProps {
   loading: boolean;
+  loadingLabel?: string;
   reks: Rek[];
   sourceImage?: string | null;
   category: Category;
@@ -39,6 +40,7 @@ interface ResultsProps {
 
 const ResultsV4: React.FC<ResultsProps> = ({
   loading,
+  loadingLabel,
   reks: incomingReks,
   category,
   onPlayVibe,
@@ -53,7 +55,7 @@ const ResultsV4: React.FC<ResultsProps> = ({
   const [visibleIds, setVisibleIds] = useState<number[]>([]);
   const loaderTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // ✅ Safety valve: pool exhaustion notice
+  // Safety valve: pool exhaustion notice
   const [exhaustedMessage, setExhaustedMessage] = useState<string | null>(null);
   const clearExhausted = () => setExhaustedMessage(null);
 
@@ -166,7 +168,7 @@ const ResultsV4: React.FC<ResultsProps> = ({
   };
 
   /* -----------------------------
-   * BACKFILL — CATEGORY EXPLICIT ✅
+   * BACKFILL — CATEGORY EXPLICIT
    * ----------------------------- */
   const handleBackfill = async (_removed: Rek) => {
     try {
@@ -203,7 +205,7 @@ const ResultsV4: React.FC<ResultsProps> = ({
   };
 
   /* -----------------------------
-   * MORE LIKE THIS — CATEGORY EXPLICIT ✅
+   * MORE LIKE THIS — CATEGORY EXPLICIT
    * ----------------------------- */
   const handleMoreLikeThis = async (rek: Rek) => {
     setExiting(rek.id);
@@ -284,26 +286,20 @@ const ResultsV4: React.FC<ResultsProps> = ({
   };
 
   return (
-    // ✅ Mobile-first space reclaim:
-    // - slightly less top padding
-    // - slightly less bottom padding (was pb-24)
     <div className="w-full flex flex-col items-center px-4 pt-2 pb-14 select-none">
-      {/* ✅ Removed: "Your Top 5 Reks" header */}
-
       {/* Loader */}
       <div
         className={[
-          // was mb-3; tighten a hair
           "text-sm text-gray-600 mb-2 transition-all duration-300",
           showLoader
             ? "opacity-100 max-h-8"
             : "opacity-0 max-h-0 overflow-hidden",
         ].join(" ")}
       >
-        Getting your Reks…
+        {loadingLabel || "Getting your Reks…"}
       </div>
 
-      {/* ✅ Safety Valve Notice */}
+      {/* Safety Valve Notice */}
       {exhaustedMessage && (
         <div className="w-full max-w-xl mb-3">
           <div className="bg-white border border-amber-300 rounded-2xl p-4 shadow-sm">
@@ -342,7 +338,6 @@ const ResultsV4: React.FC<ResultsProps> = ({
               <div
                 key={rek.id}
                 className={[
-                  // was p-5; tighten to p-4
                   "bg-white border border-blue-300 rounded-2xl p-4 shadow-md",
                   isVisible
                     ? "opacity-100 translate-y-0"
@@ -383,7 +378,6 @@ const ResultsV4: React.FC<ResultsProps> = ({
             <div
               key={rek.id}
               className={[
-                // was p-5; tighten to p-4 (mobile wins, still comfy)
                 "bg-white border border-gray-300 rounded-2xl p-4 shadow-sm",
                 isExiting
                   ? "opacity-0 translate-x-3 scale-[0.97]"
@@ -394,7 +388,6 @@ const ResultsV4: React.FC<ResultsProps> = ({
               ].join(" ")}
               style={{ transitionDelay: `${index * 60}ms` }}
             >
-              {/* ✅ Descriptor line: Structural → Experience */}
               <DescriptorLine rek={rek} category={toRekCategory(category)} />
 
               {/* TITLE + THUMBS */}
@@ -428,15 +421,15 @@ const ResultsV4: React.FC<ResultsProps> = ({
               </div>
 
               {/* SHORT DESCRIPTION + EXPAND */}
-              <p className="text-sm text-gray-700 mb-2">
-                {rek.short}{" "}
-                <button
-                  onClick={() => toggleTopExpand(rek.id)}
-                  className="text-xs text-gray-500 hover:underline"
-                >
-                  {expandedTop === rek.id ? "Hide details" : "Show details"}
-                </button>
-              </p>
+              <p className="text-sm text-gray-700 mb-2 leading-6">
+                 {rek.short}{" "}
+                 <button
+                 onClick={() => toggleTopExpand(rek.id)}
+                 className="text-xs text-gray-500 hover:underline"
+               >
+                {expandedTop === rek.id ? "Hide details" : "Show details"}
+               </button>
+             </p>
 
               {expandedTop === rek.id && (
                 <p className="text-sm text-gray-600 mb-3">
@@ -470,7 +463,6 @@ const ResultsV4: React.FC<ResultsProps> = ({
                   Save
                 </button>
 
-                {/* Favorite */}
                 <button
                   onClick={() => toggleFavorite(rek.id)}
                   className="ml-auto p-1 rounded-full border border-gray-300 text-gray-500 hover:text-gray-700 hover:border-gray-500 transition"

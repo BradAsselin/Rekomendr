@@ -8,7 +8,7 @@ interface SearchBarProps {
   setLoading?: (loading: boolean) => void;
   hasHistory?: boolean;
 
-  // ✅ allow Page / ResultsV4 to trigger Play
+  // allow Page / ResultsV4 to trigger Play
   registerVibePlay?: (fn: () => void) => void;
 }
 
@@ -50,7 +50,6 @@ const VIBES_BY_CATEGORY: Record<string, string[]> = {
   Wine: ["Crisp & Dry", "Easy Sipper", "Special Occasion", "Bright & Fresh", "Rich & Cozy"],
 };
 
-// Always returns a valid vibe list
 const getVibesForCategory = (category: string) =>
   VIBES_BY_CATEGORY[category] ?? VIBES_BY_CATEGORY["Movies"];
 
@@ -68,20 +67,19 @@ const SearchBar: React.FC<SearchBarProps> = ({
 
   const [openCategory, setOpenCategory] = useState(false);
   const [openClarifiers, setOpenClarifiers] = useState(false);
+  const [openVibes, setOpenVibes] = useState(false);
 
   const [autoGoVisible, setAutoGoVisible] = useState(false);
-  const autoGoTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const autoGoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // ✅ Vibe state
+
+  // Vibe state
   const [vibeIndex, setVibeIndex] = useState(0);
   const [activeVibe, setActiveVibe] = useState<string | null>(null);
 
-  // ✅ Vibe dropdown under Feeling line
-  const [openVibes, setOpenVibes] = useState(false);
-
-  // ✅ Track what last triggered results, so Feeling can be honest
+  // Track what last triggered results, so Lane can be honest
   const [lastSearchMode, setLastSearchMode] = useState<
-    "vibe" | "clarifier" | "typed" | "categoryOnly" | "photo" | null
+    "clarifier" | "typed" | "categoryOnly" | "photo" | null
   >(null);
   const [lastTypedSeed, setLastTypedSeed] = useState<string>("");
 
@@ -95,11 +93,12 @@ const SearchBar: React.FC<SearchBarProps> = ({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
 
-  // -----------------------------
-  // Refs to avoid stale-state in registered Play handler
-  // -----------------------------
+  // --------------------------------------------
+  // Refs to avoid stale state in Play handler
+  // --------------------------------------------
   const categoryRef = useRef(category);
   const vibeIndexRef = useRef(vibeIndex);
+  const clarifierRef = useRef<string | null>(clarifier);
 
   useEffect(() => {
     categoryRef.current = category;
@@ -109,23 +108,27 @@ const SearchBar: React.FC<SearchBarProps> = ({
     vibeIndexRef.current = vibeIndex;
   }, [vibeIndex]);
 
+  useEffect(() => {
+    clarifierRef.current = clarifier;
+  }, [clarifier]);
+
   /* -----------------------------
    * HELPERS
    * ----------------------------- */
 
-  // ✅ Use "||" format (engine supports both, this is cleaner + consistent)
-  const buildQuery = (cat: string, clar: string | null, text: string) => {
-    const safeText = text.trim();
-    const clarPart = clar ?? "";
-    return `${cat}||${clarPart}||${safeText}`;
-  };
+  // Use "||" format (engine supports both)
+  const buildQuery = (cat: string, clar: string | null, text: string, mode: "pool" | "ai") => {
+  const safeText = text.trim();
+  const clarPart = clar ?? "";
+  return `${cat}||${clarPart}||${safeText}||mode:${mode}`;
+};
+
 
   const triggerPulse = () => {
     setIsPulsing(true);
     setTimeout(() => setIsPulsing(false), 1000);
   };
 
-  // ✅ Critical fix: allow passing category explicitly (prevents stale-state bugs)
   const startSearch = (query: string, catOverride?: string) => {
     const cat = catOverride ?? categoryRef.current;
     setLoading?.(true);
@@ -133,14 +136,32 @@ const SearchBar: React.FC<SearchBarProps> = ({
     onSearch(query, cat);
   };
 
-  const clearVibeMode = () => {
-    setActiveVibe(null);
-  };
-
   const closeAllDropdowns = () => {
     setOpenCategory(false);
     setOpenClarifiers(false);
     setOpenVibes(false);
+  };
+
+  const cancelAutoGo = () => {
+    if (autoGoTimerRef.current) clearTimeout(autoGoTimerRef.current);
+    autoGoTimerRef.current = null;
+    setAutoGoVisible(false);
+  };
+
+  const scheduleAutoGo = (cat: string, clar: string) => {
+    if (input.trim()) return;
+
+    cancelAutoGo();
+    autoGoTimerRef.current = setTimeout(() => {
+      const q = buildQuery(cat, clar, "", "ai");
+      setAutoGoVisible(true);
+
+      setLastSearchMode("clarifier");
+      setLastTypedSeed("");
+      startSearch(q, cat);
+
+      setTimeout(() => setAutoGoVisible(false), 1200);
+    }, AUTO_GO_DELAY_MS);
   };
 
   /* -----------------------------
@@ -164,112 +185,9 @@ const SearchBar: React.FC<SearchBarProps> = ({
   };
 
   /* -----------------------------
-   * AUTO-GO CONTROL
-   * ----------------------------- */
-  const cancelAutoGo = () => {
-    if (autoGoTimerRef.current) clearTimeout(autoGoTimerRef.current);
-    autoGoTimerRef.current = null;
-    setAutoGoVisible(false);
-  };
-
-  const scheduleAutoGo = (cat: string, clar: string) => {
-    if (input.trim()) return;
-
-    cancelAutoGo();
-    autoGoTimerRef.current = setTimeout(() => {
-      const q = buildQuery(cat, clar, "");
-      setAutoGoVisible(true);
-
-      // clarifier auto-go should reflect "clarifier" mode (not vibe)
-      setLastSearchMode("clarifier");
-      setLastTypedSeed("");
-      startSearch(q, cat);
-
-      setTimeout(() => setAutoGoVisible(false), 1200);
-    }, AUTO_GO_DELAY_MS);
-  };
-
-  /* -----------------------------
-   * VIBE RUNNER (single source of truth)
-   * - Encodes as clarifier: "vibe:<name>"
-   * ----------------------------- */
-  const runVibe = useCallback(
-    (vibeName: string, catOverride?: string, indexOverride?: number) => {
-      const cat = catOverride ?? categoryRef.current;
-
-      cancelAutoGo();
-      closeAllDropdowns();
-
-      // Vibe should not fight with clarifiers / input
-      setClarifier(null);
-      setInput("");
-
-      setActiveVibe(vibeName);
-      setLastSearchMode("vibe");
-      setLastTypedSeed("");
-
-      // keep index aligned when we chose a specific vibe (dropdown)
-      if (typeof indexOverride === "number") {
-        setVibeIndex(indexOverride);
-      }
-
-      const q = buildQuery(cat, `vibe:${vibeName}`, "");
-      startSearch(q, cat);
-    },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    []
-  );
-
-  /* -----------------------------
-   * VIBE PLAY (ONE BUTTON → RESULTS)
-   * - category-scoped
-   * ----------------------------- */
-  const handleVibePlayStable = useCallback(() => {
-    const cat = categoryRef.current;
-    const vibes = getVibesForCategory(cat);
-    const nextIndex = (vibeIndexRef.current + 1) % vibes.length;
-    const vibe = vibes[nextIndex];
-
-    setVibeIndex(nextIndex);
-    runVibe(vibe, cat, nextIndex);
-  }, [runVibe]);
-
-  // ✅ Register stable Play handler with Page.tsx (once)
-  useEffect(() => {
-    registerVibePlay?.(handleVibePlayStable);
-  }, [registerVibePlay, handleVibePlayStable]);
-
-  /* -----------------------------
-   * CATEGORY SELECT
-   * ----------------------------- */
-  const handleSelectCategory = (c: string) => {
-    cancelAutoGo();
-    setCategory(c);
-    setOpenCategory(false);
-
-    // Reset refiners
-    setClarifier(null);
-    setOpenClarifiers(false);
-    setInput("");
-    clearVibeMode();
-    setVibeIndex(0);
-    setAutoGoVisible(false);
-    setOpenVibes(false);
-
-    // Category-only is "Surprise me"
-    setLastSearchMode("categoryOnly");
-    setLastTypedSeed("");
-
-    // Immediate search on category select (empty query valid)
-    const q = buildQuery(c, null, "");
-    startSearch(q, c);
-  };
-
-  /* -----------------------------
    * CLARIFIERS — VERTICAL AWARE
    * ----------------------------- */
-
-  const movieClarifiers = ["Comedy", "Thriller", "Action", "Drama", "Romance", "Sci-Fi"];
+  const movieClarifiers = ["Comedy", "Thriller", "Action", "Drama", "Romance", "Sci-Fi", "Crime"];
   const tvClarifiers = ["Sitcom", "Drama", "Crime", "Reality", "Documentary", "Fantasy"];
   const bookClarifiers = ["Mystery", "Fantasy", "Romance", "Sci-Fi", "Non-Fiction", "Thriller"];
   const wineClarifiers = ["Dry", "Sweet", "Red", "White", "Sparkling", "Rosé"];
@@ -291,39 +209,158 @@ const SearchBar: React.FC<SearchBarProps> = ({
 
   const advancedOptions = hasHistory ? ["Saved", "Favorites", "Liked"] : [];
 
-  const handleSelectClarifier = (c: string) => {
-    setClarifier(c);
-    setOpenClarifiers(false);
+  const handleSelectCategory = (c: string) => {
     cancelAutoGo();
-    clearVibeMode();
-    setOpenVibes(false);
+    closeAllDropdowns();
 
-    // Clarifier intent should show as Feeling: <clarifier>
+    setCategory(c);
+
+    // Reset refiners
+    setClarifier(null);
+    setInput("");
+    setActiveVibe(null);
+    setVibeIndex(0);
+
+    setLastSearchMode("categoryOnly");
+    setLastTypedSeed("");
+
+    // Immediate search on category select (empty query valid)
+    const q = buildQuery(c, null, "", "pool");
+    startSearch(q, c);
+  };
+
+  const handleSelectClarifier = (c: string) => {
+    cancelAutoGo();
+    closeAllDropdowns();
+
+    setClarifier(c);
+    setActiveVibe(null); // lane changed => clear vibe modifier
+    setInput("");
+
     setLastSearchMode("clarifier");
     setLastTypedSeed("");
 
-    scheduleAutoGo(category, c);
+    // Auto-go (only when input empty)
+    scheduleAutoGo(categoryRef.current, c);
+  };
+
+  const clearLane = () => {
+    cancelAutoGo();
+    closeAllDropdowns();
+
+    setClarifier(null);
+    setActiveVibe(null);
+    setInput("");
+
+    setLastSearchMode("categoryOnly");
+    setLastTypedSeed("");
+
+    const q = buildQuery(categoryRef.current, null, "", "pool");
+
+    startSearch(q, categoryRef.current);
   };
 
   /* -----------------------------
-   * FEELING LABEL (ALWAYS VISIBLE)
-   * ----------------------------- */
-  const getFeelingLabel = () => {
-    // Vibe mode wins
-    if (activeVibe) return activeVibe;
+ * VIBE (modifier)
+ * - requires lane to exist
+ * - encoded as TEXT so engine sees it as intent bias
+ * ----------------------------- */
+const runVibe = useCallback(
+  (vibeName: string, catOverride?: string, indexOverride?: number) => {
+    const cat = catOverride ?? categoryRef.current;
 
-    // Photo
+    cancelAutoGo();
+    closeAllDropdowns();
+
+    // ✅ vibe only valid once a lane exists
+    const lane = clarifierRef.current;
+    if (!lane) return;
+
+    setInput("");
+    setActiveVibe(vibeName);
+
+    // vibe is modifier => keep mode as clarifier (lane-first)
+    setLastSearchMode("clarifier");
+    setLastTypedSeed("");
+
+    if (typeof indexOverride === "number") setVibeIndex(indexOverride);
+
+    const q = buildQuery(cat, lane, vibeName, "ai");
+    startSearch(q, cat);
+  },
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  []
+);
+
+  /* -----------------------------
+   * PLAY BUTTON
+   * - cycles GENRE (clarifier) instead of vibes
+   * - solves “genre hidden behind +”
+   * ----------------------------- */
+  const handlePlayStable = useCallback(() => {
+    const cat = categoryRef.current;
+
+    // Only meaningful for now on Movies (you can expand later)
+    const clarifiers = (() => {
+      switch (cat) {
+        case "Movies":
+          return movieClarifiers;
+        case "TV Shows":
+          return tvClarifiers;
+        case "Books":
+          return bookClarifiers;
+        case "Wine":
+          return wineClarifiers;
+        default:
+          return movieClarifiers;
+      }
+    })();
+
+    // find next clarifier
+    const current = clarifierRef.current;
+    const currentIdx = current ? Math.max(clarifiers.indexOf(current), -1) : -1;
+    const nextIdx = (currentIdx + 1) % clarifiers.length;
+    const nextClar = clarifiers[nextIdx];
+
+    // set lane + run auto-go immediately
+    setClarifier(nextClar);
+    setActiveVibe(null);
+    setInput("");
+
+    setLastSearchMode("clarifier");
+    setLastTypedSeed("");
+
+    const q = buildQuery(cat, nextClar, "", "pool");
+    startSearch(q, cat);
+  }, []);
+
+  // Register Play handler with Page.tsx
+  useEffect(() => {
+    registerVibePlay?.(handlePlayStable);
+  }, [registerVibePlay, handlePlayStable]);
+
+  /* -----------------------------
+   * FEELING / LANE LABEL
+   * ----------------------------- */
+  const getLaneLabel = () => {
+    // Photo override
     if (lastSearchMode === "photo") return "Based on your photo";
 
-    // Typed seed
-    if (lastSearchMode === "typed" && lastTypedSeed.trim())
-      return `Based on “${lastTypedSeed.trim()}”`;
+    // Base lane
+    const parts: string[] = [];
+    parts.push(clarifier ? clarifier : "Surprise me");
 
-    // Clarifier chosen
-    if (clarifier) return clarifier;
+    // Modifier vibe only after lane exists
+    if (clarifier && activeVibe) parts.push(activeVibe);
 
-    // Category-only / empty
-    return "Surprise me";
+    // Typed seed last (your request: sports first, then vibe second)
+    if (lastSearchMode === "typed" && lastTypedSeed.trim()) {
+      // If no lane, show typed as primary lane label
+      if (!clarifier) return `“${lastTypedSeed.trim()}”`;
+      return `${parts.join(" • ")} • “${lastTypedSeed.trim()}”`;
+    }
+
+    return parts.join(" • ");
   };
 
   /* -----------------------------
@@ -334,41 +371,57 @@ const SearchBar: React.FC<SearchBarProps> = ({
     cancelAutoGo();
     closeAllDropdowns();
 
-    // Photo flow (if captured)
+    // Photo flow
     if (capturedPhoto) {
       setLoading?.(true);
       triggerPulse();
-      onSearch("__PHOTO__:" + capturedPhoto, category);
+      onSearch("__PHOTO__:" + capturedPhoto, categoryRef.current);
+
       setCapturedPhoto(null);
       setInput("");
-      clearVibeMode();
+      setActiveVibe(null);
 
       setLastSearchMode("photo");
       setLastTypedSeed("");
-
       return;
     }
 
     const trimmed = input.trim();
-    const q = buildQuery(category, clarifier, trimmed);
 
-    // Determine mode for Feeling label
-    if (trimmed) {
-      setLastSearchMode("typed");
-      setLastTypedSeed(trimmed);
-    } else if (clarifier) {
-      setLastSearchMode("clarifier");
-      setLastTypedSeed("");
-    } else {
-      setLastSearchMode("categoryOnly");
-      setLastTypedSeed("");
-    }
+   // If they typed, that becomes the primary lane label (no surprise-me)
+   if (trimmed) {
+     setLastSearchMode("typed");
+     setLastTypedSeed(trimmed);
 
-    // Allow empty GO (category-only)
-    startSearch(q, category);
+   // typed should clear vibe modifier (prevents weird “sports + goofy” unless user re-adds)
+    setActiveVibe(null);
+
+     const mode: "pool" | "ai" = clarifierRef.current ? "ai" : "pool";
+     const q = buildQuery(categoryRef.current, clarifierRef.current, trimmed, mode);
+     startSearch(q, categoryRef.current);
 
     setInput("");
-    clearVibeMode();
+   return;
+  }
+
+
+    // no typed
+    if (clarifierRef.current) {
+  setLastSearchMode("clarifier");
+  setLastTypedSeed("");
+
+  const q = buildQuery(categoryRef.current, clarifierRef.current, "", "ai");
+  startSearch(q, categoryRef.current);
+} else {
+  setLastSearchMode("categoryOnly");
+  setLastTypedSeed("");
+
+  const q = buildQuery(categoryRef.current, null, "", "pool");
+  startSearch(q, categoryRef.current);
+}
+
+setInput("");
+
   };
 
   /* -----------------------------
@@ -377,8 +430,7 @@ const SearchBar: React.FC<SearchBarProps> = ({
   const handleOpenCamera = () => {
     cancelAutoGo();
     closeAllDropdowns();
-    clearVibeMode();
-    setOpenVibes(false);
+    setActiveVibe(null);
     setIsCameraOpen(true);
     setHasCaptured(false);
     setCapturedPhoto(null);
@@ -432,9 +484,9 @@ const SearchBar: React.FC<SearchBarProps> = ({
         setHasCaptured(false);
         setLoading?.(true);
         triggerPulse();
-        onSearch("__PHOTO__:" + capturedPhoto, category);
-        clearVibeMode();
+        onSearch("__PHOTO__:" + capturedPhoto, categoryRef.current);
 
+        setActiveVibe(null);
         setLastSearchMode("photo");
         setLastTypedSeed("");
       }
@@ -467,7 +519,8 @@ const SearchBar: React.FC<SearchBarProps> = ({
   /* -----------------------------
    * RENDER
    * ----------------------------- */
-  const feelingLabel = getFeelingLabel();
+  const laneLabel = getLaneLabel();
+  const vibeEnabled = !!clarifier;
 
   return (
     <div className="w-full relative">
@@ -479,11 +532,11 @@ const SearchBar: React.FC<SearchBarProps> = ({
                    transition-all duration-200 hover:shadow-[0_3px_10px_rgba(0,0,0,0.12)]
                    focus-within:shadow-[0_3px_12px_rgba(0,0,0,0.14)]"
       >
-        {/* ✅ VIBE PLAY (front-door) */}
+        {/* PLAY (cycles lane/genre) */}
         <button
           type="button"
-          onClick={handleVibePlayStable}
-          title="Play a vibe"
+          onClick={handlePlayStable}
+          title="Play a lane"
           className="mr-3 p-2 rounded-full border border-gray-300 text-gray-600 hover:text-black hover:border-gray-500 transition"
         >
           <Play size={18} strokeWidth={1.8} />
@@ -510,18 +563,33 @@ const SearchBar: React.FC<SearchBarProps> = ({
               type="button"
               onClick={() => {
                 cancelAutoGo();
-                clearVibeMode();
                 setOpenClarifiers((prev) => !prev);
                 setOpenCategory(false);
                 setOpenVibes(false);
               }}
               className="text-gray-500 hover:text-gray-700 transition"
+              title="Pick a lane"
             >
               <Plus size={15} strokeWidth={1.8} />
             </button>
           )}
 
-          {clarifier && <span className="text-sm text-gray-600 ml-1">{clarifier}</span>}
+          {clarifier && (
+            <button
+              type="button"
+              onClick={() => {
+                cancelAutoGo();
+                setOpenClarifiers((p) => !p);
+                setOpenCategory(false);
+                setOpenVibes(false);
+              }}
+              className="flex items-center gap-1 text-sm text-gray-600 hover:text-black transition ml-1"
+              title="Change lane"
+            >
+              {clarifier}
+              <ChevronDown size={14} strokeWidth={1.8} />
+            </button>
+          )}
         </div>
 
         {/* INPUT */}
@@ -532,7 +600,6 @@ const SearchBar: React.FC<SearchBarProps> = ({
           onChange={(e) => {
             setInput(e.target.value);
             cancelAutoGo();
-            clearVibeMode();
             setOpenVibes(false);
           }}
           className="flex-grow bg-transparent outline-none text-black placeholder-gray-500 text-base"
@@ -547,39 +614,49 @@ const SearchBar: React.FC<SearchBarProps> = ({
           <Camera size={20} strokeWidth={1.7} />
         </button>
 
-        {/* GO BUTTON */}
+        {/* GO */}
         <button type="submit" className="font-semibold text-gray-800 hover:text-black transition">
           GO
         </button>
       </form>
 
-      {/* ✅ FEELING (ALWAYS VISIBLE) + CHEVRON + OVERLAY ANCHOR */}
+      {/* LANE LINE + VIBE MODIFIER */}
       <div className="relative mt-2 text-xs text-gray-500 pl-1 flex items-center gap-1">
         <span>
-          Feeling: <span className="font-semibold text-gray-700">{feelingLabel}</span>
+          Lane: <span className="font-semibold text-gray-700">{laneLabel}</span>
         </span>
 
         <button
           type="button"
+          disabled={!vibeEnabled}
           onClick={() => {
+            if (!vibeEnabled) return;
             cancelAutoGo();
             setOpenVibes((p) => !p);
             setOpenCategory(false);
             setOpenClarifiers(false);
           }}
-          className="ml-1 inline-flex items-center justify-center rounded-md border border-gray-200 bg-white px-1.5 py-0.5 text-gray-600 hover:text-black hover:border-gray-300 transition"
-          title="Pick a vibe"
+          className={[
+            "ml-1 inline-flex items-center justify-center rounded-md border px-1.5 py-0.5 transition",
+            vibeEnabled
+              ? "border-gray-200 bg-white text-gray-600 hover:text-black hover:border-gray-300"
+              : "border-gray-100 bg-gray-50 text-gray-300 cursor-not-allowed",
+          ].join(" ")}
+          title={vibeEnabled ? "Pick a vibe (optional)" : "Pick a lane first"}
         >
           {openVibes ? <ChevronUp size={14} strokeWidth={1.8} /> : <ChevronDown size={14} strokeWidth={1.8} />}
         </button>
 
-        {/* ✅ VIBE DROPDOWN (OVERLAY — DOES NOT PUSH CARDS) */}
-        {openVibes && (
+        {!vibeEnabled && (
+          <span className="ml-1 text-[11px] text-gray-400">Pick a lane first</span>
+        )}
+
+        {openVibes && vibeEnabled && (
           <div className="absolute left-0 top-[calc(100%+8px)] w-full max-w-[320px] bg-white border border-gray-300 rounded-xl shadow-lg py-2 z-50">
             {getVibesForCategory(category).map((v, idx) => (
               <button
                 key={v}
-                onClick={() => runVibe(v, category, idx)}
+                onClick={() => runVibe(v, categoryRef.current, idx)}
                 className="block w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 transition"
               >
                 {v}
@@ -605,11 +682,25 @@ const SearchBar: React.FC<SearchBarProps> = ({
       )}
 
       {/* CLARIFIER DROPDOWN */}
-      {openClarifiers && !clarifier && (
-        <div className="absolute top-[108%] left-0 w-[150px] bg-white border border-gray-300 rounded-xl shadow-lg py-1.5 z-40">
+      {openClarifiers && (
+        <div className="absolute top-[108%] left-0 w-[170px] bg-white border border-gray-300 rounded-xl shadow-lg py-1.5 z-40">
+          {clarifier && (
+            <>
+              <button
+                type="button"
+                onClick={clearLane}
+                className="block w-full text-left px-3 py-1.5 text-sm text-gray-500 hover:bg-gray-100 transition"
+              >
+                Clear lane
+              </button>
+              <div className="border-t my-1 border-gray-200" />
+            </>
+          )}
+
           {getClarifierSet().map((g) => (
             <button
               key={g}
+              type="button"
               onClick={() => handleSelectClarifier(g)}
               className="block w-full text-left px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100 transition"
             >
@@ -623,6 +714,7 @@ const SearchBar: React.FC<SearchBarProps> = ({
               {advancedOptions.map((opt) => (
                 <button
                   key={opt}
+                  type="button"
                   onClick={() => handleSelectClarifier(opt)}
                   className="block w-full text-left px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100 transition"
                 >

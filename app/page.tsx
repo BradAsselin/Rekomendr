@@ -5,7 +5,6 @@ import SearchBar from "../src/components/SearchBar";
 import ResultsV4 from "../src/components/ResultsV4";
 import { getTop5FromEngine, type Rek } from "../src/engine/rekomendrEngine";
 
-// Local type (keeps TS green)
 export type Category = "Movies" | "TV Shows" | "Books" | "Wine";
 
 function normalizeCategoryFromString(raw: string): Category {
@@ -16,37 +15,54 @@ function normalizeCategoryFromString(raw: string): Category {
   return "Movies";
 }
 
-// ✅ Source-of-truth: category encoded in query ("Wine||..." or "Movies|Comedy|...")
 function categoryFromQuery(query: string): Category {
   const q = (query || "").trim();
   if (!q) return "Movies";
-  if (q.startsWith("__PHOTO__:")) return "Movies"; // caller should override with UI category
+  if (q.startsWith("__PHOTO__:")) return "Movies";
 
   const parts = q.includes("||") ? q.split("||") : q.split("|");
   const rawCategory = (parts[0] || "Movies").trim();
   return normalizeCategoryFromString(rawCategory);
 }
 
+function loadingLabelFromQuery(query: string, cat: Category): string {
+  const q = (query || "").trim();
+
+  if (!q) return "Finding fresh Reks for you...";
+  if (q.startsWith("__PHOTO__:")) return `Finding ${cat} Reks from your photo...`;
+
+  const parts = q.includes("||") ? q.split("||") : q.split("|");
+  const clarifier = (parts[1] || "").trim();
+  const text = (parts[2] || "").trim();
+
+  if (text) return `Finding ${cat} Reks for "${text}"...`;
+  if (clarifier.toLowerCase().startsWith("vibe:")) {
+    const vibe = clarifier.slice(5).trim();
+    return `Finding ${cat} Reks for ${vibe || "that vibe"}...`;
+  }
+  if (clarifier) return `Finding ${cat} Reks for ${clarifier}...`;
+
+  return "Finding fresh Reks for you...";
+}
+
 export default function Page() {
   const [reks, setReks] = useState<Rek[]>([]);
   const [loading, setLoading] = useState(false);
+  const [loadingLabel, setLoadingLabel] = useState("Finding fresh Reks for you...");
   const [sourceImage, setSourceImage] = useState<string | null>(null);
-
-  // single source of truth for current vertical (used by backfill/more-like-this)
   const [category, setCategory] = useState<Category>("Movies");
 
-  // ✅ bridge: allow ResultsV4 to trigger SearchBar vibe play
   const vibePlayRef = useRef<null | (() => void)>(null);
-
-  // ✅ DEV STRICT-MODE GUARD (prevents front-door reroll)
   const didInitRef = useRef(false);
 
   useEffect(() => {
-    if (didInitRef.current) return; // ✅ blocks 2nd StrictMode mount pass
+    if (didInitRef.current) return;
     didInitRef.current = true;
 
     const loadInitial = async () => {
       setLoading(true);
+      setLoadingLabel("Finding fresh Reks for you...");
+
       try {
         setSourceImage(null);
         const initial = await getTop5FromEngine({ rawQuery: "Movies||" });
@@ -63,17 +79,15 @@ export default function Page() {
     loadInitial();
   }, []);
 
-  // SearchBar contract: onSearch(query, category)
   const handleSearch = async (query: string, cat: string) => {
-    setLoading(true);
-
-    // ✅ Determine category from query (truth), fallback to cat for photo flow
     const inferred = categoryFromQuery(query);
     const nextCategory = query.startsWith("__PHOTO__:")
       ? normalizeCategoryFromString(cat)
       : inferred;
 
     setCategory(nextCategory);
+    setLoading(true);
+    setLoadingLabel(loadingLabelFromQuery(query, nextCategory));
 
     try {
       if (query.startsWith("__PHOTO__:")) {
@@ -99,7 +113,6 @@ export default function Page() {
         <SearchBar
           onSearch={handleSearch}
           setLoading={setLoading}
-          // You can keep this; it’s not the cause of reroll.
           hasHistory={reks.length > 0}
           registerVibePlay={(fn) => {
             vibePlayRef.current = fn;
@@ -110,6 +123,7 @@ export default function Page() {
           <ResultsV4
             reks={reks}
             loading={loading}
+            loadingLabel={loadingLabel}
             sourceImage={sourceImage}
             category={category}
             onPlayVibe={() => vibePlayRef.current?.()}

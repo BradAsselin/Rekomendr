@@ -1,27 +1,24 @@
 /* ------------------------------------------------------------------
-   Rekomendr Engine – V2 (with Intent Persistence – Phase 1)
-   - Category-aware pools via /api/recs?category=
-   - Supports both "Movies|Comedy|text" AND "Movies||Comedy||text" formats
-   - Starter decks (Deer Trails) + safe fallbacks
-   - Vibe Play: clarifier = "vibe:<name>" → starterDeckId
-   - Pool exhaustion safety valve (soft reset per category)
-   - Per-tile vibe tags: rek.vibeTags?: string[]
-   - Tier progression bias: rek.tier?: "T1" | "T2" | "T3"
+   Rekomendr Engine – V1 Magic Hybrid
+   - Pool / Deer Trails for Play button and explicit mode:pool
+   - Full AI generation for discovery mode
+   - Intent persistence so AI follows the user's path
+   - +MoreLikeThis and thumbs backfill use AI when session is in AI mode
+   - Quiet fail-open to canned pool if AI generation fails
 
-   ✅ NEW (Phase 1): Intent Persistence
-   - Engine stores last intent per category (clarifier + typed text + deck/tag)
-   - Backfill and +MoreLikeThis use that intent to prevent lane drift
-
-   ✅ FIX: Robust genre tokenization
-   - Split genre strings on bullets, commas, pipes, slashes, etc.
+   Philosophy:
+   - Play button = fast, deterministic, safe
+   - Any clarifier or typed text = full AI discovery
+   - Once AI mode is active for a category, refinements stay AI-driven
 ------------------------------------------------------------------- */
 
 import { getTop5FromDeck } from "./deckSelector";
+import { buildCompassTop5FromDeck } from "./compass/compassPick";
 
 /**
  * Feature flag
- * true  = Starter Decks (Deer Trails)
- * false = AI-only (V1 behavior)
+ * true  = Starter Decks (Deer Trails) for pool mode
+ * false = always skip decks and use fallback pool logic
  */
 const USE_DEER_TRAILS = true;
 
@@ -37,18 +34,31 @@ export interface Rek {
   trailerUrl?: string;
   genre?: string;
   isFavorite?: boolean;
-
-  // per-tile vibe tags (navigation-only, 1–2)
   vibeTags?: string[];
-
-  // tier progression (trust → refined → discovery)
   tier?: "T1" | "T2" | "T3";
 }
 
 export type Category = "Movies" | "TV Shows" | "Books" | "Wine";
+type IntentMode = "pool" | "ai";
+
+type Intent = {
+  category: Category;
+  clarifier: string;
+  text: string;
+  deckId: string | null;
+  vibeTag: string | null;
+  isVibeClarifier: boolean;
+  mode: IntentMode;
+};
 
 /* ------------------------------------------------------------------
-   SESSION-LEVEL MEMORY (NO REPEATS PER SESSION, PER CATEGORY)
+   FEATURE TOGGLES / CONSTANTS
+------------------------------------------------------------------- */
+const MAX_AI_ITEMS = 8;
+const MAX_AI_BACKFILL_OPTIONS = 3;
+
+/* ------------------------------------------------------------------
+   SESSION-LEVEL MEMORY
 ------------------------------------------------------------------- */
 const sessionSeenByCategory: Record<Category, Set<string>> = {
   Movies: new Set(),
@@ -60,18 +70,6 @@ const sessionSeenByCategory: Record<Category, Set<string>> = {
 function getSessionSeen(category: Category): Set<string> {
   return sessionSeenByCategory[category];
 }
-
-/* ------------------------------------------------------------------
-   ✅ INTENT PERSISTENCE (PHASE 1)
-------------------------------------------------------------------- */
-type Intent = {
-  category: Category;
-  clarifier: string; // raw clarifier string (may be "vibe:...")
-  text: string; // typed query text (e.g., "sports")
-  deckId: string | null; // if locked vibe maps to a deck
-  vibeTag: string | null; // if vibe:<X> is NOT a locked vibe, treat as tag branch
-  isVibeClarifier: boolean; // startsWith("vibe:")
-};
 
 const lastIntentByCategory: Record<Category, Intent | null> = {
   Movies: null,
@@ -89,8 +87,16 @@ function getLastIntent(category: Category): Intent | null {
 }
 
 /* ------------------------------------------------------------------
-   ✅ TIER PROGRESSION (TRUST → REFINED → DISCOVERY)
-   - Pure bias helper. Never hard-filters.
+   GENERATED ID HELPERS
+------------------------------------------------------------------- */
+let generatedIdCounter = -1;
+
+function nextGeneratedId(): number {
+  return generatedIdCounter--;
+}
+
+/* ------------------------------------------------------------------
+   TIER PROGRESSION
 ------------------------------------------------------------------- */
 type Tier = "T1" | "T2" | "T3";
 
@@ -152,9 +158,6 @@ function deckFromClarifier(clarifier: string): string | null {
   return null;
 }
 
-/* ------------------------------------------------------------------
-   TAG FROM CLARIFIER (vibe:<tag>) IF NOT A LOCKED VIBE
-------------------------------------------------------------------- */
 function tagFromClarifier(clarifier: string): string | null {
   const c = (clarifier || "").trim();
   if (!c) return null;
@@ -162,10 +165,13 @@ function tagFromClarifier(clarifier: string): string | null {
 
   const name = c.slice(5).trim();
   if (!name) return null;
-  if (VIBE_TO_DECK[name]) return null; // locked vibe => deck path, not tag branch
+  if (VIBE_TO_DECK[name]) return null;
   return name;
 }
 
+/* ------------------------------------------------------------------
+   NORMALIZATION / TAG HELPERS
+------------------------------------------------------------------- */
 function normalizeTag(t: string): string {
   return (t || "")
     .trim()
@@ -180,14 +186,32 @@ function hasVibeTag(rek: Rek, tag: string): boolean {
   return rek.vibeTags.some((x) => normalizeTag(x) === n);
 }
 
+function normalize(list: Rek[]): Rek[] {
+  return list.map((r) => ({
+    ...r,
+    isFavorite: r.isFavorite ?? false,
+    trailerUrl:
+      r.trailerUrl ||
+      `https://www.youtube.com/results?search_query=${encodeURIComponent(
+        `${r.title} trailer`
+      )}`,
+  }));
+}
+
 /* ------------------------------------------------------------------
-   QUERY PARSE (SUPPORTS "|" AND "||")
+   QUERY PARSE
+   Rule:
+   - Explicit mode:pool wins
+   - Explicit mode:ai wins
+   - Otherwise: any clarifier OR any typed text => ai
+   - Otherwise => pool
 ------------------------------------------------------------------- */
 function parseRawQuery(rawQuery: string): {
   category: Category;
   clarifier: string;
   text: string;
   context: string;
+  mode: IntentMode;
 } {
   const q = (rawQuery ?? "").trim();
   const parts = q.includes("||") ? q.split("||") : q.split("|");
@@ -195,6 +219,12 @@ function parseRawQuery(rawQuery: string): {
   const rawCategory = (parts[0] ?? "Movies").trim();
   const clarifier = (parts[1] ?? "").trim();
   const text = (parts[2] ?? "").trim();
+  const maybeMode = (parts[3] ?? "").trim().toLowerCase();
+
+  let mode: IntentMode = "pool";
+  if (maybeMode === "mode:pool") mode = "pool";
+  else if (maybeMode === "mode:ai") mode = "ai";
+  else if ((clarifier && clarifier.length > 0) || (text && text.length > 0)) mode = "ai";
 
   const c = rawCategory.toLowerCase();
   let category: Category = "Movies";
@@ -204,17 +234,18 @@ function parseRawQuery(rawQuery: string): {
 
   const context = [
     `Vertical: ${category}`,
-    clarifier ? `Clarifier: ${clarifier}` : "",
+    clarifier ? `Lane/Clarifier: ${clarifier}` : "",
     text ? `User text: ${text}` : "",
+    `Mode: ${mode}`,
   ]
     .filter(Boolean)
     .join(" | ");
 
-  return { category, clarifier, text, context };
+  return { category, clarifier, text, context, mode };
 }
 
 /* ------------------------------------------------------------------
-   FETCH FULL POOL (CATEGORY-AWARE)
+   FETCH FULL POOL
 ------------------------------------------------------------------- */
 async function fetchPool(category: string): Promise<Rek[]> {
   const c = (category || "").trim().toLowerCase();
@@ -238,37 +269,20 @@ async function fetchPool(category: string): Promise<Rek[]> {
 }
 
 /* ------------------------------------------------------------------
-   NORMALIZATION
-------------------------------------------------------------------- */
-function normalize(list: Rek[]): Rek[] {
-  return list.map((r) => ({
-    ...r,
-    isFavorite: r.isFavorite ?? false,
-    trailerUrl:
-      r.trailerUrl ||
-      `https://www.youtube.com/results?search_query=${encodeURIComponent(
-        r.title + " trailer"
-      )}`,
-  }));
-}
-
-/* ------------------------------------------------------------------
-   ✅ ROBUST GENRE TOKENIZATION (FIXES DRIFT)
+   ROBUST GENRE TOKENIZATION
 ------------------------------------------------------------------- */
 function tokensFromGenre(genre?: string): string[] {
   return (genre ?? "")
     .toLowerCase()
-    // normalize separators into commas
     .replace(/[•|/]+/g, ",")
     .replace(/\s*&\s*/g, ",")
-    // also split on commas
     .split(",")
     .map((t) => t.trim())
     .filter(Boolean);
 }
 
 /* ------------------------------------------------------------------
-   CLARIFIER FILTER (data-only enforcement, graceful fallback)
+   CLARIFIER FILTER / TEXT FILTERS
 ------------------------------------------------------------------- */
 function applyClarifierFilter(pool: Rek[], clarifier: string): Rek[] {
   const c = (clarifier || "").trim().toLowerCase();
@@ -278,9 +292,6 @@ function applyClarifierFilter(pool: Rek[], clarifier: string): Rek[] {
   return filtered.length >= 5 ? filtered : pool;
 }
 
-/* ------------------------------------------------------------------
-   TEXT (TYPED) INTENT FILTER (SOFT, FAILS OPEN)
-------------------------------------------------------------------- */
 function tokenizeText(s: string): string[] {
   return (s || "")
     .toLowerCase()
@@ -304,82 +315,26 @@ function matchesTextIntent(rek: Rek, tokens: string[]): boolean {
     .join(" ")
     .toLowerCase();
 
-  // require at least 1 token hit
   return tokens.some((t) => hay.includes(t));
 }
 
 function applyIntentFilters(pool: Rek[], intent: Intent | null): Rek[] {
   if (!intent) return pool;
 
-  // Tag branch (hardest constraint, but fail-open)
   if (intent.vibeTag) {
     const tagged = pool.filter((r) => hasVibeTag(r, intent.vibeTag!));
     if (tagged.length >= 5) return tagged;
-    // if too small, fail open to full pool
   }
 
-  // Clarifier (non-vibe)
   if (!intent.isVibeClarifier && intent.clarifier) {
     return applyClarifierFilter(pool, intent.clarifier);
   }
 
-  // Vibe-deck clarifier: do NOT apply clarifier filter (vibe is not a genre)
   return pool;
 }
 
 /* ------------------------------------------------------------------
-   AI SELECTS TITLES ONLY (V1 FALLBACK)
-------------------------------------------------------------------- */
-async function getAITop5Titles(
-  pool: Rek[],
-  context: string,
-  sessionSeen: Set<string>
-): Promise<string[] | null> {
-  try {
-    const availableTitles = pool
-      .filter((r) => !sessionSeen.has(r.title))
-      .map((r) => r.title);
-
-    if (availableTitles.length < 5) return null;
-
-    const prompt = `
-You are a taste-based recommendation engine.
-
-User context:
-"${context}"
-
-Available titles:
-${availableTitles.join(", ")}
-
-Rules:
-- Select EXACTLY 5 titles
-- Only from the list above
-- No repeats
-- Respond ONLY with a valid JSON array
-
-Example:
-["A","B","C","D","E"]
-`;
-
-    const res = await fetch("/api/openai", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt }),
-    });
-
-    const raw = await res.text();
-    const jsonMatch = raw.match(/\[[\s\S]*\]/);
-    if (!jsonMatch) return null;
-
-    const parsed = JSON.parse(jsonMatch[0]);
-    return Array.isArray(parsed) && parsed.length === 5 ? parsed : null;
-  } catch {
-    return null;
-  }
-}
-
-/* ------------------------------------------------------------------
-   COHESION HELPERS (Top-5 feel)
+   COHESION HELPERS
 ------------------------------------------------------------------- */
 function tokenize(s: string): string[] {
   return (s || "")
@@ -409,11 +364,11 @@ function jaccard(a: Set<string>, b: Set<string>): number {
 }
 
 function pickCohesiveFive(args: {
-  pool: any[];
+  pool: Rek[];
   usedTitles: Set<string>;
-  anchorHint: any | null;
+  anchorHint: Rek | null;
   preferGenre: string | null;
-}): any[] {
+}): Rek[] {
   const { pool, usedTitles, anchorHint, preferGenre } = args;
 
   const candidates = pool.filter((r) => r?.title && !usedTitles.has(r.title));
@@ -443,7 +398,7 @@ function pickCohesiveFive(args: {
     })
     .sort((a, b) => b.score - a.score);
 
-  const picked: any[] = [anchor];
+  const picked: Rek[] = [anchor];
   for (const s of scored) {
     if (picked.length >= 5) break;
     picked.push(s.r);
@@ -453,7 +408,306 @@ function pickCohesiveFive(args: {
 }
 
 /* ------------------------------------------------------------------
-   ✅ PER-TILE TAG BRANCH (DETERMINISTIC)
+   AI GENERATION
+   Uses /api/openai backward-compatible prompt mode.
+   Returns generated Rek objects directly.
+------------------------------------------------------------------- */
+type GeneratedRekWire = {
+  title?: string;
+  year?: number | string;
+  short?: string;
+  long?: string;
+  genre?: string;
+  vibeTags?: string[];
+  trailerUrl?: string;
+};
+
+function extractJsonArray(text: string): any[] | null {
+  try {
+    const direct = JSON.parse(text);
+    if (Array.isArray(direct)) return direct;
+    if (Array.isArray(direct?.results)) return direct.results;
+    if (Array.isArray(direct?.recommendations)) return direct.recommendations;
+  } catch {}
+
+  const match = text.match(/\[[\s\S]*\]/);
+  if (!match) return null;
+
+  try {
+    const parsed = JSON.parse(match[0]);
+    if (Array.isArray(parsed)) return parsed;
+  } catch {}
+
+  return null;
+}
+
+function sanitizeGeneratedRek(item: GeneratedRekWire, category: Category): Rek | null {
+  let rawTitle = String(item?.title ?? "").trim();
+  if (!rawTitle) return null;
+
+  // tolerate titles like "Prisoners (2013)" or "The Night Of [2016]"
+  const yearMatch = rawTitle.match(/\((19|20)\d{2}\)|\[(19|20)\d{2}\]/);
+  let extractedYear: number | null = null;
+
+  if (yearMatch) {
+    const y = yearMatch[0].replace(/[^\d]/g, "");
+    const parsed = Number(y);
+    if (Number.isFinite(parsed)) extractedYear = parsed;
+    rawTitle = rawTitle.replace(/\s*[\(\[](?:19|20)\d{2}[\)\]]\s*/g, "").trim();
+  }
+
+  // strip numbering / bullets / quotes
+  rawTitle = rawTitle
+    .replace(/^\d+[\.\)\-:]\s*/, "")
+    .replace(/^[-•*]\s*/, "")
+    .replace(/^["“”']+|["“”']+$/g, "")
+    .trim();
+
+  if (!rawTitle) return null;
+
+  const rawYear = Number(item?.year);
+  const year =
+    Number.isFinite(rawYear) && rawYear >= 1900 && rawYear <= 2100
+      ? Math.round(rawYear)
+      : extractedYear && extractedYear >= 1900 && extractedYear <= 2100
+      ? extractedYear
+      : new Date().getFullYear();
+
+  const short = String(item?.short ?? "").trim();
+  const long = String(item?.long ?? "").trim();
+  const genre = String(item?.genre ?? "").trim();
+
+  const safeShort =
+    short ||
+    `A ${category.toLowerCase()} recommendation chosen to match the current vibe and discovery path.`;
+
+  const safeLong = long || safeShort;
+
+  const vibeTags = Array.isArray(item?.vibeTags)
+    ? item.vibeTags
+        .map((v) => String(v).trim())
+        .filter(Boolean)
+        .slice(0, 3)
+    : undefined;
+
+  const trailerUrl =
+    String(item?.trailerUrl ?? "").trim() ||
+    `https://www.youtube.com/results?search_query=${encodeURIComponent(
+      `${rawTitle} trailer`
+    )}`;
+
+  return {
+    id: nextGeneratedId(),
+    title: rawTitle,
+    year,
+    short: safeShort,
+    long: safeLong,
+    genre: genre || undefined,
+    vibeTags,
+    trailerUrl,
+    tier: "T3",
+    isFavorite: false,
+  };
+}
+
+function buildAIPrompt(args: {
+  category: Category;
+  count: number;
+  context: string;
+  seedTitle?: string;
+  likedTitles?: string[];
+  dislikedTitles?: string[];
+  currentTitles?: string[];
+  seenTitles?: string[];
+  backfill?: boolean;
+}): string {
+  const {
+    category,
+    count,
+    context,
+    seedTitle,
+    likedTitles = [],
+    dislikedTitles = [],
+    currentTitles = [],
+    seenTitles = [],
+    backfill = false,
+  } = args;
+
+  const avoidTitles = Array.from(
+  new Set([...(currentTitles ?? []), ...(seenTitles ?? [])])
+)
+  .filter(Boolean)
+  .slice(-60);
+
+  const categoryInstructions: Record<Category, string> = {
+    Movies:
+      "Recommend real movies only. No fake or invented films. Prefer discoverable, vibe-matching films over obvious catalog filler unless the context points there.",
+    "TV Shows":
+      "Recommend real TV series or limited series only. No fake or invented shows.",
+    Books:
+      "Recommend real books only. No fake or invented books.",
+    Wine:
+      "Recommend real wines, producers, regions, or bottles that are plausible and useful. Do not invent absurd fake labels.",
+  };
+
+  return `
+You are Rekomendr in full AI discovery mode.
+
+Your job:
+Generate ${count} ${category} recommendations as fresh discovery picks.
+
+Core behavior:
+- Follow the user's path and mood, not just the literal words.
+- If a seed title is provided, recommend things that feel like a smart "more like this."
+- If likes/dislikes are provided, use them to refine the taste lane.
+- Avoid repeating or returning titles already shown in this session.
+- Prefer real titles/items. Do not invent fake media.
+- Return ONLY a valid JSON array. No commentary. No markdown.
+
+Output format:
+[
+  {
+    "title": "Example Title",
+    "year": 2014,
+    "short": "2-3 sentence hooky, conversational description that explains what the story is about and why it is worth watching. Write like strong Netflix-style recommendation copy, not a review.",
+    "long": "A slightly richer explanation of the vibe, tone, pacing, and why it matches the user's path.",
+    "genre": "Comedy • Drama",
+    "vibeTags": ["Witty", "Heartfelt"],
+    "trailerUrl": "https://www.youtube.com/results?search_query=Example%20Title%20trailer"
+  }
+]
+Rules:
+- short must be 2-3 sentences.
+- short should clearly explain what the story is about, not just how it feels.
+- short should include the hook: what is happening, who it follows, or what makes the premise compelling.
+- short should make the user think "that sounds like something I'd want to watch."
+- write in natural, conversational Netflix-style recommendation language.
+- write like a smart human curator, not a critic or film professor.
+- avoid review language like "visually stunning," "showcases," "meditation on," "deconstructs," "blends tone," or "features a unique style."
+- prioritize story hook first, fit second.
+
+Rules:
+- Aim for exactly ${count} items.
+- It is better to return strong real recommendations than force bad filler.
+- Use plain strings only.
+- year must be numeric.
+- long should feel like a recommendation blurb, not a plot summary dump.
+- Keep the set coherent but not repetitive.
+- Do not include any title from the avoid list.
+- ${backfill ? "This is a single replacement/backfill moment after a thumbs action. Give the next best discoveries." : "This is a fresh recommendation set."}
+
+Category guidance:
+${categoryInstructions[category]}
+
+User path context:
+${context}
+
+Seed title:
+${seedTitle ? seedTitle : "(none)"}
+
+Recent likes:
+${likedTitles.length ? likedTitles.slice(-10).join(", ") : "(none)"}
+
+Recent dislikes:
+${dislikedTitles.length ? dislikedTitles.slice(-10).join(", ") : "(none)"}
+
+Current visible titles:
+${currentTitles.length ? currentTitles.slice(-15).join(", ") : "(none)"}
+
+Avoid these already-used titles:
+${avoidTitles.length ? avoidTitles.join(", ") : "(none)"}
+`.trim();
+}
+
+async function generateAIReks(args: {
+  category: Category;
+  count: number;
+  context: string;
+  seedTitle?: string;
+  likedTitles?: string[];
+  dislikedTitles?: string[];
+  currentTitles?: string[];
+  seenTitles?: Set<string>;
+  backfill?: boolean;
+}): Promise<Rek[] | null> {
+  try {
+    const prompt = buildAIPrompt({
+      category: args.category,
+      count: args.count,
+      context: args.context,
+      seedTitle: args.seedTitle,
+      likedTitles: args.likedTitles,
+      dislikedTitles: args.dislikedTitles,
+      currentTitles: args.currentTitles,
+      seenTitles: Array.from(args.seenTitles ?? []),
+      backfill: args.backfill,
+    });
+
+    const res = await fetch("/api/openai", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt }),
+    });
+
+    if (!res.ok) return null;
+
+    const raw = await res.text();
+    const arr = extractJsonArray(raw);
+    if (!arr || arr.length === 0) return null;
+
+    const seen = new Set<string>(
+      Array.from(args.seenTitles ?? []).map((t) => t.toLowerCase())
+    );
+
+       const out: Rek[] = [];
+    const dedupe = new Set<string>();
+
+    for (const item of arr) {
+      if (out.length >= args.count) break;
+
+      const safe = sanitizeGeneratedRek(item, args.category);
+      if (!safe) continue;
+
+      const titleKey = safe.title.toLowerCase();
+      if (dedupe.has(titleKey)) continue;
+      if (seen.has(titleKey)) continue;
+
+      dedupe.add(titleKey);
+      out.push(safe);
+    }
+
+    // Fallback fill: if AI gave fewer than requested usable items,
+    // quietly top up from the canned pool so UI still gets a full set.
+    if (out.length < args.count) {
+      try {
+        const fallbackPool = await fetchPool(args.category);
+
+        const seenAndUsed = new Set<string>([
+          ...Array.from(args.seenTitles ?? []).map((t) => t.toLowerCase()),
+          ...out.map((r) => r.title.toLowerCase()),
+        ]);
+
+        for (const r of fallbackPool) {
+          if (out.length >= args.count) break;
+
+          const key = r.title.toLowerCase();
+          if (seenAndUsed.has(key)) continue;
+
+          out.push(normalize([r])[0]);
+          seenAndUsed.add(key);
+        }
+      } catch {
+        // fail soft
+      }
+    }
+
+        return out.length >= 1 ? normalize(out.slice(0, args.count)) : null;
+  } catch {
+    return null;
+  }
+}
+/* ------------------------------------------------------------------
+   PER-TILE TAG BRANCH (deterministic helper retained)
 ------------------------------------------------------------------- */
 export async function getSetFromVibeTag(args: {
   tag: string;
@@ -484,7 +738,7 @@ export async function getSetFromVibeTag(args: {
     usedTitles: used,
     anchorHint: null,
     preferGenre: null,
-  }) as Rek[];
+  });
 
   if (picked.length < 5) {
     const usedNow = new Set<string>(picked.map((r) => r.title));
@@ -509,10 +763,8 @@ export async function getTop5FromEngine({
   rawQuery: string;
   starterDeckId?: string;
 }): Promise<Rek[]> {
-  const { category, clarifier, text, context } = parseRawQuery(rawQuery);
+  const { category, clarifier, text, context, mode } = parseRawQuery(rawQuery);
   const sessionSeen = getSessionSeen(category);
-
-  const pool = await fetchPool(category);
 
   const isVibeClarifier = (clarifier || "")
     .trim()
@@ -522,7 +774,6 @@ export async function getTop5FromEngine({
   const deckId = deckFromClarifier(clarifier);
   const vibeTag = tagFromClarifier(clarifier);
 
-  // ✅ Store intent for this category so +MoreLikeThis/backfill obey it
   setLastIntent({
     category,
     clarifier,
@@ -530,12 +781,30 @@ export async function getTop5FromEngine({
     deckId: deckId ?? null,
     vibeTag,
     isVibeClarifier,
+    mode,
   });
 
-  // Start with raw pool, then apply intent filters (tag/clarifier)
+  /* ------------------ FULL AI DISCOVERY MODE ------------------ */
+  if (mode === "ai") {
+    const aiGenerated = await generateAIReks({
+      category,
+      count: MAX_AI_ITEMS,
+      context,
+      seenTitles: sessionSeen,
+    });
+
+    if (aiGenerated && aiGenerated.length > 0) {
+      aiGenerated.forEach((r) => sessionSeen.add(r.title));
+      return aiGenerated.slice(0, 5);
+    }
+
+    // quiet fail-open to pool logic below
+  }
+
+  /* ------------------ POOL / PLAY MODE ------------------ */
+  const pool = await fetchPool(category);
   const poolForSelection = applyIntentFilters(pool, getLastIntent(category));
 
-  // If typed text exists, bias selection to it (fails open)
   const textTokens = tokenizeText(text);
   const textFiltered =
     textTokens.length > 0
@@ -547,7 +816,45 @@ export async function getTop5FromEngine({
       ? textFiltered
       : poolForSelection;
 
-  /* ------------------ TAG BRANCH (vibe:<tag>) ------------------ */
+  const compassEligible =
+    category === "Movies" &&
+    USE_DEER_TRAILS &&
+    !!deckId &&
+    sessionSeen.size === 0 &&
+    mode === "pool";
+
+  if (compassEligible) {
+    const compass = buildCompassTop5FromDeck({
+      deckId,
+      pool: finalPoolForSelection,
+      sessionSeen,
+      count: 5,
+    });
+
+    if (compass.length > 0) {
+      if (compass.length < 5) {
+        const used = new Set<string>();
+        sessionSeen.forEach((t) => used.add(t));
+        compass.forEach((r) => used.add(r.title));
+
+        const fillerPool = finalPoolForSelection.filter((r) => !used.has(r.title));
+        const fill = pickCohesiveFive({
+          pool: fillerPool,
+          usedTitles: new Set<string>(),
+          anchorHint: compass[0] ?? null,
+          preferGenre: null,
+        });
+
+        const merged = [...compass, ...fill].slice(0, 5);
+        merged.forEach((r) => sessionSeen.add(r.title));
+        return normalize(merged);
+      }
+
+      compass.forEach((r) => sessionSeen.add(r.title));
+      return normalize(compass);
+    }
+  }
+
   if (vibeTag) {
     const tagged = finalPoolForSelection.filter(
       (r) => hasVibeTag(r, vibeTag) && !sessionSeen.has(r.title)
@@ -562,7 +869,7 @@ export async function getTop5FromEngine({
         usedTitles: used,
         anchorHint: null,
         preferGenre: null,
-      }) as Rek[];
+      });
 
       if (picked.length < 5) {
         const usedNow = new Set<string>(picked.map((r) => r.title));
@@ -579,27 +886,12 @@ export async function getTop5FromEngine({
     }
   }
 
-  /* ------------------ V2: STARTER DECK PATH ------------------ */
-  if (USE_DEER_TRAILS) {
+  if (USE_DEER_TRAILS && mode === "pool") {
     const chosenDeckId = deckId ?? starterDeckId;
     const fromDeck = getTop5FromDeck(chosenDeckId, finalPoolForSelection, sessionSeen);
     if (fromDeck.length === 5) return normalize(fromDeck);
   }
 
-  /* ------------------ V1: AI FALLBACK ------------------ */
-  const aiTitles = await getAITop5Titles(finalPoolForSelection, context, sessionSeen);
-  if (aiTitles) {
-    const chosen = aiTitles
-      .map((t) => finalPoolForSelection.find((r) => r.title === t))
-      .filter(Boolean) as Rek[];
-
-    if (chosen.length === 5) {
-      chosen.forEach((r) => sessionSeen.add(r.title));
-      return normalize(chosen);
-    }
-  }
-
-  /* ------------------ HARD FALLBACK (COHESIVE + TIER BIAS) ------------------ */
   const usedTitles = new Set<string>();
   sessionSeen.forEach((t) => usedTitles.add(t));
 
@@ -615,7 +907,6 @@ export async function getTop5FromEngine({
     preferGenre: null,
   });
 
-  // Safety valve: if we can't make 5, soft-reset and try once
   if (fallback.length < 5) {
     sessionSeen.clear();
 
@@ -641,18 +932,23 @@ export async function getTop5FromEngine({
   }
 
   fallback.forEach((r) => sessionSeen.add(r.title));
-  return normalize(fallback as Rek[]);
+  return normalize(fallback);
 }
 
 /* ------------------------------------------------------------------
-   BACKFILL (NO AUTO-RESET — LET UI HANDLE EXHAUSTION)
-   ✅ obeys last intent for that category
+   BACKFILL
+   - In AI mode: generate fresh AI picks and take the first good one
+   - In pool mode: deterministic backfill
 ------------------------------------------------------------------- */
 export async function getBackfillRek(args: {
   current: Rek[];
   category?: string;
   vertical?: string;
   rawCategory?: string;
+  likedTitles?: string[];
+  dislikedTitles?: string[];
+  lastAction?: "like" | "dislike";
+  lastActionTitle?: string;
   [key: string]: any;
 }): Promise<Rek | null> {
   const current = args.current ?? [];
@@ -661,10 +957,40 @@ export async function getBackfillRek(args: {
 
   const { category } = parseRawQuery(`${rawCategory}||`);
   const sessionSeen = getSessionSeen(category);
+  const intent = getLastIntent(category);
+
+  if (intent?.mode === "ai") {
+    const context = [
+      `Vertical: ${intent.category}`,
+      intent.clarifier ? `Lane/Clarifier: ${intent.clarifier}` : "",
+      intent.text ? `User text: ${intent.text}` : "",
+      args.lastAction ? `Last action: ${args.lastAction}` : "",
+      args.lastActionTitle ? `On: ${args.lastActionTitle}` : "",
+      "Backfill request after thumbs action. Generate the next best discovery picks.",
+    ]
+      .filter(Boolean)
+      .join(" | ");
+
+    const aiGenerated = await generateAIReks({
+      category,
+      count: MAX_AI_BACKFILL_OPTIONS,
+      context,
+      likedTitles: args.likedTitles,
+      dislikedTitles: args.dislikedTitles,
+      currentTitles: current.map((r) => r.title),
+      seenTitles: sessionSeen,
+      backfill: true,
+    });
+
+    const chosen = aiGenerated?.find((r) => !sessionSeen.has(r.title)) ?? null;
+    if (chosen) {
+      sessionSeen.add(chosen.title);
+      return chosen;
+    }
+    // fail-open below
+  }
 
   const pool = await fetchPool(category);
-
-  const intent = getLastIntent(category);
   const filteredPool = applyIntentFilters(pool, intent);
 
   const textTokens = tokenizeText(intent?.text ?? "");
@@ -694,25 +1020,53 @@ export async function getBackfillRek(args: {
 }
 
 /* ------------------------------------------------------------------
-   + MORE LIKE THIS (NO AUTO-RESET — LET UI HANDLE EXHAUSTION)
-   ✅ obeys last intent for that category
+   + MORE LIKE THIS
+   - In AI mode: seed-aware full AI generation
+   - In pool mode: deck/genre similarity
 ------------------------------------------------------------------- */
 export async function getMoreLikeThisSet(args: {
   seed: Rek;
   category?: string;
+  likedTitles?: string[];
+  dislikedTitles?: string[];
   [key: string]: any;
 }): Promise<Rek[]> {
   const seed = args.seed;
   const rawCategory = args.category || "Movies";
   const { category } = parseRawQuery(`${rawCategory}||`);
   const sessionSeen = getSessionSeen(category);
+  const intent = getLastIntent(category);
+
+  if (intent?.mode === "ai") {
+    const context = [
+      `Vertical: ${intent.category}`,
+      intent.clarifier ? `Lane/Clarifier: ${intent.clarifier}` : "",
+      intent.text ? `User text: ${intent.text}` : "",
+      "Action: +MoreLikeThis",
+    ]
+      .filter(Boolean)
+      .join(" | ");
+
+    const aiGenerated = await generateAIReks({
+      category,
+      count: MAX_AI_ITEMS,
+      context,
+      seedTitle: seed?.title,
+      likedTitles: args.likedTitles,
+      dislikedTitles: args.dislikedTitles,
+      seenTitles: sessionSeen,
+    });
+
+    if (aiGenerated && aiGenerated.length > 0) {
+      aiGenerated.forEach((r) => sessionSeen.add(r.title));
+      return aiGenerated.slice(0, 5);
+    }
+    // fail-open below
+  }
 
   const pool = await fetchPool(category);
-
-  const intent = getLastIntent(category);
   const filteredPool = applyIntentFilters(pool, intent);
 
-  // Apply typed text bias if present (sports, etc.)
   const textTokens = tokenizeText(intent?.text ?? "");
   const textFiltered =
     textTokens.length > 0
@@ -722,15 +1076,11 @@ export async function getMoreLikeThisSet(args: {
   const poolForSet =
     textTokens.length > 0 && textFiltered.length >= 5 ? textFiltered : filteredPool;
 
-  // If we're in a locked vibe deck lane, prefer staying on that deck
-  // (This is the simplest “stay in vibe lane” enforcement without touching UI.)
-  if (USE_DEER_TRAILS && intent?.deckId) {
+  if (USE_DEER_TRAILS && intent?.deckId && intent.mode !== "ai") {
     const fromDeck = getTop5FromDeck(intent.deckId, poolForSet, sessionSeen);
     if (fromDeck.length === 5) return normalize(fromDeck);
-    // fail open to similarity below
   }
 
-  // Similarity: seed genre tokens (now robust)
   const seedGenres = tokensFromGenre(seed.genre);
   const seedGenreSet = new Set(seedGenres);
 
@@ -753,7 +1103,6 @@ export async function getMoreLikeThisSet(args: {
     }
   }
 
-  // Fallback within intent-filtered pool (NOT full pool)
   if (matches.length < 5) {
     const anyUnseen = poolForSet.filter((r) => !sessionSeen.has(r.title));
     const used = new Set(matches.map((r) => r.title));
@@ -772,3 +1121,5 @@ export async function getMoreLikeThisSet(args: {
   result.forEach((r) => sessionSeen.add(r.title));
   return normalize(result);
 }
+
+
