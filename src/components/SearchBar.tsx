@@ -396,7 +396,7 @@ const runVibe = useCallback(
    // typed should clear vibe modifier (prevents weird “sports + goofy” unless user re-adds)
     setActiveVibe(null);
 
-     const mode: "pool" | "ai" = clarifierRef.current ? "ai" : "pool";
+     const mode: "pool" | "ai" = "ai";
      const q = buildQuery(categoryRef.current, clarifierRef.current, trimmed, mode);
      startSearch(q, categoryRef.current);
 
