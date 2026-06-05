@@ -4,6 +4,7 @@ import React, { useEffect, useRef, useState } from "react";
 import SearchBar from "../src/components/SearchBar";
 import ResultsV4 from "../src/components/ResultsV4";
 import { getTop5FromEngine, type Rek } from "../src/engine/rekomendrEngine";
+import { loadPrefsForCategory } from "../src/lib/userPrefs";
 
 export type Category = "Movies" | "TV Shows" | "Books" | "Wine";
 
@@ -51,6 +52,8 @@ export default function Page() {
   const [loadingLabel, setLoadingLabel] = useState("Finding fresh Reks for you...");
   const [sourceImage, setSourceImage] = useState<string | null>(null);
   const [category, setCategory] = useState<Category>("Movies");
+  const [persistedLikedTitles, setPersistedLikedTitles] = useState<string[]>([]);
+  const [persistedDislikedTitles, setPersistedDislikedTitles] = useState<string[]>([]);
 
   const vibePlayRef = useRef<null | (() => void)>(null);
   const didInitRef = useRef(false);
@@ -65,7 +68,10 @@ export default function Page() {
 
       try {
         setSourceImage(null);
-        const initial = await getTop5FromEngine({ rawQuery: "Movies||" });
+        const prefs = await loadPrefsForCategory("Movies");
+        setPersistedLikedTitles(prefs.likedTitles);
+        setPersistedDislikedTitles(prefs.dislikedTitles);
+        const initial = await getTop5FromEngine({ rawQuery: "Movies||", ...prefs });
         setReks(initial);
         setCategory("Movies");
       } catch (err) {
@@ -97,7 +103,11 @@ export default function Page() {
         setSourceImage(null);
       }
 
-      const next = await getTop5FromEngine({ rawQuery: query });
+      const prefs = await loadPrefsForCategory(nextCategory);
+      setPersistedLikedTitles(prefs.likedTitles);
+      setPersistedDislikedTitles(prefs.dislikedTitles);
+
+      const next = await getTop5FromEngine({ rawQuery: query, ...prefs });
       setReks(next);
     } catch (err) {
       console.error("Search failed:", err);
@@ -127,6 +137,8 @@ export default function Page() {
             sourceImage={sourceImage}
             category={category}
             onPlayVibe={() => vibePlayRef.current?.()}
+            persistedLikedTitles={persistedLikedTitles}
+            persistedDislikedTitles={persistedDislikedTitles}
           />
         </div>
       </div>

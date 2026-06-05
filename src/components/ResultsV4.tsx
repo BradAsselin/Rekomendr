@@ -16,6 +16,7 @@ import DescriptorLine from "./DescriptorLine";
 // Engine helpers
 import { getBackfillRek, getMoreLikeThisSet } from "../engine/rekomendrEngine";
 import type { Rek } from "../engine/rekomendrEngine";
+import { recordLike } from "../lib/userPrefs";
 
 // Descriptor typing
 import type { RekCategory } from "../lib/descriptors";
@@ -36,6 +37,8 @@ interface ResultsProps {
   sourceImage?: string | null;
   category: Category;
   onPlayVibe?: () => void;
+  persistedLikedTitles?: string[];
+  persistedDislikedTitles?: string[];
 }
 
 const ResultsV4: React.FC<ResultsProps> = ({
@@ -44,10 +47,13 @@ const ResultsV4: React.FC<ResultsProps> = ({
   reks: incomingReks,
   category,
   onPlayVibe,
+  persistedLikedTitles = [],
+  persistedDislikedTitles = [],
 }) => {
   const [reks, setReks] = useState<Rek[]>([]);
   const [liked, setLiked] = useState<Rek[]>([]);
   const [saved, setSaved] = useState<Rek[]>([]);
+  const [sessionDislikedTitles, setSessionDislikedTitles] = useState<string[]>([]);
   const [expanded, setExpanded] = useState<number | null>(null);
   const [expandedTop, setExpandedTop] = useState<number | null>(null);
   const [exiting, setExiting] = useState<number | null>(null);
@@ -67,9 +73,20 @@ const ResultsV4: React.FC<ResultsProps> = ({
 
   // Keep latest state for async handlers
   const reksRef = useRef<Rek[]>([]);
+  useEffect(() => { reksRef.current = reks; }, [reks]);
+
+  const allLikedTitlesRef = useRef<string[]>([]);
+  const allDislikedTitlesRef = useRef<string[]>([]);
   useEffect(() => {
-    reksRef.current = reks;
-  }, [reks]);
+    allLikedTitlesRef.current = [
+      ...persistedLikedTitles,
+      ...liked.map((r) => r.title),
+      ...saved.map((r) => r.title),
+    ];
+  }, [persistedLikedTitles, liked, saved]);
+  useEffect(() => {
+    allDislikedTitlesRef.current = [...persistedDislikedTitles, ...sessionDislikedTitles];
+  }, [persistedDislikedTitles, sessionDislikedTitles]);
 
   // Auto-clear exhaustion notice when fresh results arrive
   useEffect(() => {
@@ -149,6 +166,8 @@ const ResultsV4: React.FC<ResultsProps> = ({
     const target = clarifyTarget;
     setClarifyTarget(null);
 
+    recordLike({ category, title: target.title, year: target.year, action: 'dislike' });
+    setSessionDislikedTitles((p) => [...p, target.title]);
     setReks((prev) => prev.filter((r) => r.id !== target.id));
     handleBackfill(target);
   };
@@ -177,6 +196,8 @@ const ResultsV4: React.FC<ResultsProps> = ({
       const next = await getBackfillRek({
         current: currentNow,
         category,
+        likedTitles: allLikedTitlesRef.current,
+        dislikedTitles: allDislikedTitlesRef.current,
       });
 
       if (!next) {
@@ -209,12 +230,18 @@ const ResultsV4: React.FC<ResultsProps> = ({
    * ----------------------------- */
   const handleMoreLikeThis = async (rek: Rek) => {
     setExiting(rek.id);
+    recordLike({ category, title: rek.title, year: rek.year, action: 'more_like_this' });
 
     setTimeout(async () => {
       try {
         setLiked((p) => [...p, rek]);
 
-        const nextFive = await getMoreLikeThisSet({ seed: rek, category });
+        const nextFive = await getMoreLikeThisSet({
+          seed: rek,
+          category,
+          likedTitles: allLikedTitlesRef.current,
+          dislikedTitles: allDislikedTitlesRef.current,
+        });
 
         if (!nextFive || nextFive.length === 0) {
           setExhaustedMessage(
@@ -239,6 +266,7 @@ const ResultsV4: React.FC<ResultsProps> = ({
    * ----------------------------- */
   const handleLike = (rek: Rek) => {
     setExiting(rek.id);
+    recordLike({ category, title: rek.title, year: rek.year, action: 'like' });
     setTimeout(() => {
       setLiked((p) => [...p, rek]);
       setReks((p) => p.filter((r) => r.id !== rek.id));
@@ -251,6 +279,7 @@ const ResultsV4: React.FC<ResultsProps> = ({
 
   const handleSaveFromTop = (rek: Rek) => {
     setExiting(rek.id);
+    recordLike({ category, title: rek.title, year: rek.year, action: 'save' });
     setTimeout(() => {
       setSaved((p) => [...p, rek]);
       setReks((p) => p.filter((r) => r.id !== rek.id));
@@ -421,7 +450,7 @@ const ResultsV4: React.FC<ResultsProps> = ({
               </div>
 
               {/* SHORT DESCRIPTION + EXPAND */}
-              <p className="text-sm text-gray-700 mb-2 leading-6">
+              <p className="text-[15px] text-gray-700 mb-2 leading-relaxed">
                  {rek.short}{" "}
                  <button
                  onClick={() => toggleTopExpand(rek.id)}

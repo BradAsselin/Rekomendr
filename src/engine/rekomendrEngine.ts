@@ -14,6 +14,7 @@
 
 import { getTop5FromDeck } from "./deckSelector";
 import { buildCompassTop5FromDeck } from "./compass/compassPick";
+import { rankMovieCandidates } from "./movieProfileScorer";
 
 /**
  * Feature flag
@@ -54,7 +55,7 @@ type Intent = {
 /* ------------------------------------------------------------------
    FEATURE TOGGLES / CONSTANTS
 ------------------------------------------------------------------- */
-const MAX_AI_ITEMS = 8;
+const MAX_AI_ITEMS = 6;
 const MAX_AI_BACKFILL_OPTIONS = 3;
 
 /* ------------------------------------------------------------------
@@ -221,10 +222,10 @@ function parseRawQuery(rawQuery: string): {
   const text = (parts[2] ?? "").trim();
   const maybeMode = (parts[3] ?? "").trim().toLowerCase();
 
-  let mode: IntentMode = "pool";
+    let mode: IntentMode = "pool";
   if (maybeMode === "mode:pool") mode = "pool";
   else if (maybeMode === "mode:ai") mode = "ai";
-  else if ((clarifier && clarifier.length > 0) || (text && text.length > 0)) mode = "ai";
+  else if (text && text.length > 0) mode = "ai";
 
   const c = rawCategory.toLowerCase();
   let category: Category = "Movies";
@@ -569,22 +570,23 @@ Output format:
   {
     "title": "Example Title",
     "year": 2014,
-    "short": "2-3 sentence hooky, conversational description that explains what the story is about and why it is worth watching. Write like strong Netflix-style recommendation copy, not a review.",
-    "long": "A slightly richer explanation of the vibe, tone, pacing, and why it matches the user's path.",
+    "short": "One sentence describing the story hook (IMDb style).",
+    "long": "One sentence explaining why it is worth watching (Rotten Tomatoes style).",
     "genre": "Comedy • Drama",
     "vibeTags": ["Witty", "Heartfelt"],
     "trailerUrl": "https://www.youtube.com/results?search_query=Example%20Title%20trailer"
   }
 ]
 Rules:
-- short must be 2-3 sentences.
-- short should clearly explain what the story is about, not just how it feels.
-- short should include the hook: what is happening, who it follows, or what makes the premise compelling.
-- short should make the user think "that sounds like something I'd want to watch."
-- write in natural, conversational Netflix-style recommendation language.
-- write like a smart human curator, not a critic or film professor.
-- avoid review language like "visually stunning," "showcases," "meditation on," "deconstructs," "blends tone," or "features a unique style."
-- prioritize story hook first, fit second.
+- short should be ONE sentence describing the story hook, but TWO sentences are allowed if needed to clarify tone or stakes.
+- long must be ONE sentence explaining why it is worth watching.
+- write in plain English, like a smart human curator.
+- avoid critic language, film-school jargon, and review-speak.
+- avoid starting descriptions with "The story of..."
+- prefer strong but less obvious titles over the most famous mainstream picks when possible.
+- short = what it is.
+- long = why it fits.
+- avoid repeating the same very famous titles across different searches.
 
 Rules:
 - Aim for exactly ${count} items.
@@ -759,9 +761,13 @@ export async function getSetFromVibeTag(args: {
 export async function getTop5FromEngine({
   rawQuery,
   starterDeckId = "comfort-core",
+  likedTitles = [],
+  dislikedTitles = [],
 }: {
   rawQuery: string;
   starterDeckId?: string;
+  likedTitles?: string[];
+  dislikedTitles?: string[];
 }): Promise<Rek[]> {
   const { category, clarifier, text, context, mode } = parseRawQuery(rawQuery);
   const sessionSeen = getSessionSeen(category);
@@ -785,21 +791,35 @@ export async function getTop5FromEngine({
   });
 
   /* ------------------ FULL AI DISCOVERY MODE ------------------ */
+  /* ------------------ FULL AI DISCOVERY MODE ------------------ */
   if (mode === "ai") {
     const aiGenerated = await generateAIReks({
       category,
       count: MAX_AI_ITEMS,
       context,
+      likedTitles,
+      dislikedTitles,
       seenTitles: sessionSeen,
     });
 
     if (aiGenerated && aiGenerated.length > 0) {
-      aiGenerated.forEach((r) => sessionSeen.add(r.title));
-      return aiGenerated.slice(0, 5);
+      const ranked = rankMovieCandidates(aiGenerated as any, {
+        activeLane: clarifier || null,
+        likedTitles,
+        dislikedTitles,
+        moreLikeThisTitle: null,
+      }) as Rek[];
+
+      const result = ranked.slice(0, 5);
+
+      result.forEach((r) => sessionSeen.add(r.title));
+
+      return normalize(result);
     }
 
     // quiet fail-open to pool logic below
   }
+
 
   /* ------------------ POOL / PLAY MODE ------------------ */
   const pool = await fetchPool(category);
@@ -1009,11 +1029,22 @@ export async function getBackfillRek(args: {
   const unseenCandidates = poolForBackfill.filter((r) => !used.has(r.title));
   if (unseenCandidates.length === 0) return null;
 
+  const candidatePool = unseenCandidates.slice(0, 8);
+
+  const ranked = rankMovieCandidates(candidatePool as any, {
+    activeLane: null,
+    likedTitles: args.likedTitles ?? [],
+    dislikedTitles: args.dislikedTitles ?? [],
+    moreLikeThisTitle: args.lastActionTitle ?? null,
+  }) as Rek[];
+
   const candidate =
+    ranked[0] ??
     pickWithTierBias({
       candidates: unseenCandidates,
       sessionSeenCount: sessionSeen.size,
-    }) ?? unseenCandidates[0];
+    }) ??
+    unseenCandidates[0];
 
   sessionSeen.add(candidate.title);
   return normalize([candidate])[0];
@@ -1115,11 +1146,19 @@ export async function getMoreLikeThisSet(args: {
     }
   }
 
-  const result = matches.slice(0, 5);
-  if (result.length === 0) return [];
+ 
+const result = matches.slice(0, 5);
+if (result.length === 0) return [];
 
-  result.forEach((r) => sessionSeen.add(r.title));
-  return normalize(result);
+const ranked = rankMovieCandidates(result as any, {
+  activeLane: null,
+  likedTitles: args.likedTitles ?? [],
+  dislikedTitles: args.dislikedTitles ?? [],
+  moreLikeThisTitle: seed?.title ?? null,
+}) as Rek[];
+
+ranked.forEach((r) => sessionSeen.add(r.title));
+return normalize(ranked);
 }
 
 
