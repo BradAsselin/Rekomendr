@@ -527,97 +527,112 @@ setInput("");
       {/* SEARCH BAR */}
       <form
         onSubmit={handleSubmit}
-        className="flex items-center justify-between px-4 py-3 rounded-2xl
+        className="flex flex-col sm:flex-row sm:items-center px-4 py-3 rounded-2xl
                    bg-white text-black shadow-[0_2px_6px_rgba(0,0,0,0.08)]
                    transition-all duration-200 hover:shadow-[0_3px_10px_rgba(0,0,0,0.12)]
                    focus-within:shadow-[0_3px_12px_rgba(0,0,0,0.14)]"
       >
-        {/* PLAY (cycles lane/genre) */}
-        <button
-          type="button"
-          onClick={handlePlayStable}
-          title="Play a lane"
-          className="mr-3 p-2 rounded-full border border-gray-300 text-gray-600 hover:text-black hover:border-gray-500 transition"
-        >
-          <Play size={18} strokeWidth={1.8} />
-        </button>
-
-        {/* CATEGORY + PLUS / CLARIFIER */}
-        <div className="flex items-center gap-1 mr-3">
+        {/* ROW 1 (mobile) / left section (desktop): play + category/clarifier + camera */}
+        <div className="flex items-center sm:mr-3">
+          {/* PLAY */}
           <button
             type="button"
-            onClick={() => {
-              cancelAutoGo();
-              setOpenCategory((prev) => !prev);
-              setOpenClarifiers(false);
-              setOpenVibes(false);
-            }}
-            className="flex items-center gap-1 text-gray-700 hover:text-black font-medium"
+            onClick={handlePlayStable}
+            title="Play a lane"
+            className="mr-2 p-2 rounded-full border border-gray-300 text-gray-600 hover:text-black hover:border-gray-500 transition flex-shrink-0"
           >
-            {category}
-            <ChevronDown size={16} strokeWidth={1.7} />
+            <Play size={18} strokeWidth={1.8} />
           </button>
 
-          {!clarifier && (
+          {/* CATEGORY + PLUS / CLARIFIER */}
+          <div className="flex items-center gap-1 min-w-0">
             <button
               type="button"
               onClick={() => {
                 cancelAutoGo();
-                setOpenClarifiers((prev) => !prev);
-                setOpenCategory(false);
+                setOpenCategory((prev) => !prev);
+                setOpenClarifiers(false);
                 setOpenVibes(false);
               }}
-              className="text-gray-500 hover:text-gray-700 transition"
-              title="Pick a lane"
+              className="flex items-center gap-1 text-gray-700 hover:text-black font-medium whitespace-nowrap"
             >
-              <Plus size={15} strokeWidth={1.8} />
+              {category}
+              <ChevronDown size={16} strokeWidth={1.7} />
             </button>
-          )}
 
-          {clarifier && (
-            <button
-              type="button"
-              onClick={() => {
-                cancelAutoGo();
-                setOpenClarifiers((p) => !p);
-                setOpenCategory(false);
-                setOpenVibes(false);
-              }}
-              className="flex items-center gap-1 text-sm text-gray-600 hover:text-black transition ml-1"
-              title="Change lane"
-            >
-              {clarifier}
-              <ChevronDown size={14} strokeWidth={1.8} />
-            </button>
-          )}
+            {!clarifier && (
+              <button
+                type="button"
+                onClick={() => {
+                  cancelAutoGo();
+                  setOpenClarifiers((prev) => !prev);
+                  setOpenCategory(false);
+                  setOpenVibes(false);
+                }}
+                className="text-gray-500 hover:text-gray-700 transition flex-shrink-0"
+                title="Pick a lane"
+              >
+                <Plus size={15} strokeWidth={1.8} />
+              </button>
+            )}
+
+            {clarifier && (
+              <button
+                type="button"
+                onClick={() => {
+                  cancelAutoGo();
+                  setOpenClarifiers((p) => !p);
+                  setOpenCategory(false);
+                  setOpenVibes(false);
+                }}
+                className="flex items-center gap-1 text-sm text-gray-600 hover:text-black transition ml-1 whitespace-nowrap"
+                title="Change lane"
+              >
+                {clarifier}
+                <ChevronDown size={14} strokeWidth={1.8} />
+              </button>
+            )}
+          </div>
+
+          {/* CAMERA — top row on mobile only */}
+          <button
+            type="button"
+            onClick={handleOpenCamera}
+            className="ml-auto pl-3 sm:hidden text-gray-500 hover:text-gray-700 transition flex-shrink-0"
+          >
+            <Camera size={20} strokeWidth={1.7} />
+          </button>
         </div>
 
-        {/* INPUT */}
-        <input
-          type="text"
-          placeholder={getPlaceholder()}
-          value={input}
-          onChange={(e) => {
-            setInput(e.target.value);
-            cancelAutoGo();
-            setOpenVibes(false);
-          }}
-          className="flex-grow bg-transparent outline-none text-black placeholder-gray-500 text-base"
-        />
+        {/* ROW 2 (mobile) / right section (desktop): input + camera + GO */}
+        <div className="flex items-center flex-1 mt-2 sm:mt-0">
+          {/* INPUT */}
+          <input
+            type="text"
+            placeholder={getPlaceholder()}
+            value={input}
+            onChange={(e) => {
+              setInput(e.target.value);
+              cancelAutoGo();
+              setOpenVibes(false);
+            }}
+            className="flex-grow bg-transparent outline-none text-black placeholder-gray-500 text-base min-w-0"
+          />
 
-        {/* CAMERA */}
-        <button
-          type="button"
-          onClick={handleOpenCamera}
-          className="text-gray-500 hover:text-gray-700 transition mr-2"
-        >
-          <Camera size={20} strokeWidth={1.7} />
-        </button>
+          {/* CAMERA — desktop only */}
+          <button
+            type="button"
+            onClick={handleOpenCamera}
+            className="hidden sm:block text-gray-500 hover:text-gray-700 transition mr-2 flex-shrink-0"
+          >
+            <Camera size={20} strokeWidth={1.7} />
+          </button>
 
-        {/* GO */}
-        <button type="submit" className="font-semibold text-gray-800 hover:text-black transition">
-          GO
-        </button>
+          {/* GO */}
+          <button type="submit" className="ml-2 font-semibold text-gray-800 hover:text-black transition flex-shrink-0">
+            GO
+          </button>
+        </div>
       </form>
 
       {/* LANE LINE + VIBE MODIFIER */}
