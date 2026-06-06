@@ -11,11 +11,7 @@ export const metadata = {
 function TopBar() {
   return (
     <div className="w-full border-b border-white/10 bg-[#0b1725]">
-      <div className="mx-auto flex h-12 w-full max-w-3xl items-center justify-between px-4">
-        <div className="text-sm font-semibold tracking-wide text-white">
-          Rekomendr<span className="text-white/70">.AI</span>
-        </div>
-
+      <div className="mx-auto flex h-12 w-full max-w-3xl items-center justify-end px-4">
         <InstallButton />
       </div>
     </div>

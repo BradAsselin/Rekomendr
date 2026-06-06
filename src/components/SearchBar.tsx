@@ -539,7 +539,7 @@ setInput("");
             type="button"
             onClick={handlePlayStable}
             title="Play a lane"
-            className="mr-2 p-2 rounded-full border border-gray-300 text-gray-600 hover:text-black hover:border-gray-500 transition flex-shrink-0"
+            className="mr-2 p-2 rounded-full border border-gray-300 text-[#374151] hover:text-black hover:border-gray-500 transition flex-shrink-0"
           >
             <Play size={18} strokeWidth={1.8} />
           </button>

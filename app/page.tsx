@@ -1,8 +1,9 @@
 ﻿"use client";
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useRef, useState } from "react";
 import SearchBar from "../src/components/SearchBar";
 import ResultsV4 from "../src/components/ResultsV4";
+import RekSnapButton from "../src/components/RekSnapButton";
 import { getTop5FromEngine, type Rek } from "../src/engine/rekomendrEngine";
 import { loadPrefsForCategory } from "../src/lib/userPrefs";
 
@@ -54,36 +55,9 @@ export default function Page() {
   const [category, setCategory] = useState<Category>("Movies");
   const [persistedLikedTitles, setPersistedLikedTitles] = useState<string[]>([]);
   const [persistedDislikedTitles, setPersistedDislikedTitles] = useState<string[]>([]);
+  const [hasSearched, setHasSearched] = useState(false);
 
   const vibePlayRef = useRef<null | (() => void)>(null);
-  const didInitRef = useRef(false);
-
-  useEffect(() => {
-    if (didInitRef.current) return;
-    didInitRef.current = true;
-
-    const loadInitial = async () => {
-      setLoading(true);
-      setLoadingLabel("Finding fresh Reks for you...");
-
-      try {
-        setSourceImage(null);
-        const prefs = await loadPrefsForCategory("Movies");
-        setPersistedLikedTitles(prefs.likedTitles);
-        setPersistedDislikedTitles(prefs.dislikedTitles);
-        const initial = await getTop5FromEngine({ rawQuery: "Movies||", ...prefs });
-        setReks(initial);
-        setCategory("Movies");
-      } catch (err) {
-        console.error("Initial load failed:", err);
-        setReks([]);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    loadInitial();
-  }, []);
 
   const handleSearch = async (query: string, cat: string) => {
     const inferred = categoryFromQuery(query);
@@ -91,6 +65,7 @@ export default function Page() {
       ? normalizeCategoryFromString(cat)
       : inferred;
 
+    setHasSearched(true);
     setCategory(nextCategory);
     setLoading(true);
     setLoadingLabel(loadingLabelFromQuery(query, nextCategory));
@@ -120,6 +95,9 @@ export default function Page() {
   return (
     <main className="min-h-screen w-full flex justify-center px-4 py-6">
       <div className="w-full max-w-xl">
+        <div className="mb-6 text-center text-3xl font-bold tracking-tight text-[#2D5AB5]">
+          Rekomendr<span className="text-[#2D5AB5]/70">.AI</span>
+        </div>
         <SearchBar
           onSearch={handleSearch}
           setLoading={setLoading}
@@ -130,16 +108,20 @@ export default function Page() {
         />
 
         <div className="mt-8">
-          <ResultsV4
-            reks={reks}
-            loading={loading}
-            loadingLabel={loadingLabel}
-            sourceImage={sourceImage}
-            category={category}
-            onPlayVibe={() => vibePlayRef.current?.()}
-            persistedLikedTitles={persistedLikedTitles}
-            persistedDislikedTitles={persistedDislikedTitles}
-          />
+          {!hasSearched && !loading ? (
+            <RekSnapButton />
+          ) : (
+            <ResultsV4
+              reks={reks}
+              loading={loading}
+              loadingLabel={loadingLabel}
+              sourceImage={sourceImage}
+              category={category}
+              onPlayVibe={() => vibePlayRef.current?.()}
+              persistedLikedTitles={persistedLikedTitles}
+              persistedDislikedTitles={persistedDislikedTitles}
+            />
+          )}
         </div>
       </div>
     </main>
