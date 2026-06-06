@@ -39,6 +39,8 @@ interface ResultsProps {
   onPlayVibe?: () => void;
   persistedLikedTitles?: string[];
   persistedDislikedTitles?: string[];
+  initialVertical?: Category;
+  autoRunVertical?: boolean;
 }
 
 const ResultsV4: React.FC<ResultsProps> = ({
