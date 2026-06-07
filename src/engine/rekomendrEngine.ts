@@ -645,6 +645,8 @@ async function generateAIReks(args: {
       backfill: args.backfill,
     });
 
+    // TEMP DIAG — remove after investigation
+    console.log("[DIAG] OpenAI prompt →\n" + prompt);
     const res = await fetch("/api/openai", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
