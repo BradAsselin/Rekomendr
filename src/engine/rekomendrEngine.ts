@@ -558,9 +558,10 @@ Your job:
 Generate ${count} ${category} recommendations as fresh discovery picks.
 
 Core behavior:
+- The user's explicit text input is the PRIMARY signal — build recommendations around it first, then apply taste preferences as a secondary filter.
 - Follow the user's path and mood, not just the literal words.
 - If a seed title is provided, recommend things that feel like a smart "more like this."
-- If likes/dislikes are provided, use them to refine the taste lane.
+- If likes/dislikes are provided, use them to refine the taste lane only after the explicit text input has been satisfied.
 - Avoid repeating or returning titles already shown in this session.
 - Prefer real titles/items. Do not invent fake media.
 - Return ONLY a valid JSON array. No commentary. No markdown.
