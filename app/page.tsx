@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import React, { useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import SearchBar from "../src/components/SearchBar";
 import ResultsV4 from "../src/components/ResultsV4";
 import RekSnapButton from "../src/components/RekSnapButton";
@@ -58,6 +58,34 @@ export default function Page() {
   const [hasSearched, setHasSearched] = useState(false);
 
   const vibePlayRef = useRef<null | (() => void)>(null);
+  const didInitRef = useRef(false);
+
+  useEffect(() => {
+    if (didInitRef.current) return;
+    didInitRef.current = true;
+    if (window.matchMedia("(max-width: 639px)").matches) return;
+
+    const loadInitial = async () => {
+      setLoading(true);
+      setLoadingLabel("Finding fresh Reks for you...");
+      try {
+        setSourceImage(null);
+        const prefs = await loadPrefsForCategory("Movies");
+        setPersistedLikedTitles(prefs.likedTitles);
+        setPersistedDislikedTitles(prefs.dislikedTitles);
+        const initial = await getTop5FromEngine({ rawQuery: "Movies||", ...prefs });
+        setReks(initial);
+        setCategory("Movies");
+        setHasSearched(true);
+      } catch (err) {
+        console.error("Initial load failed:", err);
+        setReks([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadInitial();
+  }, []);
 
   const handleSearch = async (query: string, cat: string) => {
     const inferred = categoryFromQuery(query);
@@ -109,7 +137,9 @@ export default function Page() {
 
         <div className="mt-8">
           {!hasSearched && !loading ? (
-            <RekSnapButton />
+            <div className="sm:hidden">
+              <RekSnapButton />
+            </div>
           ) : (
             <ResultsV4
               reks={reks}

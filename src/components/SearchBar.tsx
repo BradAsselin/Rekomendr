@@ -636,9 +636,9 @@ setInput("");
       </form>
 
       {/* LANE LINE + VIBE MODIFIER */}
-      <div className="relative mt-2 text-xs text-gray-500 pl-1 flex items-center gap-1">
+      <div className="relative mt-2 text-xs text-[#4B5563] sm:text-gray-500 pl-1 flex items-center gap-1">
         <span>
-          Lane: <span className="font-semibold text-gray-700">{laneLabel}</span>
+          Lane: <span className="font-semibold text-[#4B5563] sm:text-gray-700">{laneLabel}</span>
         </span>
 
         <button
@@ -654,7 +654,7 @@ setInput("");
           className={[
             "ml-1 inline-flex items-center justify-center rounded-md border px-1.5 py-0.5 transition",
             vibeEnabled
-              ? "border-gray-200 bg-white text-gray-600 hover:text-black hover:border-gray-300"
+              ? "border-[#4B5563] bg-transparent sm:border-gray-200 sm:bg-white text-[#4B5563] sm:text-gray-600 hover:text-black hover:border-gray-300"
               : "border-gray-100 bg-gray-50 text-gray-300 cursor-not-allowed",
           ].join(" ")}
           title={vibeEnabled ? "Pick a vibe (optional)" : "Pick a lane first"}

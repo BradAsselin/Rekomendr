@@ -36,7 +36,7 @@ export default function RootLayout({
         <link rel="apple-touch-icon" sizes="152x152" href="/rekomendr_icon_blue_152.png" />
         <link rel="apple-touch-icon" sizes="120x120" href="/rekomendr_icon_blue_120.png" />
       </head>
-      <body className="min-h-screen bg-[#0b1725]">
+      <body className="min-h-screen bg-[#0b1725] sm:bg-white">
         <TopBar />
         {children}
       </body>
