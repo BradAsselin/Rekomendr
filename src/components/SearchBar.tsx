@@ -12,8 +12,6 @@ interface SearchBarProps {
   registerVibePlay?: (fn: () => void) => void;
 }
 
-const AUTO_GO_DELAY_MS = 2000;
-
 // --------------------------------------------
 // VIBES (CATEGORY-SCOPED)
 // --------------------------------------------
@@ -68,10 +66,6 @@ const SearchBar: React.FC<SearchBarProps> = ({
   const [openCategory, setOpenCategory] = useState(false);
   const [openClarifiers, setOpenClarifiers] = useState(false);
   const [openVibes, setOpenVibes] = useState(false);
-
-  const [autoGoVisible, setAutoGoVisible] = useState(false);
-  const autoGoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
 
   // Vibe state
   const [vibeIndex, setVibeIndex] = useState(0);
@@ -142,28 +136,6 @@ const SearchBar: React.FC<SearchBarProps> = ({
     setOpenVibes(false);
   };
 
-  const cancelAutoGo = () => {
-    if (autoGoTimerRef.current) clearTimeout(autoGoTimerRef.current);
-    autoGoTimerRef.current = null;
-    setAutoGoVisible(false);
-  };
-
-  const scheduleAutoGo = (cat: string, clar: string) => {
-    if (input.trim()) return;
-
-    cancelAutoGo();
-    autoGoTimerRef.current = setTimeout(() => {
-      const q = buildQuery(cat, clar, "", "ai");
-      setAutoGoVisible(true);
-
-      setLastSearchMode("clarifier");
-      setLastTypedSeed("");
-      startSearch(q, cat);
-
-      setTimeout(() => setAutoGoVisible(false), 1200);
-    }, AUTO_GO_DELAY_MS);
-  };
-
   /* -----------------------------
    * PLACEHOLDER LOGIC
    * ----------------------------- */
@@ -210,7 +182,6 @@ const SearchBar: React.FC<SearchBarProps> = ({
   const advancedOptions = hasHistory ? ["Saved", "Favorites", "Liked"] : [];
 
   const handleSelectCategory = (c: string) => {
-    cancelAutoGo();
     closeAllDropdowns();
 
     setCategory(c);
@@ -230,22 +201,17 @@ const SearchBar: React.FC<SearchBarProps> = ({
   };
 
   const handleSelectClarifier = (c: string) => {
-    cancelAutoGo();
     closeAllDropdowns();
 
     setClarifier(c);
-    setActiveVibe(null); // lane changed => clear vibe modifier
+    setActiveVibe(null);
     setInput("");
 
     setLastSearchMode("clarifier");
     setLastTypedSeed("");
-
-    // Auto-go (only when input empty)
-    scheduleAutoGo(categoryRef.current, c);
   };
 
   const clearLane = () => {
-    cancelAutoGo();
     closeAllDropdowns();
 
     setClarifier(null);
@@ -269,7 +235,6 @@ const runVibe = useCallback(
   (vibeName: string, catOverride?: string, indexOverride?: number) => {
     const cat = catOverride ?? categoryRef.current;
 
-    cancelAutoGo();
     closeAllDropdowns();
 
     // ✅ vibe only valid once a lane exists
@@ -368,7 +333,6 @@ const runVibe = useCallback(
    * ----------------------------- */
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    cancelAutoGo();
     closeAllDropdowns();
 
     // Photo flow
@@ -428,7 +392,6 @@ setInput("");
    * CAMERA HANDLERS (unchanged)
    * ----------------------------- */
   const handleOpenCamera = () => {
-    cancelAutoGo();
     closeAllDropdowns();
     setActiveVibe(null);
     setIsCameraOpen(true);
@@ -454,8 +417,6 @@ setInput("");
   };
 
   const handleCameraAction = () => {
-    cancelAutoGo();
-
     if (!hasCaptured) {
       const video = videoRef.current;
       const canvas = canvasRef.current;
@@ -549,7 +510,6 @@ setInput("");
             <button
               type="button"
               onClick={() => {
-                cancelAutoGo();
                 setOpenCategory((prev) => !prev);
                 setOpenClarifiers(false);
                 setOpenVibes(false);
@@ -564,7 +524,6 @@ setInput("");
               <button
                 type="button"
                 onClick={() => {
-                  cancelAutoGo();
                   setOpenClarifiers((prev) => !prev);
                   setOpenCategory(false);
                   setOpenVibes(false);
@@ -580,7 +539,6 @@ setInput("");
               <button
                 type="button"
                 onClick={() => {
-                  cancelAutoGo();
                   setOpenClarifiers((p) => !p);
                   setOpenCategory(false);
                   setOpenVibes(false);
@@ -613,7 +571,6 @@ setInput("");
             value={input}
             onChange={(e) => {
               setInput(e.target.value);
-              cancelAutoGo();
               setOpenVibes(false);
             }}
             className="flex-grow bg-transparent outline-none text-black placeholder-gray-500 text-base min-w-0"
@@ -646,7 +603,6 @@ setInput("");
           disabled={!vibeEnabled}
           onClick={() => {
             if (!vibeEnabled) return;
-            cancelAutoGo();
             setOpenVibes((p) => !p);
             setOpenCategory(false);
             setOpenClarifiers(false);
@@ -739,11 +695,6 @@ setInput("");
             </>
           )}
         </div>
-      )}
-
-      {/* AUTO-SEARCH */}
-      {autoGoVisible && (
-        <div className="mt-1 text-xs text-gray-400 animate-pulse pl-1">Auto-searching…</div>
       )}
 
       {/* PULSE LINE */}

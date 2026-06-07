@@ -222,10 +222,10 @@ function parseRawQuery(rawQuery: string): {
   const text = (parts[2] ?? "").trim();
   const maybeMode = (parts[3] ?? "").trim().toLowerCase();
 
-    let mode: IntentMode = "pool";
+  let mode: IntentMode = "pool";
   if (maybeMode === "mode:pool") mode = "pool";
   else if (maybeMode === "mode:ai") mode = "ai";
-  else if (text && text.length > 0) mode = "ai";
+  else if (clarifier || (text && text.length > 0)) mode = "ai";
 
   const c = rawCategory.toLowerCase();
   let category: Category = "Movies";

@@ -59,6 +59,7 @@ export default function Page() {
 
   const vibePlayRef = useRef<null | (() => void)>(null);
   const didInitRef = useRef(false);
+  const searchIdRef = useRef(0);
 
   useEffect(() => {
     if (didInitRef.current) return;
@@ -88,6 +89,8 @@ export default function Page() {
   }, []);
 
   const handleSearch = async (query: string, cat: string) => {
+    const searchId = ++searchIdRef.current;
+
     const inferred = categoryFromQuery(query);
     const nextCategory = query.startsWith("__PHOTO__:")
       ? normalizeCategoryFromString(cat)
@@ -107,16 +110,23 @@ export default function Page() {
       }
 
       const prefs = await loadPrefsForCategory(nextCategory);
+      if (searchId !== searchIdRef.current) return;
+
       setPersistedLikedTitles(prefs.likedTitles);
       setPersistedDislikedTitles(prefs.dislikedTitles);
 
       const next = await getTop5FromEngine({ rawQuery: query, ...prefs });
+      if (searchId !== searchIdRef.current) return;
+
       setReks(next);
     } catch (err) {
+      if (searchId !== searchIdRef.current) return;
       console.error("Search failed:", err);
       setReks([]);
     } finally {
-      setLoading(false);
+      if (searchId === searchIdRef.current) {
+        setLoading(false);
+      }
     }
   };
 
