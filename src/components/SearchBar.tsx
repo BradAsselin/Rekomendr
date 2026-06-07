@@ -655,7 +655,7 @@ setInput("");
             "ml-1 inline-flex items-center justify-center rounded-md border px-1.5 py-0.5 transition",
             vibeEnabled
               ? "border-[#4B5563] bg-transparent sm:border-gray-200 sm:bg-white text-[#4B5563] sm:text-gray-600 hover:text-black hover:border-gray-300"
-              : "border-gray-100 bg-gray-50 text-gray-300 cursor-not-allowed",
+              : "border-[#4B5563] bg-transparent sm:border-gray-100 sm:bg-gray-50 text-[#4B5563] sm:text-gray-300 cursor-not-allowed",
           ].join(" ")}
           title={vibeEnabled ? "Pick a vibe (optional)" : "Pick a lane first"}
         >
