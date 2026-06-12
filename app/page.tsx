@@ -4,6 +4,7 @@ import React, { useEffect, useRef, useState } from "react";
 import SearchBar from "../src/components/SearchBar";
 import ResultsV4 from "../src/components/ResultsV4";
 import RekSnapButton from "../src/components/RekSnapButton";
+import RekSnapResults, { type SnapResult } from "../src/components/RekSnapResults";
 import { getTop5FromEngine, type Rek } from "../src/engine/rekomendrEngine";
 import { loadPrefsForCategory } from "../src/lib/userPrefs";
 
@@ -47,6 +48,34 @@ function loadingLabelFromQuery(query: string, cat: Category): string {
   return "Finding fresh Reks for you...";
 }
 
+// Downscale large camera photos client-side so the vision request stays small.
+async function imageFileToDataUrl(file: File, maxDim = 1280): Promise<string> {
+  const dataUrl: string = await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+
+  const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const el = new Image();
+    el.onload = () => resolve(el);
+    el.onerror = reject;
+    el.src = dataUrl;
+  });
+
+  const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+  if (scale === 1) return dataUrl;
+
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(img.width * scale);
+  canvas.height = Math.round(img.height * scale);
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return dataUrl;
+  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+  return canvas.toDataURL("image/jpeg", 0.85);
+}
+
 export default function Page() {
   const [reks, setReks] = useState<Rek[]>([]);
   const [loading, setLoading] = useState(false);
@@ -57,9 +86,14 @@ export default function Page() {
   const [persistedDislikedTitles, setPersistedDislikedTitles] = useState<string[]>([]);
   const [hasSearched, setHasSearched] = useState(false);
 
+  const [snapLoading, setSnapLoading] = useState(false);
+  const [snapResult, setSnapResult] = useState<SnapResult | null>(null);
+  const [snapError, setSnapError] = useState<string | null>(null);
+
   const vibePlayRef = useRef<null | (() => void)>(null);
   const didInitRef = useRef(false);
   const searchIdRef = useRef(0);
+  const snapInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     if (didInitRef.current) return;
@@ -88,8 +122,44 @@ export default function Page() {
     loadInitial();
   }, []);
 
+  const openSnapPicker = () => snapInputRef.current?.click();
+
+  const handleSnapFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // allow re-snapping the same photo
+    if (!file) return;
+
+    setSnapError(null);
+    setSnapResult(null);
+    setSnapLoading(true);
+
+    try {
+      const image = await imageFileToDataUrl(file);
+      const res = await fetch("/api/reksnap", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ image }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.detected_item || !Array.isArray(data?.reks)) {
+        throw new Error(data?.error || "RekSnap failed");
+      }
+      setSnapResult(data as SnapResult);
+    } catch (err) {
+      console.error("RekSnap failed:", err);
+      setSnapError("Reks Ray™ couldn't read that photo. Give it another snap.");
+    } finally {
+      setSnapLoading(false);
+    }
+  };
+
   const handleSearch = async (query: string, cat: string) => {
     const searchId = ++searchIdRef.current;
+
+    // A new search dismisses any RekSnap results.
+    setSnapResult(null);
+    setSnapError(null);
+    setSnapLoading(false);
 
     const inferred = categoryFromQuery(query);
     const nextCategory = query.startsWith("__PHOTO__:")
@@ -147,10 +217,25 @@ export default function Page() {
           }}
         />
 
+        <input
+          ref={snapInputRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={handleSnapFile}
+        />
+
         <div className="mt-8">
-          {!hasSearched && !loading ? (
+          {snapLoading || snapResult || snapError ? (
+            <RekSnapResults
+              loading={snapLoading}
+              result={snapResult}
+              error={snapError}
+              onSnapAgain={openSnapPicker}
+            />
+          ) : !hasSearched && !loading ? (
             <div className="sm:hidden">
-              <RekSnapButton />
+              <RekSnapButton onClick={openSnapPicker} />
             </div>
           ) : (
             <ResultsV4
