@@ -48,6 +48,21 @@ function loadingLabelFromQuery(query: string, cat: Category): string {
   return "Finding fresh Reks for you...";
 }
 
+// Soft session limit on RekSnaps; count lives in sessionStorage so it
+// resets when the browser session ends.
+const SNAP_COUNT_KEY = "rekomendr.snap_count";
+const SNAP_LIMIT = 5;
+
+function getSnapCount(): number {
+  if (typeof window === "undefined") return 0;
+  return parseInt(sessionStorage.getItem(SNAP_COUNT_KEY) || "0", 10) || 0;
+}
+
+function incrementSnapCount(): void {
+  if (typeof window === "undefined") return;
+  sessionStorage.setItem(SNAP_COUNT_KEY, String(getSnapCount() + 1));
+}
+
 // Downscale large camera photos client-side so the vision request stays small.
 async function imageFileToDataUrl(file: File, maxDim = 1280): Promise<string> {
   const dataUrl: string = await new Promise((resolve, reject) => {
@@ -89,6 +104,15 @@ export default function Page() {
   const [snapLoading, setSnapLoading] = useState(false);
   const [snapResult, setSnapResult] = useState<SnapResult | null>(null);
   const [snapError, setSnapError] = useState<string | null>(null);
+  const [snapLimitReached, setSnapLimitReached] = useState(false);
+  // True once this session has at least one successful snap; hides the hero
+  // button and promotes the search-bar camera icon. Set in an effect so
+  // server and first client render stay in sync.
+  const [hasSnapped, setHasSnapped] = useState(false);
+
+  useEffect(() => {
+    setHasSnapped(getSnapCount() >= 1);
+  }, []);
 
   const vibePlayRef = useRef<null | (() => void)>(null);
   const didInitRef = useRef(false);
@@ -122,7 +146,13 @@ export default function Page() {
     loadInitial();
   }, []);
 
-  const openSnapPicker = () => snapInputRef.current?.click();
+  const openSnapPicker = () => {
+    if (getSnapCount() >= SNAP_LIMIT) {
+      setSnapLimitReached(true);
+      return;
+    }
+    snapInputRef.current?.click();
+  };
 
   const handleSnapFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -145,6 +175,8 @@ export default function Page() {
         throw new Error(data?.error || "RekSnap failed");
       }
       setSnapResult(data as SnapResult);
+      incrementSnapCount();
+      setHasSnapped(true);
     } catch (err) {
       console.error("RekSnap failed:", err);
       setSnapError("Reks Ray™ couldn't read that photo. Give it another snap.");
@@ -160,6 +192,7 @@ export default function Page() {
     setSnapResult(null);
     setSnapError(null);
     setSnapLoading(false);
+    setSnapLimitReached(false);
 
     const inferred = categoryFromQuery(query);
     const nextCategory = query.startsWith("__PHOTO__:")
@@ -212,6 +245,8 @@ export default function Page() {
           onSearch={handleSearch}
           setLoading={setLoading}
           hasHistory={reks.length > 0}
+          snapPrimary={hasSnapped}
+          onSnap={openSnapPicker}
           registerVibePlay={(fn) => {
             vibePlayRef.current = fn;
           }}
@@ -226,17 +261,20 @@ export default function Page() {
         />
 
         <div className="mt-8">
-          {snapLoading || snapResult || snapError ? (
+          {snapLoading || snapResult || snapError || snapLimitReached ? (
             <RekSnapResults
               loading={snapLoading}
               result={snapResult}
               error={snapError}
+              limitReached={snapLimitReached}
               onSnapAgain={openSnapPicker}
             />
           ) : !hasSearched && !loading ? (
-            <div className="sm:hidden">
-              <RekSnapButton onClick={openSnapPicker} />
-            </div>
+            !hasSnapped && (
+              <div className="sm:hidden">
+                <RekSnapButton onClick={openSnapPicker} />
+              </div>
+            )
           ) : (
             <ResultsV4
               reks={reks}

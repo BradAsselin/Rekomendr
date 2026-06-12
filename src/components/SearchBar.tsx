@@ -10,6 +10,11 @@ interface SearchBarProps {
 
   // allow Page / ResultsV4 to trigger Play
   registerVibePlay?: (fn: () => void) => void;
+
+  // RekSnap promotion: once the session has a successful snap, the camera
+  // icon becomes the primary snap entry point (brand blue, opens RekSnap).
+  snapPrimary?: boolean;
+  onSnap?: () => void;
 }
 
 // --------------------------------------------
@@ -56,6 +61,8 @@ const SearchBar: React.FC<SearchBarProps> = ({
   setLoading,
   hasHistory,
   registerVibePlay,
+  snapPrimary,
+  onSnap,
 }) => {
   const [input, setInput] = useState("");
   const [isPulsing, setIsPulsing] = useState(false);
@@ -555,8 +562,13 @@ setInput("");
           {/* CAMERA — top row on mobile only */}
           <button
             type="button"
-            onClick={handleOpenCamera}
-            className="ml-auto pl-3 sm:hidden text-gray-500 hover:text-gray-700 transition flex-shrink-0"
+            onClick={snapPrimary && onSnap ? onSnap : handleOpenCamera}
+            className={[
+              "ml-auto pl-3 sm:hidden transition flex-shrink-0",
+              snapPrimary
+                ? "text-[#2D5AB5] hover:text-[#244a99]"
+                : "text-gray-500 hover:text-gray-700",
+            ].join(" ")}
           >
             <Camera size={20} strokeWidth={1.7} />
           </button>
@@ -579,8 +591,13 @@ setInput("");
           {/* CAMERA — desktop only */}
           <button
             type="button"
-            onClick={handleOpenCamera}
-            className="hidden sm:block text-gray-500 hover:text-gray-700 transition mr-2 flex-shrink-0"
+            onClick={snapPrimary && onSnap ? onSnap : handleOpenCamera}
+            className={[
+              "hidden sm:block transition mr-2 flex-shrink-0",
+              snapPrimary
+                ? "text-[#2D5AB5] hover:text-[#244a99]"
+                : "text-gray-500 hover:text-gray-700",
+            ].join(" ")}
           >
             <Camera size={20} strokeWidth={1.7} />
           </button>
