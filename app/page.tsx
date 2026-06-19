@@ -171,7 +171,12 @@ export default function Page() {
         body: JSON.stringify({ image }),
       });
       const data = await res.json().catch(() => null);
-      if (!res.ok || !data?.detected_item || !Array.isArray(data?.reks)) {
+      if (
+        !res.ok ||
+        !data?.detected_item ||
+        !data?.results ||
+        !Array.isArray(data?.results?.similar)
+      ) {
         throw new Error(data?.error || "RekSnap failed");
       }
       setSnapResult(data as SnapResult);

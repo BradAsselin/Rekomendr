@@ -5,7 +5,30 @@ export const runtime = "nodejs";
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 const SYSTEM_PROMPT =
-  "You are a taste-aware recommendation engine. Step 1: Identify what is in the photo (wine shelf, beer menu, restaurant menu, streaming screen, product shelf, etc.). Step 2: Extract the available options visible. Step 3: Rank the top 5 most relevant options. Step 4: For each of the 5, write a 1-2 sentence description in plain conversational language — as a knowledgeable friend would describe it, not as a label or menu would. Step 5: Return the detected item as detected_item and the ranked 5 as reks. Return JSON only: { detected_item: { name, description, category }, reks: [ { name, description, rank } ] }. The category field is a short lowercase label for the kind of thing detected — e.g. wine, vodka, beer, food, movies, tv, books, coffee, snacks. Hard rules for reks: the reks array must contain EXACTLY 5 items, every time, no fewer. The reks must NEVER include the detected item itself — they must be 5 DISTINCT recommendations: alternatives to the detected item, or ways to use it, whichever fits the context. No two reks may share the same name.";
+  "You are a taste-aware recommendation engine reading a single photo.\n" +
+  "\n" +
+  "Step 1: Identify the main item in the photo (a wine bottle, beer menu, restaurant menu, streaming screen, product on a shelf, a tube of cream, etc.) and its category (a short lowercase label — e.g. wine, vodka, beer, food, movies, tv, books, coffee, snacks, skincare).\n" +
+  "\n" +
+  "Step 2: Infer the single most likely INTENT MODE from the photo's context — what the person most plausibly wants:\n" +
+  "- 'similar' — they want more options LIKE the snapped item (alternatives to consider). Best when the photo looks like a store shelf, menu, or product lineup, i.e. a shopping/choosing context.\n" +
+  "- 'uses' — they already own or have the item and want to know what to DO with it (recipes, pairings, cocktails, applications). Best when the photo looks like a home, kitchen, or owned-item context.\n" +
+  "- 'alternatives' — they want to REDIRECT to other items that serve a related but DIFFERENT need (e.g. a cortisone tube → creams for different ailments). Best when the item points to a broad category of needs.\n" +
+  "Set 'mode' to the one that best fits the photo.\n" +
+  "\n" +
+  "Step 3: Produce ALL THREE lists regardless of the inferred mode. For each list, rank the top 5 most relevant options and, for each, write a 1-2 sentence description in plain conversational language — as a knowledgeable friend would describe it, not as a label or menu would.\n" +
+  "- results.similar: 5 alternatives that are LIKE the detected item.\n" +
+  "- results.uses: 5 ways to USE the detected item (recipes, pairings, applications).\n" +
+  "- results.alternatives: 5 items that serve a related but DIFFERENT need.\n" +
+  "\n" +
+  "Return JSON only, in this exact shape:\n" +
+  "{ \"detected_item\": { \"name\": string, \"description\": string, \"category\": string }, \"mode\": \"similar\"|\"uses\"|\"alternatives\", \"results\": { \"similar\": [ { \"name\": string, \"description\": string, \"rank\": number } ], \"uses\": [ ... ], \"alternatives\": [ ... ] } }\n" +
+  "\n" +
+  "Hard rules for EVERY list (similar, uses, alternatives):\n" +
+  "- Each list must contain EXACTLY 5 items, every time, no fewer.\n" +
+  "- No list may ever include the detected item itself — every entry must be a DISTINCT recommendation.\n" +
+  "- No two items within the same list may share the same name.";
+
+type RawRek = { name?: unknown; description?: unknown; rank?: unknown };
 
 export async function POST(req: Request) {
   try {
@@ -19,7 +42,9 @@ export async function POST(req: Request) {
     const completion = await openai.chat.completions.create({
       model: "gpt-4o",
       temperature: 0.7,
-      max_tokens: 1500,
+      // Three lists of five is ~triple the output of the old single list —
+      // raised well above 3x the old 1500 cap so the JSON never truncates.
+      max_tokens: 4000,
       response_format: { type: "json_object" },
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
@@ -43,13 +68,13 @@ export async function POST(req: Request) {
     }
 
     const detected = parsed?.detected_item;
-    const reks = parsed?.reks;
+    const results = parsed?.results;
 
     if (
       !detected ||
       typeof detected.name !== "string" ||
-      !Array.isArray(reks) ||
-      reks.length === 0
+      !results ||
+      typeof results !== "object"
     ) {
       return Response.json(
         { error: "Could not read that photo." },
@@ -60,20 +85,61 @@ export async function POST(req: Request) {
     const normalize = (s: string) => s.trim().toLowerCase();
     const detectedName = normalize(detected.name);
 
-    const cleanReks = reks
-      .filter((r: any) => r && typeof r.name === "string")
-      .filter((r: any) => normalize(r.name) !== detectedName)
-      .slice(0, 5)
-      .map((r: any, i: number) => ({
-        name: r.name,
-        description: typeof r.description === "string" ? r.description : "",
-        rank: typeof r.rank === "number" ? r.rank : i + 1,
-      }));
+    // Clean a single list: drop the detected item, drop intra-list dupes,
+    // cap at 5, and normalise the rek shape.
+    const cleanList = (raw: unknown, listName: string): SnapRekOut[] => {
+      const arr: RawRek[] = Array.isArray(raw) ? raw : [];
+      const seen = new Set<string>();
+      const out: SnapRekOut[] = [];
+      for (const r of arr) {
+        if (!r || typeof r.name !== "string") continue;
+        const key = normalize(r.name);
+        if (key === detectedName) continue;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push({
+          name: r.name,
+          description: typeof r.description === "string" ? r.description : "",
+          rank: typeof r.rank === "number" ? r.rank : out.length + 1,
+        });
+        if (out.length === 5) break;
+      }
+      // Re-rank sequentially so ranks are always 1..n after filtering.
+      const ranked = out.map((r, i) => ({ ...r, rank: i + 1 }));
+      if (ranked.length < 5) {
+        console.warn(
+          `RekSnap: only ${ranked.length} reks in "${listName}" after filtering (detected_item: "${detected.name}")`
+        );
+      }
+      return ranked;
+    };
 
-    if (cleanReks.length < 5) {
-      console.warn(
-        `RekSnap: only ${cleanReks.length} reks after filtering (model returned ${reks.length}, detected_item: "${detected.name}")`
+    const cleaned = {
+      similar: cleanList(results.similar, "similar"),
+      uses: cleanList(results.uses, "uses"),
+      alternatives: cleanList(results.alternatives, "alternatives"),
+    };
+
+    // Fail only if every list is empty — a partial result is still usable.
+    if (
+      cleaned.similar.length === 0 &&
+      cleaned.uses.length === 0 &&
+      cleaned.alternatives.length === 0
+    ) {
+      return Response.json(
+        { error: "Could not read that photo." },
+        { status: 502 }
       );
+    }
+
+    const allowedModes = ["similar", "uses", "alternatives"] as const;
+    let mode: (typeof allowedModes)[number] = allowedModes.includes(parsed?.mode)
+      ? parsed.mode
+      : "similar";
+    // Never default to a mode whose list came back empty.
+    if (cleaned[mode].length === 0) {
+      mode =
+        allowedModes.find((m) => cleaned[m].length > 0) ?? "similar";
     }
 
     return Response.json(
@@ -89,7 +155,8 @@ export async function POST(req: Request) {
               ? detected.category.trim().toLowerCase()
               : "unknown",
         },
-        reks: cleanReks,
+        mode,
+        results: cleaned,
       },
       { status: 200 }
     );
@@ -98,3 +165,5 @@ export async function POST(req: Request) {
     return Response.json({ error: "Server error" }, { status: 500 });
   }
 }
+
+type SnapRekOut = { name: string; description: string; rank: number };

@@ -1,9 +1,13 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Camera, ThumbsUp, ThumbsDown, Bookmark } from "lucide-react";
 
-import { recordSnapSignal, type SnapSignalAction } from "../lib/reksnapSignals";
+import {
+  recordSnapSignal,
+  type SnapSignalAction,
+  type SnapMode,
+} from "../lib/reksnapSignals";
 
 export type SnapRek = {
   name: string;
@@ -13,8 +17,16 @@ export type SnapRek = {
 
 export type SnapResult = {
   detected_item: { name: string; description: string; category: string };
-  reks: SnapRek[];
+  mode: SnapMode;
+  results: Record<SnapMode, SnapRek[]>;
 };
+
+// Plain-language labels + order for the mode toggle row.
+const MODE_TABS: { mode: SnapMode; label: string }[] = [
+  { mode: "similar", label: "Similar" },
+  { mode: "uses", label: "Use it for" },
+  { mode: "alternatives", label: "Instead try" },
+];
 
 type Props = {
   loading: boolean;
@@ -45,6 +57,30 @@ const RekSnapResults: React.FC<Props> = ({
 }) => {
   // Last signal sent per item name, for button highlight state.
   const [signals, setSignals] = useState<Record<string, SnapSignalAction>>({});
+
+  // Which intent list is on screen. Defaults to the model's inferred mode;
+  // all three lists are already loaded, so switching is instant (no API call).
+  const [activeMode, setActiveMode] = useState<SnapMode>(result?.mode ?? "similar");
+
+  // A new snap result resets the view to its inferred mode and clears highlights.
+  useEffect(() => {
+    if (result) {
+      setActiveMode(result.mode);
+      setSignals({});
+    }
+  }, [result]);
+
+  const switchMode = (mode: SnapMode) => {
+    if (!result || mode === activeMode) return;
+    setActiveMode(mode);
+    // Log the flip as its own signal, tagged with the mode switched TO.
+    recordSnapSignal({
+      itemName: result.detected_item.name,
+      itemCategory: result.detected_item.category,
+      action: "context_flip",
+      flipToMode: mode,
+    });
+  };
 
   const sendSignal = (itemName: string, action: SnapSignalAction) => {
     if (!result) return;
@@ -192,8 +228,31 @@ const RekSnapResults: React.FC<Props> = ({
       {/* Ranked reks */}
       <div className="w-full max-w-xl mt-8">
         <h3 className="text-lg font-semibold text-center mb-3">Your Reks</h3>
+
+        {/* Mode toggle — all three lists are preloaded, so this is instant. */}
+        <div className="flex justify-center gap-2 mb-4">
+          {MODE_TABS.map(({ mode, label }) => {
+            const active = mode === activeMode;
+            return (
+              <button
+                key={mode}
+                onClick={() => switchMode(mode)}
+                aria-pressed={active}
+                className={[
+                  "px-3 py-1.5 rounded-full text-sm border transition-colors",
+                  active
+                    ? "bg-[#2D5AB5] border-[#2D5AB5] text-white"
+                    : "bg-white border-gray-300 text-gray-600 hover:border-[#2D5AB5] hover:text-[#2D5AB5]",
+                ].join(" ")}
+              >
+                {label}
+              </button>
+            );
+          })}
+        </div>
+
         <div className="space-y-3">
-          {result.reks.map((rek) => {
+          {result.results[activeMode].map((rek) => {
             const buttons = signalButtons(rek.name);
             return (
               <div
