@@ -20,6 +20,14 @@ const SYSTEM_PROMPT =
   "- results.uses: 5 ways to USE the detected item (recipes, pairings, applications).\n" +
   "- results.alternatives: 5 items that serve a related but DIFFERENT need.\n" +
   "\n" +
+  "DIFFERENTIATOR RULE — applies ONLY to results.similar and results.alternatives (NOT results.uses):\n" +
+  "For each item in those two lists, do not describe the item in isolation. Instead, describe how it DIFFERS from the detected item — what it does differently than the thing the user is holding. Anchor the comparison to the detected item by name where it reads naturally (e.g. 'Gentler on painted wheels than the Armor All' / 'Cheaper than Grey Goose, and corn-based instead of wheat' / 'Formulated for itch rather than pain, unlike the cortisone').\n" +
+  "- Use only factual, observable, decision-relevant differences: stronger/gentler on X, cheaper/pricier, bigger/smaller size, fragrance-free, different base ingredient, targets a different use case or condition.\n" +
+  "- Do NOT make taste or quality judgments. Never say 'better', 'smoother', 'superior', 'best', or any ranking of quality. State how they differ on observable axes and let the user decide.\n" +
+  "- Be category-aware and cautious with health, medical, ingestible, or safety-related items: keep differentiators conservative and factual (e.g. 'formulated for itch rather than pain'), avoid anything that reads as medical advice, and never assert or imply efficacy. When unsure how they differ, describe the item's stated purpose rather than comparing strength.\n" +
+  "- Keep the existing 1-2 sentence friend voice. A knowledgeable friend, not a spec sheet.\n" +
+  "(results.uses descriptions stay as they are — a recipe or application does not need to compare itself to the detected item.)\n" +
+  "\n" +
   "Return JSON only, in this exact shape:\n" +
   "{ \"detected_item\": { \"name\": string, \"description\": string, \"category\": string }, \"mode\": \"similar\"|\"uses\"|\"alternatives\", \"results\": { \"similar\": [ { \"name\": string, \"description\": string, \"rank\": number } ], \"uses\": [ ... ], \"alternatives\": [ ... ] } }\n" +
   "\n" +
