@@ -5,6 +5,7 @@ import SearchBar from "../src/components/SearchBar";
 import ResultsV4 from "../src/components/ResultsV4";
 import RekSnapButton from "../src/components/RekSnapButton";
 import RekSnapResults, { type SnapResult } from "../src/components/RekSnapResults";
+import RecipeModal from "../src/components/RecipeModal";
 import { getTop5FromEngine, type Rek } from "../src/engine/rekomendrEngine";
 import { loadPrefsForCategory } from "../src/lib/userPrefs";
 
@@ -109,6 +110,13 @@ export default function Page() {
   // button and promotes the search-bar camera icon. Set in an effect so
   // server and first client render stay in sync.
   const [hasSnapped, setHasSnapped] = useState(false);
+
+  // Recipe push-through modal. Non-null = open, with the dish to generate and
+  // the detected item it came from. Card taps set this in step C; for now a
+  // temporary dev trigger below opens it for testing.
+  const [activeRecipe, setActiveRecipe] = useState<
+    { dish: string; detectedItem?: string } | null
+  >(null);
 
   useEffect(() => {
     setHasSnapped(getSnapCount() >= 1);
@@ -263,6 +271,29 @@ export default function Page() {
           onChange={handleSnapFile}
         />
 
+        {/* TEMP (step B testing only — remove when step C wires card taps).
+            Opens the recipe modal with a test dish. */}
+        {process.env.NODE_ENV !== "production" && (
+          <div className="mt-4 flex flex-wrap gap-2">
+            <button
+              onClick={() =>
+                setActiveRecipe({ dish: "mushroom omelette", detectedItem: "eggs" })
+              }
+              className="px-3 py-1.5 rounded-full text-xs border border-dashed border-gray-400 text-gray-600 hover:border-black hover:text-black"
+            >
+              TEMP: omelette recipe
+            </button>
+            <button
+              onClick={() =>
+                setActiveRecipe({ dish: "steak tartare", detectedItem: "beef tenderloin" })
+              }
+              className="px-3 py-1.5 rounded-full text-xs border border-dashed border-gray-400 text-gray-600 hover:border-black hover:text-black"
+            >
+              TEMP: tartare recipe
+            </button>
+          </div>
+        )}
+
         <div className="mt-8">
           {snapLoading || snapResult || snapError || snapLimitReached ? (
             <RekSnapResults
@@ -292,6 +323,14 @@ export default function Page() {
           )}
         </div>
       </div>
+
+      {activeRecipe && (
+        <RecipeModal
+          dish={activeRecipe.dish}
+          detectedItem={activeRecipe.detectedItem}
+          onClose={() => setActiveRecipe(null)}
+        />
+      )}
     </main>
   );
 }
