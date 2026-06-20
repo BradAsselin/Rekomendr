@@ -54,6 +54,11 @@ function loadingLabelFromQuery(query: string, cat: Category): string {
 const SNAP_COUNT_KEY = "rekomendr.snap_count";
 const SNAP_LIMIT = 5;
 
+// The 5-Rek cap is enforced in production only. Local dev bypasses enforcement
+// so we can snap freely while testing — the limit number itself is unchanged,
+// and production behavior is identical to before.
+const ENFORCE_SNAP_LIMIT = process.env.NODE_ENV === "production";
+
 function getSnapCount(): number {
   if (typeof window === "undefined") return 0;
   return parseInt(sessionStorage.getItem(SNAP_COUNT_KEY) || "0", 10) || 0;
@@ -112,8 +117,7 @@ export default function Page() {
   const [hasSnapped, setHasSnapped] = useState(false);
 
   // Recipe push-through modal. Non-null = open, with the dish to generate and
-  // the detected item it came from. Card taps set this in step C; for now a
-  // temporary dev trigger below opens it for testing.
+  // the detected item it came from. Set when a food "uses" snap card is tapped.
   const [activeRecipe, setActiveRecipe] = useState<
     { dish: string; detectedItem?: string } | null
   >(null);
@@ -155,7 +159,7 @@ export default function Page() {
   }, []);
 
   const openSnapPicker = () => {
-    if (getSnapCount() >= SNAP_LIMIT) {
+    if (ENFORCE_SNAP_LIMIT && getSnapCount() >= SNAP_LIMIT) {
       setSnapLimitReached(true);
       return;
     }
@@ -271,29 +275,6 @@ export default function Page() {
           onChange={handleSnapFile}
         />
 
-        {/* TEMP (step B testing only — remove when step C wires card taps).
-            Opens the recipe modal with a test dish. */}
-        {process.env.NODE_ENV !== "production" && (
-          <div className="mt-4 flex flex-wrap gap-2">
-            <button
-              onClick={() =>
-                setActiveRecipe({ dish: "mushroom omelette", detectedItem: "eggs" })
-              }
-              className="px-3 py-1.5 rounded-full text-xs border border-dashed border-gray-400 text-gray-600 hover:border-black hover:text-black"
-            >
-              TEMP: omelette recipe
-            </button>
-            <button
-              onClick={() =>
-                setActiveRecipe({ dish: "steak tartare", detectedItem: "beef tenderloin" })
-              }
-              className="px-3 py-1.5 rounded-full text-xs border border-dashed border-gray-400 text-gray-600 hover:border-black hover:text-black"
-            >
-              TEMP: tartare recipe
-            </button>
-          </div>
-        )}
-
         <div className="mt-8">
           {snapLoading || snapResult || snapError || snapLimitReached ? (
             <RekSnapResults
@@ -302,6 +283,7 @@ export default function Page() {
               error={snapError}
               limitReached={snapLimitReached}
               onSnapAgain={openSnapPicker}
+              onOpenRecipe={(r) => setActiveRecipe(r)}
             />
           ) : !hasSearched && !loading ? (
             !hasSnapped && (

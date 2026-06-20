@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { Camera } from "lucide-react";
+import { Camera, ChevronRight } from "lucide-react";
 
 import {
   recordSnapSignal,
@@ -36,6 +36,9 @@ type Props = {
   error?: string | null;
   limitReached?: boolean;
   onSnapAgain?: () => void;
+  // Opens the recipe modal (state lives in the page). Only food "uses" cards
+  // call this; passes the tapped dish + the detected item it came from.
+  onOpenRecipe?: (recipe: { dish: string; detectedItem: string }) => void;
 };
 
 // Warm, non-punitive notice when the session snap limit is hit.
@@ -56,6 +59,7 @@ const RekSnapResults: React.FC<Props> = ({
   error,
   limitReached,
   onSnapAgain,
+  onOpenRecipe,
 }) => {
   // Last signal sent per item name, for button highlight state.
   const [signals, setSignals] = useState<Record<string, SnapSignalAction>>({});
@@ -201,6 +205,18 @@ const RekSnapResults: React.FC<Props> = ({
 
         <div className="space-y-3">
           {result.results[activeMode].map((rek) => {
+            // Only food "uses" cards push through to a recipe. Everything else
+            // (other categories, other modes) keeps its current inert card.
+            const isFoodUse =
+              activeMode === "uses" &&
+              result.detected_item.category === "food";
+
+            const openRecipe = () =>
+              onOpenRecipe?.({
+                dish: rek.name,
+                detectedItem: result.detected_item.name,
+              });
+
             return (
               <div
                 key={`${rek.rank}-${rek.name}`}
@@ -208,7 +224,11 @@ const RekSnapResults: React.FC<Props> = ({
               >
                 <div className="flex justify-between items-start mb-2">
                   <span className="font-semibold text-[17px]">{rek.name}</span>
-                  <div className="flex items-center gap-2 ml-2 shrink-0">
+                  {/* Signal controls own their taps so they never open the modal. */}
+                  <div
+                    className="flex items-center gap-2 ml-2 shrink-0"
+                    onClick={(e) => e.stopPropagation()}
+                  >
                     <span className="text-xs text-gray-400 font-medium mr-1">
                       #{rek.rank}
                     </span>
@@ -222,11 +242,29 @@ const RekSnapResults: React.FC<Props> = ({
                 <p className="text-[15px] text-gray-700 leading-relaxed">
                   {rek.description}
                 </p>
-                <SignalButtons
-                  variant="save"
-                  current={signals[rek.name]}
-                  onSignal={(a) => sendSignal(rek.name, a)}
-                />
+                <div onClick={(e) => e.stopPropagation()}>
+                  <SignalButtons
+                    variant="save"
+                    current={signals[rek.name]}
+                    onSignal={(a) => sendSignal(rek.name, a)}
+                  />
+                </div>
+
+                {/* Recipe open lives ONLY on this button (not the whole card)
+                    so it won't collide with the coming swipe-to-dismiss gesture.
+                    Native <button> gives role/focus/Enter-Space for free. */}
+                {isFoodUse && (
+                  <div className="mt-2 flex justify-end">
+                    <button
+                      type="button"
+                      onClick={openRecipe}
+                      className="-mr-1 flex items-center gap-0.5 rounded-lg px-2 py-1.5 text-xs font-medium text-[#2D5AB5] transition hover:bg-[#2D5AB5]/10 active:scale-95"
+                    >
+                      View recipe
+                      <ChevronRight size={14} />
+                    </button>
+                  </div>
+                )}
               </div>
             );
           })}
