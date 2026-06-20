@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { Camera, ThumbsUp, ThumbsDown, Bookmark } from "lucide-react";
+import { Camera } from "lucide-react";
 
 import {
   recordSnapSignal,
@@ -9,6 +9,7 @@ import {
   type SnapMode,
 } from "../lib/reksnapSignals";
 import RekSkeleton from "./RekSkeleton";
+import SignalButtons from "./SignalButtons";
 
 export type SnapRek = {
   name: string;
@@ -93,54 +94,6 @@ const RekSnapResults: React.FC<Props> = ({
     });
   };
 
-  const signalButtons = (itemName: string) => {
-    const current = signals[itemName];
-
-    const thumbClass = (active: boolean) =>
-      [
-        "p-1 rounded-full border",
-        active
-          ? "border-black text-black"
-          : "border-gray-400 text-gray-500 hover:border-black hover:text-black",
-      ].join(" ");
-
-    return {
-      thumbs: (
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => sendSignal(itemName, "like")}
-            className={thumbClass(current === "like")}
-            aria-label="Thumbs up"
-          >
-            <ThumbsUp size={18} />
-          </button>
-
-          <button
-            onClick={() => sendSignal(itemName, "dislike")}
-            className={thumbClass(current === "dislike")}
-            aria-label="Thumbs down"
-          >
-            <ThumbsDown size={18} />
-          </button>
-        </div>
-      ),
-      save: (
-        <div className="flex items-center gap-4 text-sm text-gray-700 mt-3">
-          <button
-            onClick={() => sendSignal(itemName, "save")}
-            className="hover:underline flex items-center gap-1"
-          >
-            <Bookmark
-              size={16}
-              fill={current === "save" ? "#374151" : "none"}
-            />
-            {current === "save" ? "Saved" : "Save"}
-          </button>
-        </div>
-      ),
-    };
-  };
-
   if (loading) {
     return (
       <div className="w-full flex flex-col items-center px-4 pt-2 pb-14 select-none">
@@ -187,8 +140,6 @@ const RekSnapResults: React.FC<Props> = ({
     return null;
   }
 
-  const detectedButtons = signalButtons(result.detected_item.name);
-
   return (
     <div className="w-full flex flex-col items-center px-4 pt-2 pb-14 select-none">
       {limitReached && (
@@ -205,12 +156,20 @@ const RekSnapResults: React.FC<Props> = ({
             <span className="font-semibold text-[17px]">
               {result.detected_item.name}
             </span>
-            {detectedButtons.thumbs}
+            <SignalButtons
+              variant="thumbs"
+              current={signals[result.detected_item.name]}
+              onSignal={(a) => sendSignal(result.detected_item.name, a)}
+            />
           </div>
           <p className="text-[15px] text-gray-700 leading-relaxed">
             {result.detected_item.description}
           </p>
-          {detectedButtons.save}
+          <SignalButtons
+            variant="save"
+            current={signals[result.detected_item.name]}
+            onSignal={(a) => sendSignal(result.detected_item.name, a)}
+          />
         </div>
       </div>
 
@@ -242,7 +201,6 @@ const RekSnapResults: React.FC<Props> = ({
 
         <div className="space-y-3">
           {result.results[activeMode].map((rek) => {
-            const buttons = signalButtons(rek.name);
             return (
               <div
                 key={`${rek.rank}-${rek.name}`}
@@ -254,13 +212,21 @@ const RekSnapResults: React.FC<Props> = ({
                     <span className="text-xs text-gray-400 font-medium mr-1">
                       #{rek.rank}
                     </span>
-                    {buttons.thumbs}
+                    <SignalButtons
+                      variant="thumbs"
+                      current={signals[rek.name]}
+                      onSignal={(a) => sendSignal(rek.name, a)}
+                    />
                   </div>
                 </div>
                 <p className="text-[15px] text-gray-700 leading-relaxed">
                   {rek.description}
                 </p>
-                {buttons.save}
+                <SignalButtons
+                  variant="save"
+                  current={signals[rek.name]}
+                  onSignal={(a) => sendSignal(rek.name, a)}
+                />
               </div>
             );
           })}
