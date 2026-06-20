@@ -701,14 +701,9 @@ async function generateAIReks(args: {
       out.push(safe);
     }
 
-    // Fallback fill: if AI gave fewer than requested usable items, quietly top
-    // up from the canned pool so the UI still gets a full set.
-    //
-    // Skipped on the backfill path: that lane must stay purely AI-generated, so
-    // it accepts fewer items rather than leaking an off-lane pool pick. (A full
-    // timeout still fails open to the pool in getBackfillRek — that safety net
-    // is separate from this top-up.)
-    if (!args.backfill && out.length < args.count) {
+    // Fallback fill: if AI gave fewer than requested usable items,
+    // quietly top up from the canned pool so UI still gets a full set.
+    if (out.length < args.count) {
       try {
         const fallbackPool = await fetchPool(args.category);
 
