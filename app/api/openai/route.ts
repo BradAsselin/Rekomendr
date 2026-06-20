@@ -22,9 +22,18 @@ export async function POST(req: Request) {
        V1 MAGIC MODE (prompt based)
     ------------------------------ */
     if (typeof body?.prompt === "string" && body.prompt.trim()) {
+      // Callers (e.g. backfill) may request a tighter, JSON-constrained
+      // response. Defaults preserve the original behavior for everything else.
+      const temperature =
+        typeof body?.temperature === "number" ? body.temperature : 0.85;
+      const useJson = body?.jsonResponse === true;
+
       const completion = await openai.chat.completions.create({
         model: "gpt-4o-mini",
-        temperature: 0.85,
+        temperature,
+        ...(useJson
+          ? { response_format: { type: "json_object" as const } }
+          : {}),
         messages: [
           {
             role: "system",

@@ -29,19 +29,13 @@ export async function recordLike(params: {
   const clientId = getAnonymousClientId();
   if (!clientId) return;
 
-  const { error } = await supabase.from('user_likes').insert({
+  await supabase.from('user_likes').insert({
     client_id: clientId,
     category: params.category,
     title: params.title,
     year: params.year ?? null,
     action: params.action,
   });
-  // TODO: remove this log once Supabase writes are confirmed working
-  if (error) {
-    console.warn('[userPrefs] recordLike write failed:', error.message, error.details, { clientId, ...params });
-  } else {
-    console.log('[userPrefs] recordLike OK:', params.action, params.title, `(${params.category})`);
-  }
 }
 
 export async function loadPrefsForCategory(category: string): Promise<{

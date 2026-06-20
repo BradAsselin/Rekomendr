@@ -56,7 +56,9 @@ type Intent = {
    FEATURE TOGGLES / CONSTANTS
 ------------------------------------------------------------------- */
 const MAX_AI_ITEMS = 6;
-const MAX_AI_BACKFILL_OPTIONS = 3;
+// Backfill keeps only the first unseen item; request a small margin (2)
+// to tolerate the occasional dedup/seen collision without paying for 3.
+const MAX_AI_BACKFILL_OPTIONS = 2;
 
 /* ------------------------------------------------------------------
    SESSION-LEVEL MEMORY
@@ -534,11 +536,14 @@ function buildAIPrompt(args: {
     backfill = false,
   } = args;
 
+  // Only the most recent window is serialized into the prompt to stop it
+  // ballooning over a long session. The full seen set is still used for
+  // dedup in generateAIReks, so older titles won't be re-suggested.
   const avoidTitles = Array.from(
   new Set([...(currentTitles ?? []), ...(seenTitles ?? [])])
 )
   .filter(Boolean)
-  .slice(-60);
+  .slice(-30);
 
   const categoryInstructions: Record<Category, string> = {
     Movies:
@@ -564,10 +569,10 @@ Core behavior:
 - If likes/dislikes are provided, use them to refine the taste lane only after the explicit text input has been satisfied.
 - Avoid repeating or returning titles already shown in this session.
 - Prefer real titles/items. Do not invent fake media.
-- Return ONLY a valid JSON array. No commentary. No markdown.
+- Return ONLY a valid JSON ${backfill ? `object of the form {"results": [ ...items ]}` : "array"}. No commentary. No markdown.
 
 Output format:
-[
+${backfill ? `{ "results": [` : "["}
   {
     "title": "Example Title",
     "year": 2014,
@@ -577,7 +582,7 @@ Output format:
     "vibeTags": ["Witty", "Heartfelt"],
     "trailerUrl": "https://www.youtube.com/results?search_query=Example%20Title%20trailer"
   }
-]
+${backfill ? `] }` : "]"}
 Rules:
 - short should be ONE sentence describing the story hook, but TWO sentences are allowed if needed to clarify tone or stakes.
 - long must be ONE sentence explaining why it is worth watching.
@@ -646,13 +651,28 @@ async function generateAIReks(args: {
       backfill: args.backfill,
     });
 
-    // TEMP DIAG — remove after investigation
-    console.log("[DIAG] OpenAI prompt →\n" + prompt);
-    const res = await fetch("/api/openai", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt }),
-    });
+    // Only the backfill path runs under a hard 6s timeout: it must stay snappy
+    // and fails open to the pool. Larger non-backfill generations (e.g.
+    // "+ More like this", count=6) need more time, so they run without a
+    // timeout, as they did before the backfill latency work.
+    const controller = args.backfill ? new AbortController() : null;
+    const timeoutId = controller
+      ? setTimeout(() => controller.abort(), 6000)
+      : null;
+    let res: Response;
+    try {
+      res = await fetch("/api/openai", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prompt,
+          ...(args.backfill ? { temperature: 0.5, jsonResponse: true } : {}),
+        }),
+        ...(controller ? { signal: controller.signal } : {}),
+      });
+    } finally {
+      if (timeoutId) clearTimeout(timeoutId);
+    }
 
     if (!res.ok) return null;
 

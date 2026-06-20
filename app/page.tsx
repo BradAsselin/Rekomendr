@@ -223,8 +223,6 @@ export default function Page() {
       setPersistedLikedTitles(prefs.likedTitles);
       setPersistedDislikedTitles(prefs.dislikedTitles);
 
-      // TEMP DIAG — remove after investigation
-      console.log("[DIAG] rawQuery →", query);
       const next = await getTop5FromEngine({ rawQuery: query, ...prefs });
       if (searchId !== searchIdRef.current) return;
 
