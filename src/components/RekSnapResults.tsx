@@ -8,6 +8,7 @@ import {
   type SnapSignalAction,
   type SnapMode,
 } from "../lib/reksnapSignals";
+import RekSkeleton from "./RekSkeleton";
 
 export type SnapRek = {
   name: string;
@@ -143,20 +144,8 @@ const RekSnapResults: React.FC<Props> = ({
   if (loading) {
     return (
       <div className="w-full flex flex-col items-center px-4 pt-2 pb-14 select-none">
-        <div className="text-sm text-gray-600 mb-2 animate-pulse">
-          Reks Ray™ is reading your photo…
-        </div>
-        <div className="w-full max-w-xl space-y-3">
-          {[0, 1, 2].map((i) => (
-            <div
-              key={i}
-              className="bg-white border border-gray-300 rounded-2xl p-4 shadow-sm animate-pulse"
-            >
-              <div className="h-4 bg-gray-200 rounded w-1/2 mb-3" />
-              <div className="h-3 bg-gray-100 rounded w-full mb-2" />
-              <div className="h-3 bg-gray-100 rounded w-3/4" />
-            </div>
-          ))}
+        <div className="w-full max-w-xl">
+          <RekSkeleton label="Reks Ray™ is reading your photo…" count={3} />
         </div>
       </div>
     );

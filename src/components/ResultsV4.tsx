@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 
 import DescriptorLine from "./DescriptorLine";
+import RekSkeleton, { RekSkeletonCard } from "./RekSkeleton";
 
 // Engine helpers
 import { getBackfillRek, getMoreLikeThisSet } from "../engine/rekomendrEngine";
@@ -45,7 +46,6 @@ interface ResultsProps {
 
 const ResultsV4: React.FC<ResultsProps> = ({
   loading,
-  loadingLabel,
   reks: incomingReks,
   category,
   onPlayVibe,
@@ -59,9 +59,13 @@ const ResultsV4: React.FC<ResultsProps> = ({
   const [expanded, setExpanded] = useState<number | null>(null);
   const [expandedTop, setExpandedTop] = useState<number | null>(null);
   const [exiting, setExiting] = useState<number | null>(null);
-  const [showLoader, setShowLoader] = useState(false);
   const [visibleIds, setVisibleIds] = useState<number[]>([]);
-  const loaderTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // AI loading-state presentation:
+  // - mltLoading: "+ More like this" is regenerating the whole set
+  // - backfillPending: a single dislike/like/save swap is fetching one card
+  const [mltLoading, setMltLoading] = useState(false);
+  const [backfillPending, setBackfillPending] = useState(false);
 
   // Safety valve: pool exhaustion notice
   const [exhaustedMessage, setExhaustedMessage] = useState<string | null>(null);
@@ -127,19 +131,6 @@ const ResultsV4: React.FC<ResultsProps> = ({
   }, [incomingReks]);
 
   /* -----------------------------
-   * LOADER (DELAYED)
-   * ----------------------------- */
-  useEffect(() => {
-    if (loading) {
-      if (loaderTimer.current) clearTimeout(loaderTimer.current);
-      loaderTimer.current = setTimeout(() => setShowLoader(true), 120);
-    } else {
-      if (loaderTimer.current) clearTimeout(loaderTimer.current);
-      setShowLoader(false);
-    }
-  }, [loading]);
-
-  /* -----------------------------
    * CLARIFY LOGIC
    * ----------------------------- */
   const getClarifyOptions = (_rek: Rek) => [
@@ -192,6 +183,9 @@ const ResultsV4: React.FC<ResultsProps> = ({
    * BACKFILL — CATEGORY EXPLICIT
    * ----------------------------- */
   const handleBackfill = async (_removed: Rek) => {
+    // Show a single inline pulse in the replacing slot — never wipe the
+    // whole set for a one-card swap.
+    setBackfillPending(true);
     try {
       const currentNow = reksRef.current;
 
@@ -224,6 +218,8 @@ const ResultsV4: React.FC<ResultsProps> = ({
       });
     } catch (err) {
       console.error("Backfill via engine failed:", err);
+    } finally {
+      setBackfillPending(false);
     }
   };
 
@@ -231,36 +227,39 @@ const ResultsV4: React.FC<ResultsProps> = ({
    * MORE LIKE THIS — CATEGORY EXPLICIT
    * ----------------------------- */
   const handleMoreLikeThis = async (rek: Rek) => {
-    setExiting(rek.id);
     recordLike({ category, title: rek.title, year: rek.year, action: 'more_like_this' });
+    setLiked((p) => [...p, rek]);
 
-    setTimeout(async () => {
-      try {
-        setLiked((p) => [...p, rek]);
+    // Wipe the current set and show the full skeleton while the new AI set
+    // generates, then render it in place.
+    setExiting(null);
+    setMltLoading(true);
+    setVisibleIds([]);
+    setReks([]);
+    clearExhausted();
 
-        const nextFive = await getMoreLikeThisSet({
-          seed: rek,
-          category,
-          likedTitles: allLikedTitlesRef.current,
-          dislikedTitles: allDislikedTitlesRef.current,
-        });
+    try {
+      const nextFive = await getMoreLikeThisSet({
+        seed: rek,
+        category,
+        likedTitles: allLikedTitlesRef.current,
+        dislikedTitles: allDislikedTitlesRef.current,
+      });
 
-        if (!nextFive || nextFive.length === 0) {
-          setExhaustedMessage(
-            "No fresh Reks left for this path. Hit Play for a new vibe or try a different seed."
-          );
-          return;
-        }
-
-        clearExhausted();
-        setReks(nextFive);
-        animateIn(nextFive.map((r) => r.id));
-      } catch (err) {
-        console.error("More Like This via engine failed:", err);
-      } finally {
-        setExiting(null);
+      if (!nextFive || nextFive.length === 0) {
+        setExhaustedMessage(
+          "No fresh Reks left for this path. Hit Play for a new vibe or try a different seed."
+        );
+        return;
       }
-    }, 250);
+
+      setReks(nextFive);
+      animateIn(nextFive.map((r) => r.id));
+    } catch (err) {
+      console.error("More Like This via engine failed:", err);
+    } finally {
+      setMltLoading(false);
+    }
   };
 
   /* -----------------------------
@@ -316,20 +315,12 @@ const ResultsV4: React.FC<ResultsProps> = ({
     window.open(url, "_blank");
   };
 
+  // The whole-set skeleton shows for a fresh AI search (loading) or a
+  // "+ More like this" regeneration (mltLoading).
+  const aiPending = loading || mltLoading;
+
   return (
     <div className="w-full flex flex-col items-center px-4 pt-2 pb-14 select-none">
-      {/* Loader */}
-      <div
-        className={[
-          "text-sm text-gray-600 mb-2 transition-all duration-300",
-          showLoader
-            ? "opacity-100 max-h-8"
-            : "opacity-0 max-h-0 overflow-hidden",
-        ].join(" ")}
-      >
-        {loadingLabel || "Getting your Reks…"}
-      </div>
-
       {/* Safety Valve Notice */}
       {exhaustedMessage && (
         <div className="w-full max-w-xl mb-3">
@@ -356,9 +347,14 @@ const ResultsV4: React.FC<ResultsProps> = ({
         </div>
       )}
 
-      {/* Top 5 Cards */}
-      <div className="w-full max-w-xl space-y-3">
-        {reks.map((rek, index) => {
+      {/* Top 5 Cards — or the full skeleton while an AI set generates */}
+      {aiPending ? (
+        <div className="w-full max-w-xl">
+          <RekSkeleton label="Reks Ray™ is finding your reks…" count={5} />
+        </div>
+      ) : (
+        <div className="w-full max-w-xl space-y-3">
+          {reks.map((rek, index) => {
           const isVisible = visibleIds.includes(rek.id);
           const isExiting = exiting === rek.id;
           const isClarify = clarifyVisible && clarifyTarget?.id === rek.id;
@@ -507,8 +503,11 @@ const ResultsV4: React.FC<ResultsProps> = ({
               </div>
             </div>
           );
-        })}
-      </div>
+          })}
+          {/* Single inline pulse for a one-card dislike/like/save swap */}
+          {backfillPending && <RekSkeletonCard />}
+        </div>
+      )}
 
       {/* SAVED REKS */}
       {saved.length > 0 && (
