@@ -543,7 +543,7 @@ function buildAIPrompt(args: {
   new Set([...(currentTitles ?? []), ...(seenTitles ?? [])])
 )
   .filter(Boolean)
-  .slice(-30);
+  .slice(-100);
 
   const categoryInstructions: Record<Category, string> = {
     Movies:
@@ -700,32 +700,6 @@ async function generateAIReks(args: {
       dedupe.add(titleKey);
       out.push(safe);
     }
-
-    // Fallback fill: if AI gave fewer than requested usable items,
-    // quietly top up from the canned pool so UI still gets a full set.
-    if (out.length < args.count) {
-      try {
-        const fallbackPool = await fetchPool(args.category);
-
-        const seenAndUsed = new Set<string>([
-          ...Array.from(args.seenTitles ?? []).map((t) => t.toLowerCase()),
-          ...out.map((r) => r.title.toLowerCase()),
-        ]);
-
-        for (const r of fallbackPool) {
-          if (out.length >= args.count) break;
-
-          const key = r.title.toLowerCase();
-          if (seenAndUsed.has(key)) continue;
-
-          out.push(normalize([r])[0]);
-          seenAndUsed.add(key);
-        }
-      } catch {
-        // fail soft
-      }
-    }
-
         return out.length >= 1 ? normalize(out.slice(0, args.count)) : null;
   } catch {
     return null;
