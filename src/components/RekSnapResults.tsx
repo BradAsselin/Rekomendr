@@ -8,8 +8,8 @@ import {
   type SnapSignalAction,
   type SnapMode,
 } from "../lib/reksnapSignals";
+import RekCard from "./RekCard";
 import RekSkeleton from "./RekSkeleton";
-import SignalButtons from "./SignalButtons";
 
 export type SnapRek = {
   name: string;
@@ -62,7 +62,8 @@ const NON_RECIPE_CATEGORIES = new Set<string>([
   "music", "album", "albums",
   "game", "games", "video game", "video games",
   "car care", "car-care", "carcare", "automotive", "auto", "auto care",
-  "cleaning", "cleaning supplies", "cleaner", "household", "detergent", "laundry",
+  "cleaning", "cleaning supplies", "cleaning product", "cleaner", "household",
+  "detergent", "laundry",
   "electronics", "gadget", "appliance", "appliances",
   "product", "products", "tool", "tools", "hardware",
   "clothing", "apparel", "shoes", "furniture",
@@ -192,35 +193,26 @@ const RekSnapResults: React.FC<Props> = ({
 
       {/* Detected item */}
       <div className="w-full max-w-xl">
-        <h3 className="text-lg font-semibold text-center mb-3">Your Rek</h3>
-        <div className="bg-white border border-blue-300 rounded-2xl p-4 shadow-md">
-          <div className="flex justify-between items-start mb-2">
-            <span className="font-semibold text-[17px]">
-              {result.detected_item.name}
-            </span>
-            <SignalButtons
-              variant="thumbs"
-              current={signals[result.detected_item.name]}
-              onSignal={(a) => sendSignal(result.detected_item.name, a)}
-            />
-          </div>
-          <p className="text-[15px] text-gray-700 leading-relaxed">
-            {result.detected_item.description}
-          </p>
-          <SignalButtons
-            variant="save"
-            current={signals[result.detected_item.name]}
-            onSignal={(a) => sendSignal(result.detected_item.name, a)}
-          />
-        </div>
+        {/* Light-on-dark like RekSkeletonHeader: dark bg is the mobile
+            breakpoint (#0b1725), white on sm+. Compact — not a full-height row. */}
+        <h3 className="text-sm font-medium text-center mb-2 text-gray-100 sm:text-gray-700">
+          Your Rek
+        </h3>
+        <RekCard
+          accent
+          title={result.detected_item.name}
+          short={result.detected_item.description}
+          signal={signals[result.detected_item.name]}
+          onThumbUp={() => sendSignal(result.detected_item.name, "like")}
+          onThumbDown={() => sendSignal(result.detected_item.name, "dislike")}
+          onSave={() => sendSignal(result.detected_item.name, "save")}
+        />
       </div>
 
-      {/* Ranked reks */}
-      <div className="w-full max-w-xl mt-8">
-        <h3 className="text-lg font-semibold text-center mb-3">Your Reks</h3>
-
+      {/* Ranked reks — no header; the mode pills are the section separator */}
+      <div className="w-full max-w-xl mt-5">
         {/* Mode toggle — all three lists are preloaded, so this is instant. */}
-        <div className="flex justify-center gap-2 mb-4">
+        <div className="flex justify-center gap-2 mb-3">
           {MODE_TABS.map(({ mode, label }) => {
             const active = mode === activeMode;
             return (
@@ -262,43 +254,20 @@ const RekSnapResults: React.FC<Props> = ({
               });
 
             return (
-              <div
+              <RekCard
                 key={`${rek.rank}-${rek.name}`}
-                className="bg-white border border-gray-300 rounded-2xl p-4 shadow-sm"
-              >
-                <div className="flex justify-between items-start mb-2">
-                  <span className="font-semibold text-[17px]">{rek.name}</span>
-                  {/* Signal controls own their taps so they never open the modal. */}
-                  <div
-                    className="flex items-center gap-2 ml-2 shrink-0"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <span className="text-xs text-gray-400 font-medium mr-1">
-                      #{rek.rank}
-                    </span>
-                    <SignalButtons
-                      variant="thumbs"
-                      current={signals[rek.name]}
-                      onSignal={(a) => sendSignal(rek.name, a)}
-                    />
-                  </div>
-                </div>
-                <p className="text-[15px] text-gray-700 leading-relaxed">
-                  {rek.description}
-                </p>
-                <div onClick={(e) => e.stopPropagation()}>
-                  <SignalButtons
-                    variant="save"
-                    current={signals[rek.name]}
-                    onSignal={(a) => sendSignal(rek.name, a)}
-                  />
-                </div>
-
-                {/* Recipe open lives ONLY on this button (not the whole card)
-                    so it won't collide with the coming swipe-to-dismiss gesture.
-                    Native <button> gives role/focus/Enter-Space for free. */}
-                {isFoodUse && (
-                  <div className="mt-2 flex justify-end">
+                title={rek.name}
+                rank={rek.rank}
+                short={rek.description}
+                signal={signals[rek.name]}
+                onThumbUp={() => sendSignal(rek.name, "like")}
+                onThumbDown={() => sendSignal(rek.name, "dislike")}
+                onSave={() => sendSignal(rek.name, "save")}
+                completionActions={
+                  /* Recipe open lives ONLY on this button (not the whole card)
+                     so it won't collide with the coming swipe-to-dismiss gesture.
+                     Native <button> gives role/focus/Enter-Space for free. */
+                  isFoodUse ? (
                     <button
                       type="button"
                       onClick={openRecipe}
@@ -307,9 +276,9 @@ const RekSnapResults: React.FC<Props> = ({
                       View recipe
                       <ChevronRight size={14} />
                     </button>
-                  </div>
-                )}
-              </div>
+                  ) : undefined
+                }
+              />
             );
           })}
         </div>
