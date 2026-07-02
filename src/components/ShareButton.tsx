@@ -44,12 +44,8 @@ export default function ShareButton() {
   };
 
   const handleShare = async () => {
-    // TODO: remove diagnostic logging once share is verified on device
-    console.log("[ShareButton] tap. share:", typeof navigator.share, "clipboard:", typeof navigator.clipboard);
-
     // 1) Native share sheet (requires secure context on iOS)
     if (typeof navigator.share === "function") {
-      console.log("[ShareButton] path: navigator.share");
       try {
         await navigator.share({
           title: "Rekomendr",
@@ -64,7 +60,6 @@ export default function ShareButton() {
 
     // 2) Async clipboard (also requires secure context)
     if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
-      console.log("[ShareButton] path: navigator.clipboard");
       try {
         await navigator.clipboard.writeText(SHARE_URL);
         showToast("Link copied!");
@@ -76,13 +71,11 @@ export default function ShareButton() {
 
     // 3) execCommand textarea trick — works in insecure contexts
     if (legacyCopy(SHARE_URL)) {
-      console.log("[ShareButton] path: legacyCopy");
       showToast("Link copied!");
       return;
     }
 
     // 4) Nothing can copy — show the URL so the user can copy it manually
-    console.log("[ShareButton] path: manual fallback");
     showToast(SHARE_URL, 4000);
   };
 
