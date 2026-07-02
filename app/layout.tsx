@@ -1,6 +1,7 @@
 // app/layout.tsx
 import "./globals.css";
 import InstallButton from "../src/components/InstallButton";
+import ShareButton from "../src/components/ShareButton";
 
 export const metadata = {
   title: "Rekomendr.AI",
@@ -11,7 +12,8 @@ export const metadata = {
 function TopBar() {
   return (
     <div className="w-full border-b border-white/10 bg-[#0b1725]">
-      <div className="mx-auto flex h-12 w-full max-w-3xl items-center justify-end px-4">
+      <div className="mx-auto flex h-12 w-full max-w-3xl items-center justify-end gap-2 px-4">
+        <ShareButton />
         <InstallButton />
       </div>
     </div>
