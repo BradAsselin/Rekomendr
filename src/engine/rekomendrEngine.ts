@@ -74,6 +74,14 @@ function getSessionSeen(category: Category): Set<string> {
   return sessionSeenByCategory[category];
 }
 
+// sessionSeen stores normalized (trimmed, lowercased) title keys — always
+// add and check through seenKey so formatting differences between AI-generated
+// and pool titles can't slip an already-shown title back through.
+// deckSelector (normalizeTitle) and compassPick mirror this normalization.
+function seenKey(title: string): string {
+  return (title ?? "").trim().toLowerCase();
+}
+
 const lastIntentByCategory: Record<Category, Intent | null> = {
   Movies: null,
   "TV Shows": null,
@@ -374,7 +382,9 @@ function pickCohesiveFive(args: {
 }): Rek[] {
   const { pool, usedTitles, anchorHint, preferGenre } = args;
 
-  const candidates = pool.filter((r) => r?.title && !usedTitles.has(r.title));
+  const candidates = pool.filter(
+    (r) => r?.title && !usedTitles.has(seenKey(r.title))
+  );
   if (candidates.length === 0) return [];
 
   let anchor =
@@ -725,7 +735,7 @@ export async function getSetFromVibeTag(args: {
   const pool = await fetchPool(category);
 
   const tagged = pool.filter(
-    (r) => hasVibeTag(r, tag) && !sessionSeen.has(r.title)
+    (r) => hasVibeTag(r, tag) && !sessionSeen.has(seenKey(r.title))
   );
   if (tagged.length === 0) return [];
 
@@ -742,13 +752,13 @@ export async function getSetFromVibeTag(args: {
   if (picked.length < 5) {
     const usedNow = new Set<string>(picked.map((r) => r.title));
     const filler = pool.filter(
-      (r) => !sessionSeen.has(r.title) && !usedNow.has(r.title)
+      (r) => !sessionSeen.has(seenKey(r.title)) && !usedNow.has(r.title)
     );
     picked = [...picked, ...filler].slice(0, 5);
   }
 
   if (picked.length === 0) return [];
-  picked.forEach((r) => sessionSeen.add(r.title));
+  picked.forEach((r) => sessionSeen.add(seenKey(r.title)));
   return normalize(picked);
 }
 
@@ -809,7 +819,7 @@ export async function getTop5FromEngine({
 
       const result = ranked.slice(0, 5);
 
-      result.forEach((r) => sessionSeen.add(r.title));
+      result.forEach((r) => sessionSeen.add(seenKey(r.title)));
 
       return normalize(result);
     }
@@ -852,9 +862,11 @@ export async function getTop5FromEngine({
       if (compass.length < 5) {
         const used = new Set<string>();
         sessionSeen.forEach((t) => used.add(t));
-        compass.forEach((r) => used.add(r.title));
+        compass.forEach((r) => used.add(seenKey(r.title)));
 
-        const fillerPool = finalPoolForSelection.filter((r) => !used.has(r.title));
+        const fillerPool = finalPoolForSelection.filter(
+          (r) => !used.has(seenKey(r.title))
+        );
         const fill = pickCohesiveFive({
           pool: fillerPool,
           usedTitles: new Set<string>(),
@@ -863,18 +875,18 @@ export async function getTop5FromEngine({
         });
 
         const merged = [...compass, ...fill].slice(0, 5);
-        merged.forEach((r) => sessionSeen.add(r.title));
+        merged.forEach((r) => sessionSeen.add(seenKey(r.title)));
         return normalize(merged);
       }
 
-      compass.forEach((r) => sessionSeen.add(r.title));
+      compass.forEach((r) => sessionSeen.add(seenKey(r.title)));
       return normalize(compass);
     }
   }
 
   if (vibeTag) {
     const tagged = finalPoolForSelection.filter(
-      (r) => hasVibeTag(r, vibeTag) && !sessionSeen.has(r.title)
+      (r) => hasVibeTag(r, vibeTag) && !sessionSeen.has(seenKey(r.title))
     );
 
     if (tagged.length > 0) {
@@ -891,13 +903,13 @@ export async function getTop5FromEngine({
       if (picked.length < 5) {
         const usedNow = new Set<string>(picked.map((r) => r.title));
         const filler = pool.filter(
-          (r) => !sessionSeen.has(r.title) && !usedNow.has(r.title)
+          (r) => !sessionSeen.has(seenKey(r.title)) && !usedNow.has(r.title)
         );
         picked = [...picked, ...filler].slice(0, 5);
       }
 
       if (picked.length > 0) {
-        picked.forEach((r) => sessionSeen.add(r.title));
+        picked.forEach((r) => sessionSeen.add(seenKey(r.title)));
         return normalize(picked);
       }
     }
@@ -912,7 +924,9 @@ export async function getTop5FromEngine({
   const usedTitles = new Set<string>();
   sessionSeen.forEach((t) => usedTitles.add(t));
 
-  const candidates = finalPoolForSelection.filter((r) => !usedTitles.has(r.title));
+  const candidates = finalPoolForSelection.filter(
+    (r) => !usedTitles.has(seenKey(r.title))
+  );
 
   const tierAnchor =
     pickWithTierBias({ candidates, sessionSeenCount: sessionSeen.size }) ?? null;
@@ -944,11 +958,13 @@ export async function getTop5FromEngine({
   }
 
   if (fallback.length < 5) {
-    const anyUnseen = finalPoolForSelection.filter((r) => !sessionSeen.has(r.title));
+    const anyUnseen = finalPoolForSelection.filter(
+      (r) => !sessionSeen.has(seenKey(r.title))
+    );
     fallback = [...fallback, ...anyUnseen].slice(0, 5);
   }
 
-  fallback.forEach((r) => sessionSeen.add(r.title));
+  fallback.forEach((r) => sessionSeen.add(seenKey(r.title)));
   return normalize(fallback);
 }
 
@@ -999,9 +1015,10 @@ export async function getBackfillRek(args: {
       backfill: true,
     });
 
-    const chosen = aiGenerated?.find((r) => !sessionSeen.has(r.title)) ?? null;
+    const chosen =
+      aiGenerated?.find((r) => !sessionSeen.has(seenKey(r.title))) ?? null;
     if (chosen) {
-      sessionSeen.add(chosen.title);
+      sessionSeen.add(seenKey(chosen.title));
       return chosen;
     }
     // fail-open below
@@ -1020,10 +1037,12 @@ export async function getBackfillRek(args: {
     textTokens.length > 0 && textFiltered.length >= 5 ? textFiltered : filteredPool;
 
   const used = new Set<string>();
-  current.forEach((r) => used.add(r.title));
+  current.forEach((r) => used.add(seenKey(r.title)));
   sessionSeen.forEach((title) => used.add(title));
 
-  const unseenCandidates = poolForBackfill.filter((r) => !used.has(r.title));
+  const unseenCandidates = poolForBackfill.filter(
+    (r) => !used.has(seenKey(r.title))
+  );
   if (unseenCandidates.length === 0) return null;
 
   const candidatePool = unseenCandidates.slice(0, 8);
@@ -1043,7 +1062,7 @@ export async function getBackfillRek(args: {
     }) ??
     unseenCandidates[0];
 
-  sessionSeen.add(candidate.title);
+  sessionSeen.add(seenKey(candidate.title));
   return normalize([candidate])[0];
 }
 
@@ -1086,7 +1105,7 @@ export async function getMoreLikeThisSet(args: {
     });
 
     if (aiGenerated && aiGenerated.length > 0) {
-      aiGenerated.forEach((r) => sessionSeen.add(r.title));
+      aiGenerated.forEach((r) => sessionSeen.add(seenKey(r.title)));
       return aiGenerated.slice(0, 5);
     }
     // fail-open below
@@ -1116,7 +1135,7 @@ export async function getMoreLikeThisSet(args: {
 
   if (seedGenres.length) {
     const genreMatches = poolForSet.filter((r) => {
-      if (sessionSeen.has(r.title)) return false;
+      if (sessionSeen.has(seenKey(r.title))) return false;
       const g = tokensFromGenre(r.genre);
       return g.some((x) => seedGenreSet.has(x));
     });
@@ -1132,7 +1151,9 @@ export async function getMoreLikeThisSet(args: {
   }
 
   if (matches.length < 5) {
-    const anyUnseen = poolForSet.filter((r) => !sessionSeen.has(r.title));
+    const anyUnseen = poolForSet.filter(
+      (r) => !sessionSeen.has(seenKey(r.title))
+    );
     const used = new Set(matches.map((r) => r.title));
     for (const r of anyUnseen) {
       if (matches.length >= 5) break;
@@ -1154,7 +1175,7 @@ const ranked = rankMovieCandidates(result as any, {
   moreLikeThisTitle: seed?.title ?? null,
 }) as Rek[];
 
-ranked.forEach((r) => sessionSeen.add(r.title));
+ranked.forEach((r) => sessionSeen.add(seenKey(r.title)));
 return normalize(ranked);
 }
 

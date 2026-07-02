@@ -18,7 +18,8 @@ export function buildCompassTop5FromDeck<T extends TitleLike>(args: {
   const byTitle = new Map<string, T>();
   for (const item of args.pool) {
     if (!item?.title) continue;
-    if (args.sessionSeen.has(item.title)) continue;
+    // sessionSeen holds trimmed+lowercased keys (engine seenKey) — match that.
+    if (args.sessionSeen.has(item.title.trim().toLowerCase())) continue;
     byTitle.set(normTitle(item.title), item);
   }
 

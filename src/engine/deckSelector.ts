@@ -53,9 +53,9 @@ export function getTop5FromDeck(
   for (const title of deck.rekTitles) {
     const rek = byTitle.get(normalizeTitle(title));
     if (!rek) continue;
-    if (sessionSeen.has(rek.title)) continue;
+    if (sessionSeen.has(normalizeTitle(rek.title))) continue;
 
-    sessionSeen.add(rek.title);
+    sessionSeen.add(normalizeTitle(rek.title));
     selected.push(normalize(rek));
 
     if (selected.length === 5) break;

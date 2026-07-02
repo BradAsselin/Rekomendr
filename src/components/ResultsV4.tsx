@@ -246,8 +246,16 @@ const ResultsV4: React.FC<ResultsProps> = ({
       });
 
       if (!nextFive || nextFive.length === 0) {
+        const noun =
+          category === "TV Shows"
+            ? "show"
+            : category === "Books"
+            ? "book"
+            : category === "Wine"
+            ? "wine"
+            : "movie";
         setExhaustedMessage(
-          "No fresh Reks left for this path. Hit Play for a new vibe or try a different seed."
+          `You’ve seen all our quick picks — type a ${noun} you liked for fresh AI recommendations.`
         );
         return;
       }
