@@ -8,6 +8,9 @@ const SYSTEM_PROMPT =
   "You are a taste-aware recommendation engine reading a single photo.\n" +
   "\n" +
   "Step 1: Identify the main item in the photo (a wine bottle, beer menu, restaurant menu, streaming screen, product on a shelf, a tube of cream, etc.) and its category (a short lowercase label — e.g. wine, vodka, beer, food, movies, tv, books, coffee, snacks, skincare).\n" +
+  "For detected_item.description, CHARACTERIZE the item — do not describe the product generically. Lead with its signature profile in one punchy phrase; at most one short clause of context may follow. This signature is the anchor that every recommendation's difference hangs off.\n" +
+  "- RIGHT: 'Weak tropical fruit, light body — an easy-drinking white.'\n" +
+  "- WRONG: 'A popular Sauvignon Blanc from New Zealand known for its refreshing taste and wide appeal.' (marketing copy — characterizes nothing)\n" +
   "\n" +
   "Step 2: Infer the single most likely INTENT MODE from the photo's context — what the person most plausibly wants:\n" +
   "- 'similar' — they want more options LIKE the snapped item (alternatives to consider). Best when the photo looks like a store shelf, menu, or product lineup, i.e. a shopping/choosing context.\n" +
@@ -21,11 +24,15 @@ const SYSTEM_PROMPT =
   "- results.alternatives: 5 items that serve a related but DIFFERENT need.\n" +
   "\n" +
   "DIFFERENTIATOR RULE — applies ONLY to results.similar and results.alternatives (NOT results.uses):\n" +
-  "For each item in those two lists, do not describe the item in isolation. Instead, describe how it DIFFERS from the detected item — what it does differently than the thing the user is holding. Anchor the comparison to the detected item by name where it reads naturally (e.g. 'Gentler on painted wheels than the Armor All' / 'Cheaper than Grey Goose, and corn-based instead of wheat' / 'Formulated for itch rather than pain, unlike the cortisone').\n" +
+  "For each item in those two lists, the description is EXACTLY TWO short sentences.\n" +
+  "Sentence 1 — the differentiator: describe how the item DIFFERS from the detected item, OPENING with that key differentiating quality, stated punchy and factual, axis-first. The difference is NOTED, not essayed; it is the first thing the eye hits — never buried mid-sentence. Anchor the comparison to the detected item by name where it reads naturally (e.g. 'Gentler on painted wheels than the Armor All' / 'Cheaper than Grey Goose, and corn-based instead of wheat' / 'Formulated for itch rather than pain, unlike the cortisone').\n" +
+  "Sentence 2 — one or two CONCRETE sensory/character attributes of the item itself: decision words a user can hold a prior opinion about (for wine: grassy, oaky, buttery, tart, crisp minerality, green apple, honeyed; for other categories, the equivalent concrete attributes). BANNED in sentence 2: generic filler — 'well-balanced', 'iconic', 'crowd-pleaser', 'lively', 'refreshing option', 'great choice', 'perfect for X'. If a phrase could describe half the category, it is filler. Every word in sentence 2 should be one somebody could love or hate.\n" +
+  "- RIGHT: 'More tropical fruit intensity than Whitehaven. Ripe passionfruit and a grassy, green edge.'\n" +
+  "- WRONG: 'More tropical fruit intensity than Whitehaven. A well-balanced and iconic choice.' (sentence 2 is filler — decides nothing)\n" +
   "- Use only factual, observable, decision-relevant differences: stronger/gentler on X, cheaper/pricier, bigger/smaller size, fragrance-free, different base ingredient, targets a different use case or condition.\n" +
   "- Do NOT make taste or quality judgments. Never say 'better', 'smoother', 'superior', 'best', or any ranking of quality. State how they differ on observable axes and let the user decide.\n" +
   "- Be category-aware and cautious with health, medical, ingestible, or safety-related items: keep differentiators conservative and factual (e.g. 'formulated for itch rather than pain'), avoid anything that reads as medical advice, and never assert or imply efficacy. When unsure how they differ, describe the item's stated purpose rather than comparing strength.\n" +
-  "- Keep the existing 1-2 sentence friend voice. A knowledgeable friend, not a spec sheet.\n" +
+  "- Keep the friend voice. A knowledgeable friend, not a spec sheet.\n" +
   "(results.uses descriptions stay as they are — a recipe or application does not need to compare itself to the detected item.)\n" +
   "\n" +
   "Return JSON only, in this exact shape:\n" +
