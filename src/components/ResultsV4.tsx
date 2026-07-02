@@ -2,8 +2,6 @@
 
 import React, { useEffect, useState, useRef } from "react";
 import {
-  ThumbsUp,
-  ThumbsDown,
   Heart,
   Bookmark,
   ChevronDown,
@@ -12,6 +10,7 @@ import {
 } from "lucide-react";
 
 import DescriptorLine from "./DescriptorLine";
+import RekCard from "./RekCard";
 import RekSkeleton, { RekSkeletonCard } from "./RekSkeleton";
 
 // Engine helpers
@@ -402,10 +401,43 @@ const ResultsV4: React.FC<ResultsProps> = ({
           }
 
           return (
-            <div
+            <RekCard
               key={rek.id}
+              genreLine={
+                <DescriptorLine rek={rek} category={toRekCategory(category)} />
+              }
+              title={rek.title}
+              year={rek.year}
+              titleHref={`https://www.google.com/search?q=${encodeURIComponent(
+                `${rek.title} ${rek.year}`
+              )}`}
+              short={rek.short}
+              long={rek.long}
+              detailsOpen={expandedTop === rek.id}
+              onToggleDetails={() => toggleTopExpand(rek.id)}
+              onThumbUp={() => handleLike(rek)}
+              onThumbDown={() => handleDislike(rek)}
+              onSave={() => handleSaveFromTop(rek)}
+              onHeart={() => toggleFavorite(rek.id)}
+              isFavorite={isFavorite}
+              completionActions={
+                <>
+                  <button
+                    onClick={() => handleMoreLikeThis(rek)}
+                    className="hover:underline"
+                  >
+                    + More like this
+                  </button>
+
+                  <button
+                    onClick={() => openTrailer(rek)}
+                    className="hover:underline flex items-center gap-1"
+                  >
+                    <span>▶</span> Trailer
+                  </button>
+                </>
+              }
               className={[
-                "bg-white border border-gray-300 rounded-2xl p-4 shadow-sm",
                 isExiting
                   ? "opacity-0 translate-x-3 scale-[0.97]"
                   : isVisible
@@ -414,94 +446,7 @@ const ResultsV4: React.FC<ResultsProps> = ({
                 "transition-all duration-300 ease-out",
               ].join(" ")}
               style={{ transitionDelay: `${index * 60}ms` }}
-            >
-              <DescriptorLine rek={rek} category={toRekCategory(category)} />
-
-              {/* TITLE + THUMBS */}
-              <div className="flex justify-between items-start mb-2">
-                <a
-                  href={`https://www.google.com/search?q=${encodeURIComponent(
-                    `${rek.title} ${rek.year}`
-                  )}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="font-semibold text-[17px] hover:underline"
-                >
-                  {rek.title} ({rek.year})
-                </a>
-
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => handleLike(rek)}
-                    className="p-1 rounded-full border border-gray-400 text-gray-500 hover:border-black hover:text-black"
-                  >
-                    <ThumbsUp size={18} />
-                  </button>
-
-                  <button
-                    onClick={() => handleDislike(rek)}
-                    className="p-1 rounded-full border border-gray-400 text-gray-500 hover:border-black hover:text-black"
-                  >
-                    <ThumbsDown size={18} />
-                  </button>
-                </div>
-              </div>
-
-              {/* SHORT DESCRIPTION + EXPAND */}
-              <p className="text-[15px] text-gray-700 mb-2 leading-relaxed">
-                 {rek.short}{" "}
-                 <button
-                 onClick={() => toggleTopExpand(rek.id)}
-                 className="text-xs text-gray-500 hover:underline"
-               >
-                {expandedTop === rek.id ? "Hide details" : "Show details"}
-               </button>
-             </p>
-
-              {expandedTop === rek.id && (
-                <p className="text-sm text-gray-600 mb-3">
-                  {rek.long.length > 420
-                    ? rek.long.slice(0, 420).trim() + "…"
-                    : rek.long}
-                </p>
-              )}
-
-              {/* INLINE ACTION ROW */}
-              <div className="flex items-center gap-4 text-sm text-gray-700 mt-1">
-                <button
-                  onClick={() => handleMoreLikeThis(rek)}
-                  className="hover:underline"
-                >
-                  + More like this
-                </button>
-
-                <button
-                  onClick={() => openTrailer(rek)}
-                  className="hover:underline flex items-center gap-1"
-                >
-                  <span>▶</span> Trailer
-                </button>
-
-                <button
-                  onClick={() => handleSaveFromTop(rek)}
-                  className="hover:underline flex items-center gap-1"
-                >
-                  <Bookmark size={16} />
-                  Save
-                </button>
-
-                <button
-                  onClick={() => toggleFavorite(rek.id)}
-                  className="ml-auto p-1 rounded-full border border-gray-300 text-gray-500 hover:text-gray-700 hover:border-gray-500 transition"
-                >
-                  <Heart
-                    size={18}
-                    strokeWidth={1.6}
-                    fill={isFavorite ? "#666666" : "none"}
-                  />
-                </button>
-              </div>
-            </div>
+            />
           );
           })}
           {/* Single inline pulse for a one-card dislike/like/save swap */}
