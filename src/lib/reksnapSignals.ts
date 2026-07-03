@@ -7,7 +7,15 @@
 import { supabase } from './supabaseClient';
 import { getAnonymousClientId } from './userPrefs';
 
-export type SnapSignalAction = 'like' | 'dislike' | 'save' | 'context_flip';
+// 'detail_expand' = first "Show details" tap on the anchor card per snap.
+// DB note: reksnap_signals.action has a CHECK constraint — adding a value
+// here requires the matching Supabase migration first (done 2026-07-03).
+export type SnapSignalAction =
+  | 'like'
+  | 'dislike'
+  | 'save'
+  | 'context_flip'
+  | 'detail_expand';
 
 // The three intent modes a snap can be viewed through.
 export type SnapMode = 'similar' | 'uses' | 'alternatives';

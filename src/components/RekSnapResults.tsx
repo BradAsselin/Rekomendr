@@ -3,7 +3,10 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Camera, ChevronRight } from "lucide-react";
 
-import { NON_RECIPE_CATEGORIES } from "../lib/categoryGates";
+import {
+  HEALTH_MEDICAL_CATEGORIES,
+  NON_RECIPE_CATEGORIES,
+} from "../lib/categoryGates";
 import { recordSnapSignal, type SnapMode } from "../lib/reksnapSignals";
 import RekCard from "./RekCard";
 import RekSkeleton, { RekSkeletonCard } from "./RekSkeleton";
@@ -82,6 +85,15 @@ const RekSnapResults: React.FC<Props> = ({
     alternatives: 0,
   });
 
+  // Anchor long tier — lazy-loaded on first "Show details" tap, then cached
+  // for the life of the snap (re-toggles are local, no re-fetch).
+  const [anchorLong, setAnchorLong] = useState<string | null>(null);
+  const [anchorLoading, setAnchorLoading] = useState(false);
+  const [anchorOpen, setAnchorOpen] = useState(false);
+  // detail_expand is written once per snap, on the tap that triggers the
+  // fetch — re-toggles are visual-only, same noise philosophy as thumbs.
+  const [anchorExpandSignaled, setAnchorExpandSignaled] = useState(false);
+
   // Guards late backfill responses from a previous snap result.
   const resultRef = useRef(result);
 
@@ -101,6 +113,10 @@ const RekSnapResults: React.FC<Props> = ({
       setDismissedNames([]);
       setExiting(null);
       setPending({ similar: 0, uses: 0, alternatives: 0 });
+      setAnchorLong(null);
+      setAnchorLoading(false);
+      setAnchorOpen(false);
+      setAnchorExpandSignaled(false);
     }
   }, [result]);
 
@@ -250,6 +266,57 @@ const RekSnapResults: React.FC<Props> = ({
     }
   };
 
+  // Lazy long tier for the anchor: same text-only /api/reksnap pattern as
+  // backfill, same resultRef staleness guard. On failure the cache stays
+  // null, so closing and re-opening retries for free.
+  const fetchAnchorLong = async () => {
+    const forResult = resultRef.current;
+    if (!forResult) return;
+
+    setAnchorLoading(true);
+    try {
+      const res = await fetch("/api/reksnap", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          anchorDetail: {
+            name: forResult.detected_item.name,
+            category: forResult.detected_item.category,
+            // The displayed short, verbatim — the prompt deepens the axis
+            // this text established.
+            shortDescription: forResult.detected_item.description,
+          },
+        }),
+      });
+      if (!res.ok) throw new Error(`anchor detail ${res.status}`);
+      const data = await res.json();
+      if (typeof data?.long !== "string" || !data.long.trim()) return;
+      // A new snap arrived while this was in flight — drop the response.
+      if (resultRef.current !== forResult) return;
+      setAnchorLong(data.long);
+    } catch (err) {
+      console.error("RekSnap anchor detail failed:", err);
+    } finally {
+      if (resultRef.current === forResult) setAnchorLoading(false);
+    }
+  };
+
+  const toggleAnchorDetails = () => {
+    if (!result) return;
+    const opening = !anchorOpen;
+    setAnchorOpen(opening);
+    if (!opening) return;
+    if (!anchorExpandSignaled) {
+      setAnchorExpandSignaled(true);
+      recordSnapSignal({
+        itemName: result.detected_item.name,
+        itemCategory: result.detected_item.category,
+        action: "detail_expand",
+      });
+    }
+    if (anchorLong === null && !anchorLoading) void fetchAnchorLong();
+  };
+
   if (loading) {
     return (
       <div className="w-full flex flex-col items-center px-4 pt-2 pb-14 select-none">
@@ -308,11 +375,24 @@ const RekSnapResults: React.FC<Props> = ({
           (blue edge bar + tint) carry the anchor's identity. */}
       <div className="w-full max-w-xl">
         {/* The detected item is the anchor the whole result hangs off, so it
-            is never dismissed — both thumbs mark in place (and toggle). */}
+            is never dismissed — both thumbs mark in place (and toggle).
+            Anchor richness (the lazy long tier and its expand affordance) is
+            structurally gated for health/medical anchors: no `expandable`, so
+            the affordance never renders and the fetch can never fire — the
+            client twin of the server-side 403 in /api/reksnap. */}
         <RekCard
           accent
           title={result.detected_item.name}
           short={result.detected_item.description}
+          long={anchorLong ?? undefined}
+          expandable={
+            !HEALTH_MEDICAL_CATEGORIES.has(
+              (result.detected_item.category ?? "").trim().toLowerCase()
+            )
+          }
+          detailsLoading={anchorLoading}
+          detailsOpen={anchorOpen}
+          onToggleDetails={toggleAnchorDetails}
           thumbSignal={thumbSignals[result.detected_item.name] ?? null}
           saved={!!savedNames[result.detected_item.name]}
           onThumbUp={() => toggleThumb(result.detected_item.name, "like")}
