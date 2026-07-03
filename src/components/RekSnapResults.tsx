@@ -3,6 +3,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Camera, ChevronRight } from "lucide-react";
 
+import { NON_RECIPE_CATEGORIES } from "../lib/categoryGates";
 import { recordSnapSignal, type SnapMode } from "../lib/reksnapSignals";
 import RekCard from "./RekCard";
 import RekSkeleton, { RekSkeletonCard } from "./RekSkeleton";
@@ -25,45 +26,6 @@ const MODE_TABS: { mode: SnapMode; label: string }[] = [
   { mode: "uses", label: "Use it for" },
   { mode: "alternatives", label: "Instead try" },
 ];
-
-// Recipe-link gate (see isFoodUse below). The vision model returns an UNSTABLE
-// category for the same item (eggs came back "food" 3x and "eggs" 1x across 4
-// snaps), so we no longer allow-list food words — that brittleness is the bug.
-// Instead, in "uses" mode we DEFAULT to showing "View recipe ›" for anything you
-// eat or drink (food, beverages, AND alcohol — a vodka "uses" snap returns
-// cocktails, which ARE recipes), and SUPPRESS the link only when the category is
-// in this known non-recipe set:
-//   (a) health / medical / supplement / ingestible-non-food — must NEVER get a
-//       recipe link (medication, vitamins, CBD/tinctures, skincare creams, etc.);
-//   (b) non-consumable reference categories these snaps already return and that
-//       never had recipes (movies, books, products/car-care, etc.).
-// Matched by EXACT normalized (trim + lowercase) membership so short tokens can't
-// collide via substring (e.g. ice "cream" food ≠ cortisone "cream"; "carrot" ≠
-// "car"). Add words here as real leakers are observed (e.g. "antacid" for Tums).
-const NON_RECIPE_CATEGORIES = new Set<string>([
-  // (a) health / medical / supplement / ingestible-non-food
-  "medication", "medications", "medicine", "medicines", "drug", "drugs",
-  "pharmacy", "prescription", "otc",
-  "vitamin", "vitamins", "supplement", "supplements", "probiotic", "probiotics",
-  "cbd", "tincture", "tinctures", "cannabis", "hemp", "kratom",
-  "skincare", "skin care", "cosmetic", "cosmetics", "beauty", "makeup",
-  "cream", "creams", "lotion", "ointment", "balm", "serum", "sunscreen",
-  "topical", "essential oil", "essential oils",
-  "antacid",
-  "health", "medical", "wellness", "first aid", "personal care", "hygiene",
-  // (b) non-consumable reference categories
-  "movie", "movies", "film", "films", "tv", "television", "tv show",
-  "tv shows", "show", "shows", "streaming",
-  "book", "books", "ebook", "magazine",
-  "music", "album", "albums",
-  "game", "games", "video game", "video games",
-  "car care", "car-care", "carcare", "automotive", "auto", "auto care",
-  "cleaning", "cleaning supplies", "cleaning product", "cleaner", "household",
-  "detergent", "laundry",
-  "electronics", "gadget", "appliance", "appliances",
-  "product", "products", "tool", "tools", "hardware",
-  "clothing", "apparel", "shoes", "furniture",
-]);
 
 type Props = {
   loading: boolean;
@@ -388,9 +350,9 @@ const RekSnapResults: React.FC<Props> = ({
             // "uses"-mode cards push through to a recipe by DEFAULT (food,
             // beverages, alcohol). We suppress only known non-recipe categories
             // (health/medical/etc. + non-consumable references) — see
-            // NON_RECIPE_CATEGORIES above. Exclusion list, not a food allow-list:
-            // the model's category is unstable, so we can't enumerate every food
-            // word — we enumerate the things that must NOT get a recipe instead.
+            // NON_RECIPE_CATEGORIES in lib/categoryGates.ts. Exclusion list, not
+            // a food allow-list: the model's category is unstable, so we can't
+            // enumerate every food word — we enumerate what must NOT get a recipe.
             const category = (result.detected_item.category ?? "")
               .trim()
               .toLowerCase();
