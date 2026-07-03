@@ -28,7 +28,7 @@ const SYSTEM_PROMPT =
   "- 'alternatives' — they want to REDIRECT to other items that serve a related but DIFFERENT need (e.g. a cortisone tube → creams for different ailments). Best when the item points to a broad category of needs.\n" +
   "Set 'mode' to the one that best fits the photo.\n" +
   "\n" +
-  "Step 3: Produce ALL THREE lists regardless of the inferred mode. For each list, rank the top 5 most relevant options and, for each, write a 1-2 sentence description in plain conversational language — as a knowledgeable friend would describe it, not as a label or menu would.\n" +
+  "Step 3: Produce ALL THREE lists regardless of the inferred mode. For each list, rank the top 5 most relevant options and, for each, write a description in plain conversational language — as a knowledgeable friend would describe it, not as a label or menu would.\n" +
   "- results.similar: 5 alternatives that are LIKE the detected item.\n" +
   "- results.uses: 5 ways to USE the detected item (recipes, pairings, applications).\n" +
   "- results.alternatives: 5 items that serve a related but DIFFERENT need.\n" +
@@ -40,6 +40,7 @@ const SYSTEM_PROMPT =
   "- RIGHT: 'Similarly dry, but more tannic. Blackcurrant and sweet oak, with a firmer grip on the finish.'\n" +
   "- WRONG: 'Richer with more oak influence. Features dark fruit and mocha flavors.' (richer HOW? never places it on the axis the buyer decides by)\n" +
   "Sentence 2 — one or two CONCRETE sensory/character attributes of the item itself: decision words a user can hold a prior opinion about (for wine: grassy, oaky, buttery, tart, crisp minerality, green apple, honeyed; for other categories, the equivalent concrete attributes). BANNED in sentence 2: generic filler — 'well-balanced', 'iconic', 'crowd-pleaser', 'lively', 'refreshing option', 'great choice', 'perfect for X'. If a phrase could describe half the category, it is filler. Every word in sentence 2 should be one somebody could love or hate.\n" +
+  "BAN category-membership filler AND recommendation-voice padding in BOTH sentences: 'a classic X', 'a popular Y', 'a typical Z', 'known for', 'crowd-pleaser', 'wide appeal', 'perfect for those who enjoy', 'ideal for anyone who', 'great choice for', and the words 'perfect for', 'ideal for', 'refreshing experience', 'casual sipping' in ANY construction.\n" +
   "Do NOT repeat the detected item's name in these descriptions — the snapped item is displayed directly above and is always the implicit comparison target. Use bare comparatives: 'More honeyed and sweeter. Ripe peach and apricot with a floral touch.' At most ONE description in the set may say 'than the one you snapped' if a comparison truly needs the referent.\n" +
   "- RIGHT: 'Similarly dry, with more tropical fruit intensity. Ripe passionfruit with a grassy, green edge.'\n" +
   "- WRONG: 'More tropical fruit intensity. A well-balanced and iconic choice.' (sentence 2 is filler — decides nothing)\n" +
@@ -47,7 +48,13 @@ const SYSTEM_PROMPT =
   "- Do NOT make taste or quality judgments. Never say 'better', 'smoother', 'superior', 'best', or any ranking of quality. State how they differ on observable axes and let the user decide.\n" +
   "- Be category-aware and cautious with health, medical, ingestible, or safety-related items: keep differentiators conservative and factual (e.g. 'formulated for itch rather than pain'), avoid anything that reads as medical advice, and never assert or imply efficacy. When unsure how they differ, describe the item's stated purpose rather than comparing strength.\n" +
   "- Keep the friend voice. A knowledgeable friend, not a spec sheet.\n" +
-  "(results.uses descriptions stay as they are — a recipe or application does not need to compare itself to the detected item.)\n" +
+  "\n" +
+  "For results.uses descriptions: exactly two sentences. These do NOT compare to the detected item — they answer 'what would making/doing this be like?'\n" +
+  "Sentence 1: the outcome, led by texture/result decision words (silky, fluffy, crispy, one-pan, no-bake) and what makes THIS use distinct from the obvious alternative.\n" +
+  "Sentence 2: the effort/occasion placement — the first question about any use: weeknight-fast vs. weekend project, few ingredients vs. a shopping trip.\n" +
+  "End on a concrete noun. BAN the thin register: 'perfect for', 'ideal for', 'a delicious way to', 'elevate', 'beautifully', 'a great option'.\n" +
+  "- RIGHT: 'A silky, savory custard that sets firmer than an omelette, with bacon and gruyère baked in. One dish and forty minutes, most of it hands-off.'\n" +
+  "- WRONG: 'These eggs are perfect for a silky, savory quiche with bacon and cheese.' (perfect-for filler; says nothing about what making it is like or what you end up with)\n" +
   "\n" +
   "Return JSON only, in this exact shape:\n" +
   "{ \"detected_item\": { \"name\": string, \"description\": string, \"category\": string }, \"mode\": \"similar\"|\"uses\"|\"alternatives\", \"results\": { \"similar\": [ { \"name\": string, \"description\": string, \"rank\": number } ], \"uses\": [ ... ], \"alternatives\": [ ... ] } }\n" +
@@ -65,7 +72,9 @@ type RawRek = { name?: unknown; description?: unknown; rank?: unknown };
 // original snap plus the mode and an exclusion list. Deliberately a separate
 // prompt so the Katrina-validated vision prompt above is never touched.
 // The differentiator rule below is copied verbatim in condensed form (same
-// RIGHT/WRONG contrast pair) so replacement cards keep the same voice.
+// RIGHT/WRONG contrast pair) so replacement cards keep the same voice. The
+// uses voice is copied line-identical from the vision prompt's results.uses
+// block — when either copy changes, change both.
 // ---------------------------------------------------------------------------
 
 const BACKFILL_MODE_TASK: Record<string, string> = {
@@ -80,13 +89,20 @@ const BACKFILL_MODE_TASK: Record<string, string> = {
 const buildBackfillPrompt = (mode: string) => {
   const descriptionRule =
     mode === "uses"
-      ? "The description is 1-2 sentences in plain conversational language — as a knowledgeable friend would describe it, not as a label or menu would. A recipe or application does not compare itself to the detected item."
+      ? // Copied line-identical from SYSTEM_PROMPT's results.uses block above.
+        "For results.uses descriptions: exactly two sentences. These do NOT compare to the detected item — they answer 'what would making/doing this be like?'\n" +
+        "Sentence 1: the outcome, led by texture/result decision words (silky, fluffy, crispy, one-pan, no-bake) and what makes THIS use distinct from the obvious alternative.\n" +
+        "Sentence 2: the effort/occasion placement — the first question about any use: weeknight-fast vs. weekend project, few ingredients vs. a shopping trip.\n" +
+        "End on a concrete noun. BAN the thin register: 'perfect for', 'ideal for', 'a delicious way to', 'elevate', 'beautifully', 'a great option'.\n" +
+        "- RIGHT: 'A silky, savory custard that sets firmer than an omelette, with bacon and gruyère baked in. One dish and forty minutes, most of it hands-off.'\n" +
+        "- WRONG: 'These eggs are perfect for a silky, savory quiche with bacon and cheese.' (perfect-for filler; says nothing about what making it is like or what you end up with)\n"
       : "DIFFERENTIATOR RULE — the description is EXACTLY TWO short sentences.\n" +
         "Sentence 1 — the differentiator: how the item DIFFERS from the detected item, OPENING with that key differentiating quality, punchy and factual, axis-first. Comparisons are ALWAYS against the detected item — the referent is implicit; do NOT repeat its name. Use bare comparatives.\n" +
         "The FIRST comparative must place the rek against the detected item on the category's primary axis — either a difference ('Slightly sweeter...') or an affirmation ('Similarly dry, but more tannic...'). Signature notes follow the axis placement, never replace it.\n" +
         "- RIGHT: 'Similarly dry, but more tannic. Blackcurrant and sweet oak, with a firmer grip on the finish.'\n" +
         "- WRONG: 'Richer with more oak influence. Features dark fruit and mocha flavors.' (richer HOW? never places it on the axis the buyer decides by)\n" +
         "Sentence 2 — one or two CONCRETE sensory/character attributes: decision words a user can hold a prior opinion about. BANNED: generic filler — 'well-balanced', 'iconic', 'crowd-pleaser', 'lively', 'refreshing option', 'great choice', 'perfect for X'. If a phrase could describe half the category, it is filler.\n" +
+        "BAN category-membership filler AND recommendation-voice padding in BOTH sentences: 'a classic X', 'a popular Y', 'a typical Z', 'known for', 'crowd-pleaser', 'wide appeal', 'perfect for those who enjoy', 'ideal for anyone who', 'great choice for', and the words 'perfect for', 'ideal for', 'refreshing experience', 'casual sipping' in ANY construction.\n" +
         "- RIGHT: 'Similarly dry, with more tropical fruit intensity. Ripe passionfruit with a grassy, green edge.'\n" +
         "- WRONG: 'More tropical fruit intensity. A well-balanced and iconic choice.' (sentence 2 is filler — decides nothing)\n" +
         "Do NOT make taste or quality judgments — never 'better', 'smoother', 'superior', 'best'. Be conservative and factual with health, medical, ingestible, or safety-related items; never assert or imply efficacy.";
