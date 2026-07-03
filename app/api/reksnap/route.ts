@@ -1,5 +1,7 @@
 import OpenAI from "openai";
 
+import { HEALTH_MEDICAL_CATEGORIES } from "../../../src/lib/categoryGates";
+
 export const runtime = "nodejs";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -207,6 +209,88 @@ async function handleBackfill(backfill: any): Promise<Response> {
   );
 }
 
+// ---------------------------------------------------------------------------
+// ANCHOR DETAIL — lazy long tier for the detected-item card.
+// Text-only (no image): fired when the user taps "Show details" on the
+// anchor. The client sends the anchor's ALREADY-DISPLAYED two-sentence
+// profile; the one non-negotiable is coherence — the long must DEEPEN the
+// exact axis placement that profile established, never re-roll a fresh
+// characterization the user would read as contradicting what's on screen.
+// Separate prompt for the same reason as backfill: the Katrina-validated
+// vision prompt is never touched.
+// ---------------------------------------------------------------------------
+
+const ANCHOR_DETAIL_PROMPT =
+  "You are a taste-aware recommendation engine. The user snapped a photo of the item below and was shown its two-sentence profile. They tapped 'Show details' — write the longer detail that profile expands into.\n" +
+  "\n" +
+  "Write ONE paragraph of 3 to 5 sentences that DEEPENS the displayed profile — same item, same voice, more depth.\n" +
+  "HARD RULE — same axis: the displayed profile opened by placing the item on its category's primary axis (wine = dry vs. sweet; whiskey = smoky vs. smooth; coffee = light vs. dark roast; tools = strength, speed, what it works on). Keep that EXACT placement and extend it: finer notes along the same axis, how it sits against one or two close neighbors in its category, one more concrete moment it fits. NEVER re-characterize on a different axis, never contradict the profile, never restate its sentences in other words — the user just read them.\n" +
+  "- RIGHT (profile said 'Dry and citrus-led — grapefruit and lime...'): 'The dryness runs bone-deep — no residual sugar rounding the citrus, which leans grapefruit pith more than juice. Next to a typical Marlborough pour it drinks leaner and flintier, with a saline edge on the finish. It holds up to oysters or a goat-cheese salad where a riper style would turn syrupy.' (extends dry + citrus, adds neighbors and a concrete moment)\n" +
+  "- WRONG (same profile): 'A rich, tropical wine with ripe passionfruit and a smooth, rounded finish that many fans consider a classic.' (re-rolls the characterization on a different axis and contradicts the profile on screen)\n" +
+  "BAN category-membership filler AND recommendation-voice padding: 'a classic X', 'a popular Y', 'known for', 'crowd-pleaser', 'wide appeal', 'well-balanced', 'perfect for', 'ideal for', 'great choice', 'refreshing experience' in ANY construction. If a phrase could describe half the category, it fails.\n" +
+  "End on a concrete noun — a food, a moment, a place, a task. No trailing clause after the concrete content.\n" +
+  "\n" +
+  'Return JSON only, in this exact shape: { "long": string }';
+
+async function handleAnchorDetail(anchorDetail: any): Promise<Response> {
+  const name = anchorDetail?.name;
+  const shortDescription = anchorDetail?.shortDescription;
+  const category =
+    typeof anchorDetail?.category === "string"
+      ? anchorDetail.category.trim().toLowerCase()
+      : "";
+
+  if (
+    typeof name !== "string" ||
+    !name.trim() ||
+    typeof shortDescription !== "string" ||
+    !shortDescription.trim()
+  ) {
+    return Response.json({ error: "Bad anchor detail request" }, { status: 400 });
+  }
+
+  // Belt-and-braces twin of the client gate: health/medical anchors stay
+  // structurally thin — no request path may generate a rich profile for them.
+  if (HEALTH_MEDICAL_CATEGORIES.has(category)) {
+    return Response.json(
+      { error: "Detail not available for this category" },
+      { status: 403 }
+    );
+  }
+
+  const completion = await openai.chat.completions.create({
+    model: "gpt-4o",
+    temperature: 0.7,
+    max_tokens: 300,
+    response_format: { type: "json_object" },
+    messages: [
+      { role: "system", content: ANCHOR_DETAIL_PROMPT },
+      {
+        role: "user",
+        content:
+          `Item: ${name}\n` +
+          (category ? `Category: ${category}\n` : "") +
+          `Its displayed profile: ${shortDescription}`,
+      },
+    ],
+  });
+
+  const text = completion.choices?.[0]?.message?.content ?? "";
+  let parsed: any = null;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return Response.json({ error: "Detail failed" }, { status: 502 });
+  }
+
+  const long = parsed?.long;
+  if (typeof long !== "string" || !long.trim()) {
+    return Response.json({ error: "Detail failed" }, { status: 502 });
+  }
+
+  return Response.json({ long: long.trim() }, { status: 200 });
+}
+
 export async function POST(req: Request) {
   try {
     const body = await req.json().catch(() => ({}));
@@ -214,6 +298,11 @@ export async function POST(req: Request) {
     // Backfill requests are text-only and carry no image.
     if (body?.backfill && typeof body.backfill === "object") {
       return await handleBackfill(body.backfill);
+    }
+
+    // Anchor-detail requests are text-only and carry no image.
+    if (body?.anchorDetail && typeof body.anchorDetail === "object") {
+      return await handleAnchorDetail(body.anchorDetail);
     }
 
     const image = typeof body?.image === "string" ? body.image : "";
