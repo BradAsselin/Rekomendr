@@ -342,13 +342,9 @@ const RekSnapResults: React.FC<Props> = ({
         </div>
       )}
 
-      {/* Detected item */}
+      {/* Detected item — no label: top position and the accent treatment
+          (blue edge bar + tint) carry the anchor's identity. */}
       <div className="w-full max-w-xl">
-        {/* Light-on-dark like RekSkeletonHeader: dark bg is the mobile
-            breakpoint (#0b1725), white on sm+. Compact — not a full-height row. */}
-        <h3 className="text-sm font-medium text-center mb-2 text-gray-100 sm:text-gray-700">
-          Your Rek
-        </h3>
         {/* The detected item is the anchor the whole result hangs off, so it
             is never dismissed — both thumbs mark in place (and toggle). */}
         <RekCard
