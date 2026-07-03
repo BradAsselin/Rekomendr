@@ -586,7 +586,7 @@ ${backfill ? `{ "results": [` : "["}
   {
     "title": "Example Title",
     "year": 2014,
-    "short": "Two sentences: a NAMED character + their wildly specific premise, then the complication — from the SETUP only, never a twist.",
+    "short": "Two sentences: a characterized role + their wildly specific premise, then the complication — from the SETUP only, never a twist.",
     "long": "One sentence explaining why it is worth watching (Rotten Tomatoes style).",
     "genre": "Comedy • Drama",
     "vibeTags": ["Witty", "Heartfelt"],
