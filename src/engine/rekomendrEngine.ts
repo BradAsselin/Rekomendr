@@ -586,7 +586,7 @@ ${backfill ? `{ "results": [` : "["}
   {
     "title": "Example Title",
     "year": 2014,
-    "short": "One sentence describing the story hook (IMDb style).",
+    "short": "Two sentences: a NAMED character + their wildly specific premise, then the complication — from the SETUP only, never a twist.",
     "long": "One sentence explaining why it is worth watching (Rotten Tomatoes style).",
     "genre": "Comedy • Drama",
     "vibeTags": ["Witty", "Heartfelt"],
@@ -594,13 +594,19 @@ ${backfill ? `{ "results": [` : "["}
   }
 ${backfill ? `] }` : "]"}
 Rules:
-- short should be ONE sentence describing the story hook, but TWO sentences are allowed if needed to clarify tone or stakes.
+- For Movies, TV Shows, and Books: short is exactly two sentences. Sentence 1 opens with a CHARACTERIZED role — a vivid description that sets the tone ('a sneering TV weatherman', 'a couple eager to buy their first home', 'an insurance lawyer who has never lost'), NOT a proper name (names mean nothing to someone who hasn't seen it) — then the concrete premise only this movie has. Sentence 2: the complication or collision that makes it a story.
+- NO SPOILERS in short: draw only from the setup — never a twist, a turn, or an ending. If the hook needs the twist, you have chosen the wrong sentence; hook from the premise instead.
+- short must end on a concrete noun or stake. BANNED endings: 'leading to...' in any form ('leading to humorous and poignant situations', 'leading to unexpected romance', 'leading to a series of comedic events'), 'hilarity ensues', 'nothing will ever be the same', 'a journey of self-discovery'.
+- RIGHT: 'A sneering TV weatherman is stuck living the same small-town February 2nd over and over. No consequences carry forward — except what it does to him.'
+- WRONG: 'A cynical weatherman relives the same day, leading to humorous and poignant situations.' (vague premise and a banned 'leading to...' ending — says nothing this movie doesn't share with a hundred comedies)
+- For Wine, short is exactly two sentences. Sentence 1 MUST open by placing the wine on dry vs. sweet, then signature notes in concrete decision words (grapefruit, grassy, oaky, buttery). Sentence 2: a concrete moment or contrast — when it shines and when it doesn't. End on a concrete noun. Never a mood, never an 'experience', never a recommendation.
+- RIGHT: 'Dry and citrus-led — grapefruit and lime over a subtle grassy edge. Built for a hot afternoon more than a rich dinner.'
+- WRONG: 'A crisp, refreshing white perfect for those who enjoy lighter wines.' (never places it on dry vs. sweet; perfect-for filler)
 - long must be ONE sentence explaining why it is worth watching.
 - write in plain English, like a smart human curator.
 - avoid critic language, film-school jargon, and review-speak.
 - avoid starting descriptions with "The story of..."
 - prefer strong but less obvious titles over the most famous mainstream picks when possible.
-- short = what it is.
 - long = why it fits.
 - avoid repeating the same very famous titles across different searches.
 
@@ -609,7 +615,7 @@ Rules:
 - It is better to return strong real recommendations than force bad filler.
 - Use plain strings only.
 - year must be numeric.
-- long should feel like a recommendation blurb, not a plot summary dump.
+- long should feel like a recommendation blurb, not a plot summary dump — and must not repeat short's premise in different words; it earns its place by saying why THIS viewer's search makes it a fit.
 - Keep the set coherent but not repetitive.
 - Do not include any title from the avoid list.
 - ${backfill ? "This is a single replacement/backfill moment after a thumbs action. Give the next best discoveries." : "This is a fresh recommendation set."}
