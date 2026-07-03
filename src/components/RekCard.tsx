@@ -9,8 +9,9 @@ import SignalButtons from "./SignalButtons";
 // onto (snap-origin and search-origin). Four zones:
 //   1. Top row: optional genre/category line, then title (+ year) left,
 //      optional #rank + thumbs right.
-//   2. Description: `short`, with a "Show details" expander ONLY when `long`
-//      exists (search cards have long; snap cards don't).
+//   2. Description: `short`, with a "Show details" expander when `long`
+//      exists (search cards arrive with it) or when the parent marks the card
+//      `expandable` and lazy-loads `long` on first expand (snap anchor).
 //   3. Bottom-left (affinity): Save, plus heart/favorite when the lane
 //      supports it (search only for now).
 //   4. Bottom-right (completion verb): whatever the parent passes — search
@@ -36,8 +37,15 @@ type Props = {
   // Snap cards show their list position next to the thumbs.
   rank?: number;
   short: string;
-  // Presence of `long` is what enables the "Show details" affordance.
+  // Presence of `long` enables the "Show details" affordance (search cards
+  // arrive with long preloaded).
   long?: string;
+  // Lazy lane: renders the "Show details" affordance even when `long` hasn't
+  // arrived yet (snap anchor fetches its long tier on first expand).
+  expandable?: boolean;
+  // While the parent is fetching `long`, the expanded area shows the same
+  // pulse treatment as RekSkeletonCard.
+  detailsLoading?: boolean;
   // Details expansion is controlled by the parent so lanes can keep their
   // existing semantics (ResultsV4 allows one open card at a time).
   detailsOpen?: boolean;
@@ -69,6 +77,8 @@ const RekCard: React.FC<Props> = ({
   rank,
   short,
   long,
+  expandable,
+  detailsLoading,
   detailsOpen,
   onToggleDetails,
   thumbSignal,
@@ -136,10 +146,11 @@ const RekCard: React.FC<Props> = ({
         </div>
       </div>
 
-      {/* SHORT DESCRIPTION + EXPAND (expand only when a long body exists) */}
+      {/* SHORT DESCRIPTION + EXPAND (expand when a long body exists, or when
+          the parent lazy-loads one on first expand) */}
       <p className="text-[15px] text-gray-700 mb-2 leading-relaxed">
         {short}
-        {long && (
+        {(long || expandable) && (
           <>
             {" "}
             <button
@@ -152,7 +163,16 @@ const RekCard: React.FC<Props> = ({
         )}
       </p>
 
-      {long && detailsOpen && (
+      {/* Same pulse-line treatment as RekSkeletonCard — the app's one wait
+          state for AI generation moments. */}
+      {detailsOpen && detailsLoading && (
+        <div className="mb-3 animate-pulse">
+          <div className="h-3 bg-gray-100 rounded w-full mb-2" />
+          <div className="h-3 bg-gray-100 rounded w-3/4" />
+        </div>
+      )}
+
+      {long && detailsOpen && !detailsLoading && (
         <p className="text-sm text-gray-600 mb-3">
           {long.length > LONG_PREVIEW_MAX
             ? long.slice(0, LONG_PREVIEW_MAX).trim() + "…"
