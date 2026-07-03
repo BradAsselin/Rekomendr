@@ -42,8 +42,10 @@ type Props = {
   // existing semantics (ResultsV4 allows one open card at a time).
   detailsOpen?: boolean;
   onToggleDetails?: () => void;
-  // Highlight state for thumbs/save (snap's one-active-signal-per-item).
-  // Search passes nothing — its thumbs remove the card instead.
+  // Highlight state for thumbs/save — one active signal per card. Snap sets
+  // any of the actions; search sets only "like" (contender mark). Search's
+  // Save still removes the card, so the single-value shape never has to show
+  // like + save at once there.
   signal?: SnapSignalAction;
   onThumbUp: () => void;
   onThumbDown: () => void;

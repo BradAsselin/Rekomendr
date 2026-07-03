@@ -54,6 +54,10 @@ const ResultsV4: React.FC<ResultsProps> = ({
   const [reks, setReks] = useState<Rek[]>([]);
   const [liked, setLiked] = useState<Rek[]>([]);
   const [saved, setSaved] = useState<Rek[]>([]);
+  // Thumbed-up cards stay in the list as marked contenders (gesture grammar:
+  // thumbs = taste signal, Save = holding pen). Kept as full Reks so their
+  // titles still feed the engine's liked-exclusion list after a set wipe.
+  const [contenders, setContenders] = useState<Rek[]>([]);
   const [sessionDislikedTitles, setSessionDislikedTitles] = useState<string[]>([]);
   const [expanded, setExpanded] = useState<number | null>(null);
   const [expandedTop, setExpandedTop] = useState<number | null>(null);
@@ -62,19 +66,13 @@ const ResultsV4: React.FC<ResultsProps> = ({
 
   // AI loading-state presentation:
   // - mltLoading: "+ More like this" is regenerating the whole set
-  // - backfillPending: a single dislike/like/save swap is fetching one card
+  // - backfillPending: a single dislike/save swap is fetching one card
   const [mltLoading, setMltLoading] = useState(false);
   const [backfillPending, setBackfillPending] = useState(false);
 
   // Safety valve: pool exhaustion notice
   const [exhaustedMessage, setExhaustedMessage] = useState<string | null>(null);
   const clearExhausted = () => setExhaustedMessage(null);
-
-  // Clarify tile
-  const [clarifyTarget, setClarifyTarget] = useState<Rek | null>(null);
-  const [clarifyOptions, setClarifyOptions] = useState<string[]>([]);
-  const [clarifyVisible, setClarifyVisible] = useState(false);
-  const clarifyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Keep latest state for async handlers
   const reksRef = useRef<Rek[]>([]);
@@ -87,8 +85,9 @@ const ResultsV4: React.FC<ResultsProps> = ({
       ...persistedLikedTitles,
       ...liked.map((r) => r.title),
       ...saved.map((r) => r.title),
+      ...contenders.map((r) => r.title),
     ];
-  }, [persistedLikedTitles, liked, saved]);
+  }, [persistedLikedTitles, liked, saved, contenders]);
   useEffect(() => {
     allDislikedTitlesRef.current = [...persistedDislikedTitles, ...sessionDislikedTitles];
   }, [persistedDislikedTitles, sessionDislikedTitles]);
@@ -128,41 +127,6 @@ const ResultsV4: React.FC<ResultsProps> = ({
     setReks(normalized);
     animateIn(normalized.map((r) => r.id));
   }, [incomingReks]);
-
-  /* -----------------------------
-   * CLARIFY LOGIC
-   * ----------------------------- */
-  const getClarifyOptions = (_rek: Rek) => [
-    "Too slow",
-    "Too dark / intense",
-    "Not my genre",
-    "Seen it already",
-  ];
-
-  const startClarifyFor = (rek: Rek) => {
-    if (clarifyTimeoutRef.current) clearTimeout(clarifyTimeoutRef.current);
-
-    setClarifyTarget(rek);
-    setClarifyOptions(getClarifyOptions(rek));
-    setClarifyVisible(true);
-
-    clarifyTimeoutRef.current = setTimeout(() => finalizeClarify(), 4000);
-  };
-
-  const finalizeClarify = (_reason?: string) => {
-    if (!clarifyTarget) return;
-
-    if (clarifyTimeoutRef.current) clearTimeout(clarifyTimeoutRef.current);
-
-    setClarifyVisible(false);
-    const target = clarifyTarget;
-    setClarifyTarget(null);
-
-    recordLike({ category, title: target.title, year: target.year, action: 'dislike' });
-    setSessionDislikedTitles((p) => [...p, target.title]);
-    setReks((prev) => prev.filter((r) => r.id !== target.id));
-    handleBackfill(target);
-  };
 
   /* -----------------------------
    * FAVORITE TOGGLE
@@ -272,18 +236,33 @@ const ResultsV4: React.FC<ResultsProps> = ({
   /* -----------------------------
    * LIKE / DISLIKE / SAVE
    * ----------------------------- */
+  // Thumbs-up marks the card in place as a contender (blue fill) — no
+  // removal, no holding pen. Second tap un-marks; no LikeAction exists for
+  // "unlike", so un-marking is visual-only and the original write stands.
   const handleLike = (rek: Rek) => {
-    setExiting(rek.id);
+    if (contenders.some((c) => c.id === rek.id)) {
+      setContenders((p) => p.filter((c) => c.id !== rek.id));
+      return;
+    }
     recordLike({ category, title: rek.title, year: rek.year, action: 'like' });
+    setContenders((p) => [...p, rek]);
+  };
+
+  // Thumbs-down dismisses + backfills directly — no clarify panel. The
+  // recovered clarify-pills inherit the "why" job later.
+  const handleDislike = (rek: Rek) => {
+    setExiting(rek.id);
+    recordLike({ category, title: rek.title, year: rek.year, action: 'dislike' });
+    setSessionDislikedTitles((p) => [...p, rek.title]);
+    // A thumbed-up card can still be thumbed down; drop the contender mark so
+    // its title doesn't sit in both the liked and disliked exclusion lists.
+    setContenders((p) => p.filter((c) => c.id !== rek.id));
     setTimeout(() => {
-      setLiked((p) => [...p, rek]);
       setReks((p) => p.filter((r) => r.id !== rek.id));
       handleBackfill(rek);
       setExiting(null);
     }, 250);
   };
-
-  const handleDislike = (rek: Rek) => startClarifyFor(rek);
 
   const handleSaveFromTop = (rek: Rek) => {
     setExiting(rek.id);
@@ -364,49 +343,7 @@ const ResultsV4: React.FC<ResultsProps> = ({
           {reks.map((rek, index) => {
           const isVisible = visibleIds.includes(rek.id);
           const isExiting = exiting === rek.id;
-          const isClarify = clarifyVisible && clarifyTarget?.id === rek.id;
           const isFavorite = !!rek.isFavorite;
-
-          if (isClarify) {
-            return (
-              <div
-                key={rek.id}
-                className={[
-                  "bg-white border border-blue-300 rounded-2xl p-4 shadow-md",
-                  isVisible
-                    ? "opacity-100 translate-y-0"
-                    : "opacity-0 translate-y-2",
-                  "transition-all duration-300 ease-out",
-                ].join(" ")}
-                style={{ transitionDelay: `${index * 60}ms` }}
-              >
-                <p className="text-sm font-semibold text-gray-800">
-                  Why wasn’t this a fit?
-                </p>
-                <p className="text-xs text-gray-600 mt-1 mb-3">
-                  Help us learn your taste.
-                </p>
-
-                <div className="flex flex-wrap gap-2">
-                  {clarifyOptions.map((opt) => (
-                    <button
-                      key={opt}
-                      onClick={() => finalizeClarify(opt)}
-                      className="px-3 py-1.5 rounded-full border border-gray-300 text-xs text-gray-700 hover:bg-gray-100"
-                    >
-                      {opt}
-                    </button>
-                  ))}
-                  <button
-                    onClick={() => finalizeClarify()}
-                    className="text-[11px] uppercase tracking-wide text-gray-400 hover:text-gray-600"
-                  >
-                    Skip
-                  </button>
-                </div>
-              </div>
-            );
-          }
 
           return (
             <RekCard
@@ -423,6 +360,9 @@ const ResultsV4: React.FC<ResultsProps> = ({
               long={rek.long}
               detailsOpen={expandedTop === rek.id}
               onToggleDetails={() => toggleTopExpand(rek.id)}
+              signal={
+                contenders.some((c) => c.id === rek.id) ? "like" : undefined
+              }
               onThumbUp={() => handleLike(rek)}
               onThumbDown={() => handleDislike(rek)}
               onSave={() => handleSaveFromTop(rek)}
@@ -457,7 +397,7 @@ const ResultsV4: React.FC<ResultsProps> = ({
             />
           );
           })}
-          {/* Single inline pulse for a one-card dislike/like/save swap */}
+          {/* Single inline pulse for a one-card dislike/save swap */}
           {backfillPending && <RekSkeletonCard />}
         </div>
       )}
