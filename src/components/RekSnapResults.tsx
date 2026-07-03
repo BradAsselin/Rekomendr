@@ -1,15 +1,11 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Camera, ChevronRight } from "lucide-react";
 
-import {
-  recordSnapSignal,
-  type SnapSignalAction,
-  type SnapMode,
-} from "../lib/reksnapSignals";
+import { recordSnapSignal, type SnapMode } from "../lib/reksnapSignals";
 import RekCard from "./RekCard";
-import RekSkeleton from "./RekSkeleton";
+import RekSkeleton, { RekSkeletonCard } from "./RekSkeleton";
 
 export type SnapRek = {
   name: string;
@@ -100,18 +96,49 @@ const RekSnapResults: React.FC<Props> = ({
   onSnapAgain,
   onOpenRecipe,
 }) => {
-  // Last signal sent per item name, for button highlight state.
-  const [signals, setSignals] = useState<Record<string, SnapSignalAction>>({});
+  // Thumb marks and saves are independent per item name (a card can be
+  // thumbed-up AND saved). Thumbs are one-active-within-thumbs and toggle on
+  // repeat tap — same grammar as the search lane.
+  const [thumbSignals, setThumbSignals] = useState<
+    Record<string, "like" | "dislike">
+  >({});
+  const [savedNames, setSavedNames] = useState<Record<string, boolean>>({});
+
+  // Local copy of the three lists so thumbs-down can dismiss + backfill.
+  // Reset from the prop whenever a new snap result arrives.
+  const [lists, setLists] = useState<Record<SnapMode, SnapRek[]> | null>(
+    result?.results ?? null
+  );
+  // Names dismissed this snap — excluded from every backfill generation.
+  const [dismissedNames, setDismissedNames] = useState<string[]>([]);
+  // Card mid-exit-animation (keyed by name; names are unique per list).
+  const [exiting, setExiting] = useState<string | null>(null);
+  // In-flight backfills per mode; each shows one skeleton card in that list.
+  const [pending, setPending] = useState<Record<SnapMode, number>>({
+    similar: 0,
+    uses: 0,
+    alternatives: 0,
+  });
+
+  // Guards late backfill responses from a previous snap result.
+  const resultRef = useRef(result);
 
   // Which intent list is on screen. Defaults to the model's inferred mode;
   // all three lists are already loaded, so switching is instant (no API call).
   const [activeMode, setActiveMode] = useState<SnapMode>(result?.mode ?? "similar");
 
-  // A new snap result resets the view to its inferred mode and clears highlights.
+  // A new snap result resets the view to its inferred mode and clears all
+  // per-snap state (highlights, dismissals, local lists, pending backfills).
   useEffect(() => {
+    resultRef.current = result;
     if (result) {
       setActiveMode(result.mode);
-      setSignals({});
+      setThumbSignals({});
+      setSavedNames({});
+      setLists(result.results);
+      setDismissedNames([]);
+      setExiting(null);
+      setPending({ similar: 0, uses: 0, alternatives: 0 });
     }
   }, [result]);
 
@@ -127,14 +154,138 @@ const RekSnapResults: React.FC<Props> = ({
     });
   };
 
-  const sendSignal = (itemName: string, action: SnapSignalAction) => {
+  // Thumbs mark in place and toggle: second tap on the active thumb un-marks.
+  // Un-marking is visual-only (no signal write) — same as the search lane;
+  // re-recording the same signal on repeat taps was data noise.
+  const toggleThumb = (itemName: string, action: "like" | "dislike") => {
     if (!result) return;
-    setSignals((prev) => ({ ...prev, [itemName]: action }));
+    if (thumbSignals[itemName] === action) {
+      setThumbSignals((prev) => {
+        const next = { ...prev };
+        delete next[itemName];
+        return next;
+      });
+      return;
+    }
+    setThumbSignals((prev) => ({ ...prev, [itemName]: action }));
     recordSnapSignal({
       itemName,
       itemCategory: result.detected_item.category,
       action,
     });
+  };
+
+  const handleSave = (itemName: string) => {
+    if (!result) return;
+    setSavedNames((prev) => ({ ...prev, [itemName]: true }));
+    recordSnapSignal({
+      itemName,
+      itemCategory: result.detected_item.category,
+      action: "save",
+    });
+  };
+
+  // Thumbs-down on a ranked rek: record, dismiss with the exit animation,
+  // then backfill the slot with a fresh single-card generation (text-only
+  // /api/reksnap backfill branch — the vision prompt is never re-run).
+  const handleDislikeRek = (rek: SnapRek) => {
+    if (!result || !lists) return;
+
+    recordSnapSignal({
+      itemName: rek.name,
+      itemCategory: result.detected_item.category,
+      action: "dislike",
+    });
+    // Drop any contender mark so the item isn't marked liked AND dismissed.
+    setThumbSignals((prev) => {
+      const next = { ...prev };
+      delete next[rek.name];
+      return next;
+    });
+    setDismissedNames((p) => [...p, rek.name]);
+    setExiting(rek.name);
+
+    // Snapshot before removal. Two framings for the generator: what's still
+    // on screen is a plain "do not repeat" list; everything thumbs-downed
+    // this snap (including this card) is REJECTED — avoided AND steered away
+    // from in the replacement.
+    const mode = activeMode;
+    const excludeNames = [
+      result.detected_item.name,
+      ...lists[mode].map((r) => r.name).filter((n) => n !== rek.name),
+    ];
+    const rejectedNames = [...dismissedNames, rek.name];
+
+    setTimeout(() => {
+      setLists((prev) => {
+        if (!prev) return prev;
+        const remaining = prev[mode]
+          .filter((r) => r.name !== rek.name)
+          .map((r, i) => ({ ...r, rank: i + 1 }));
+        return { ...prev, [mode]: remaining };
+      });
+      setExiting(null);
+      void backfillSlot(mode, excludeNames, rejectedNames);
+    }, 250);
+  };
+
+  const backfillSlot = async (
+    mode: SnapMode,
+    excludeNames: string[],
+    rejectedNames: string[]
+  ) => {
+    const forResult = resultRef.current;
+    if (!forResult) return;
+
+    setPending((p) => ({ ...p, [mode]: p[mode] + 1 }));
+    try {
+      const res = await fetch("/api/reksnap", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          backfill: {
+            detectedItem: forResult.detected_item,
+            mode,
+            excludeNames,
+            rejectedNames,
+          },
+        }),
+      });
+      if (!res.ok) throw new Error(`backfill ${res.status}`);
+      const data = await res.json();
+      const rek = data?.rek;
+      if (!rek || typeof rek.name !== "string" || !rek.name.trim()) return;
+      // A new snap arrived while this was in flight — the response belongs to
+      // the old result; drop it.
+      if (resultRef.current !== forResult) return;
+
+      setLists((prev) => {
+        if (!prev) return prev;
+        const list = prev[mode];
+        if (list.length >= 5) return prev;
+        const key = rek.name.trim().toLowerCase();
+        if (list.some((r) => r.name.trim().toLowerCase() === key)) return prev;
+        return {
+          ...prev,
+          [mode]: [
+            ...list,
+            {
+              name: rek.name,
+              description:
+                typeof rek.description === "string" ? rek.description : "",
+              rank: list.length + 1,
+            },
+          ],
+        };
+      });
+    } catch (err) {
+      // Failed backfill: the slot just stays empty (list runs one short).
+      console.error("RekSnap backfill failed:", err);
+    } finally {
+      if (resultRef.current === forResult) {
+        setPending((p) => ({ ...p, [mode]: Math.max(0, p[mode] - 1) }));
+      }
+    }
   };
 
   if (loading) {
@@ -198,14 +349,17 @@ const RekSnapResults: React.FC<Props> = ({
         <h3 className="text-sm font-medium text-center mb-2 text-gray-100 sm:text-gray-700">
           Your Rek
         </h3>
+        {/* The detected item is the anchor the whole result hangs off, so it
+            is never dismissed — both thumbs mark in place (and toggle). */}
         <RekCard
           accent
           title={result.detected_item.name}
           short={result.detected_item.description}
-          signal={signals[result.detected_item.name]}
-          onThumbUp={() => sendSignal(result.detected_item.name, "like")}
-          onThumbDown={() => sendSignal(result.detected_item.name, "dislike")}
-          onSave={() => sendSignal(result.detected_item.name, "save")}
+          thumbSignal={thumbSignals[result.detected_item.name] ?? null}
+          saved={!!savedNames[result.detected_item.name]}
+          onThumbUp={() => toggleThumb(result.detected_item.name, "like")}
+          onThumbDown={() => toggleThumb(result.detected_item.name, "dislike")}
+          onSave={() => handleSave(result.detected_item.name)}
         />
       </div>
 
@@ -234,7 +388,7 @@ const RekSnapResults: React.FC<Props> = ({
         </div>
 
         <div className="space-y-3">
-          {result.results[activeMode].map((rek) => {
+          {(lists?.[activeMode] ?? []).map((rek) => {
             // "uses"-mode cards push through to a recipe by DEFAULT (food,
             // beverages, alcohol). We suppress only known non-recipe categories
             // (health/medical/etc. + non-consumable references) — see
@@ -255,14 +409,21 @@ const RekSnapResults: React.FC<Props> = ({
 
             return (
               <RekCard
-                key={`${rek.rank}-${rek.name}`}
+                key={rek.name}
                 title={rek.name}
                 rank={rek.rank}
                 short={rek.description}
-                signal={signals[rek.name]}
-                onThumbUp={() => sendSignal(rek.name, "like")}
-                onThumbDown={() => sendSignal(rek.name, "dislike")}
-                onSave={() => sendSignal(rek.name, "save")}
+                thumbSignal={thumbSignals[rek.name] ?? null}
+                saved={!!savedNames[rek.name]}
+                onThumbUp={() => toggleThumb(rek.name, "like")}
+                onThumbDown={() => handleDislikeRek(rek)}
+                onSave={() => handleSave(rek.name)}
+                className={[
+                  "transition-all duration-300 ease-out",
+                  exiting === rek.name
+                    ? "opacity-0 translate-x-3 scale-[0.97]"
+                    : "opacity-100",
+                ].join(" ")}
                 completionActions={
                   /* Recipe open lives ONLY on this button (not the whole card)
                      so it won't collide with the coming swipe-to-dismiss gesture.
@@ -281,6 +442,11 @@ const RekSnapResults: React.FC<Props> = ({
               />
             );
           })}
+          {/* One inline pulse per in-flight backfill for the visible mode —
+              same single-slot swap pattern as the search lane. */}
+          {Array.from({ length: pending[activeMode] }).map((_, i) => (
+            <RekSkeletonCard key={`backfill-${i}`} />
+          ))}
         </div>
       </div>
 

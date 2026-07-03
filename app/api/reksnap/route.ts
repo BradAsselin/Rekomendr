@@ -45,9 +45,144 @@ const SYSTEM_PROMPT =
 
 type RawRek = { name?: unknown; description?: unknown; rank?: unknown };
 
+// ---------------------------------------------------------------------------
+// BACKFILL — single replacement rek after a thumbs-down dismissal.
+// Text-only (no image): the client sends back the detected item from the
+// original snap plus the mode and an exclusion list. Deliberately a separate
+// prompt so the Katrina-validated vision prompt above is never touched.
+// The differentiator rule below is copied verbatim in condensed form (same
+// RIGHT/WRONG contrast pair) so replacement cards keep the same voice.
+// ---------------------------------------------------------------------------
+
+const BACKFILL_MODE_TASK: Record<string, string> = {
+  similar:
+    "ONE more option that is LIKE the detected item — an alternative to consider.",
+  uses:
+    "ONE more way to USE the detected item — a recipe, pairing, cocktail, or application.",
+  alternatives:
+    "ONE more item that serves a related but DIFFERENT need than the detected item.",
+};
+
+const buildBackfillPrompt = (mode: string) => {
+  const descriptionRule =
+    mode === "uses"
+      ? "The description is 1-2 sentences in plain conversational language — as a knowledgeable friend would describe it, not as a label or menu would. A recipe or application does not compare itself to the detected item."
+      : "DIFFERENTIATOR RULE — the description is EXACTLY TWO short sentences.\n" +
+        "Sentence 1 — the differentiator: how the item DIFFERS from the detected item, OPENING with that key differentiating quality, punchy and factual, axis-first. Anchor the comparison to the detected item by name where it reads naturally.\n" +
+        "Sentence 2 — one or two CONCRETE sensory/character attributes: decision words a user can hold a prior opinion about. BANNED: generic filler — 'well-balanced', 'iconic', 'crowd-pleaser', 'lively', 'refreshing option', 'great choice', 'perfect for X'. If a phrase could describe half the category, it is filler.\n" +
+        "- RIGHT: 'More tropical fruit intensity than Whitehaven. Ripe passionfruit and a grassy, green edge.'\n" +
+        "- WRONG: 'More tropical fruit intensity than Whitehaven. A well-balanced and iconic choice.' (sentence 2 is filler — decides nothing)\n" +
+        "Do NOT make taste or quality judgments — never 'better', 'smoother', 'superior', 'best'. Be conservative and factual with health, medical, ingestible, or safety-related items; never assert or imply efficacy.";
+
+  return (
+    "You are a taste-aware recommendation engine. The user snapped a photo, the item below was detected, and they dismissed one recommendation — generate a single replacement.\n" +
+    "\n" +
+    `Recommend exactly ${BACKFILL_MODE_TASK[mode]}\n` +
+    "\n" +
+    descriptionRule +
+    "\n\n" +
+    "Hard rules:\n" +
+    "- NEVER recommend the detected item itself.\n" +
+    "- NEVER recommend any name in the already-shown list (the user has seen these).\n" +
+    "- NEVER recommend any name in the REJECTED list. These are items the user thumbs-downed: avoid them AND lean away from their dominant characteristics in your replacement — a rejected item is a signal about what to steer from, not just a name to skip.\n" +
+    "\n" +
+    'Return JSON only, in this exact shape: { "rek": { "name": string, "description": string } }'
+  );
+};
+
+async function handleBackfill(backfill: any): Promise<Response> {
+  const item = backfill?.detectedItem;
+  const mode = backfill?.mode;
+  const cleanNames = (raw: unknown): string[] =>
+    Array.isArray(raw)
+      ? raw.filter((n: unknown): n is string => typeof n === "string")
+      : [];
+  // Two framings, one banned set: excludeNames are plain "already shown,
+  // don't repeat"; rejectedNames were thumbs-downed this snap and also steer
+  // the replacement away from their dominant characteristics.
+  const excludeNames = cleanNames(backfill?.excludeNames);
+  const rejectedNames = cleanNames(backfill?.rejectedNames);
+
+  if (
+    !item ||
+    typeof item.name !== "string" ||
+    typeof mode !== "string" ||
+    !(mode in BACKFILL_MODE_TASK)
+  ) {
+    return Response.json({ error: "Bad backfill request" }, { status: 400 });
+  }
+
+  const completion = await openai.chat.completions.create({
+    model: "gpt-4o",
+    temperature: 0.7,
+    max_tokens: 300,
+    response_format: { type: "json_object" },
+    messages: [
+      { role: "system", content: buildBackfillPrompt(mode) },
+      {
+        role: "user",
+        content:
+          `Detected item: ${item.name}\n` +
+          (typeof item.description === "string" && item.description
+            ? `Its signature profile: ${item.description}\n`
+            : "") +
+          (typeof item.category === "string" && item.category
+            ? `Category: ${item.category}\n`
+            : "") +
+          `Already shown (do not repeat): ${excludeNames.join(", ") || "(none)"}\n` +
+          `REJECTED (user disliked these — avoid them and lean away from their dominant characteristics): ${
+            rejectedNames.join(", ") || "(none)"
+          }`,
+      },
+    ],
+  });
+
+  const text = completion.choices?.[0]?.message?.content ?? "";
+  let parsed: any = null;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return Response.json({ error: "Backfill failed" }, { status: 502 });
+  }
+
+  const rek = parsed?.rek;
+  const normalize = (s: string) => s.trim().toLowerCase();
+  if (!rek || typeof rek.name !== "string" || !rek.name.trim()) {
+    return Response.json({ error: "Backfill failed" }, { status: 502 });
+  }
+  // Belt-and-braces: the model was told, but never trust it — a repeat of the
+  // detected item, an excluded name, or a rejected name is a failed backfill,
+  // not a rek.
+  const banned = new Set([
+    normalize(item.name),
+    ...excludeNames.map(normalize),
+    ...rejectedNames.map(normalize),
+  ]);
+  if (banned.has(normalize(rek.name))) {
+    return Response.json({ error: "Backfill failed" }, { status: 502 });
+  }
+
+  return Response.json(
+    {
+      rek: {
+        name: rek.name,
+        description:
+          typeof rek.description === "string" ? rek.description : "",
+      },
+    },
+    { status: 200 }
+  );
+}
+
 export async function POST(req: Request) {
   try {
     const body = await req.json().catch(() => ({}));
+
+    // Backfill requests are text-only and carry no image.
+    if (body?.backfill && typeof body.backfill === "object") {
+      return await handleBackfill(body.backfill);
+    }
+
     const image = typeof body?.image === "string" ? body.image : "";
 
     if (!image.startsWith("data:image/")) {

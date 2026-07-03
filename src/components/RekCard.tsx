@@ -4,7 +4,6 @@ import React from "react";
 import { Heart } from "lucide-react";
 
 import SignalButtons from "./SignalButtons";
-import type { SnapSignalAction } from "../lib/reksnapSignals";
 
 // One shared presentational rek card — the single skeleton both lanes render
 // onto (snap-origin and search-origin). Four zones:
@@ -17,9 +16,10 @@ import type { SnapSignalAction } from "../lib/reksnapSignals";
 //   4. Bottom-right (completion verb): whatever the parent passes — search
 //      sends "+ More like this" + "Trailer", snap food-uses sends
 //      "View recipe ›".
-// NO signal logic lives here. Parents own handlers and pipelines:
-// RekSnapResults keeps recordSnapSignal/reksnap_signals with
-// highlight-in-place; ResultsV4 keeps its remove+backfill+userPrefs behavior.
+// NO signal logic lives here. Parents own handlers and pipelines — both lanes
+// share the gesture grammar (thumbs-up marks in place + toggles, thumbs-down
+// dismisses + backfills, Save marks) but keep their own write paths:
+// RekSnapResults → recordSnapSignal/reksnap_signals, ResultsV4 → userPrefs.
 
 // Long descriptions are previewed, not dumped — same cap search cards
 // always used.
@@ -42,11 +42,10 @@ type Props = {
   // existing semantics (ResultsV4 allows one open card at a time).
   detailsOpen?: boolean;
   onToggleDetails?: () => void;
-  // Highlight state for thumbs/save — one active signal per card. Snap sets
-  // any of the actions; search sets only "like" (contender mark). Search's
-  // Save still removes the card, so the single-value shape never has to show
-  // like + save at once there.
-  signal?: SnapSignalAction;
+  // Highlight state, split so a card can be thumbed AND saved at once:
+  // thumbs are one-active-within-thumbs, Save is independent.
+  thumbSignal?: "like" | "dislike" | null;
+  saved?: boolean;
   onThumbUp: () => void;
   onThumbDown: () => void;
   onSave: () => void;
@@ -72,7 +71,8 @@ const RekCard: React.FC<Props> = ({
   long,
   detailsOpen,
   onToggleDetails,
-  signal,
+  thumbSignal,
+  saved,
   onThumbUp,
   onThumbDown,
   onSave,
@@ -130,7 +130,7 @@ const RekCard: React.FC<Props> = ({
           )}
           <SignalButtons
             variant="thumbs"
-            current={signal}
+            current={thumbSignal ?? undefined}
             onSignal={(a) => (a === "like" ? onThumbUp() : onThumbDown())}
           />
         </div>
@@ -168,7 +168,7 @@ const RekCard: React.FC<Props> = ({
         <div className="flex items-center gap-4">
           <SignalButtons
             variant="save"
-            current={signal}
+            current={saved ? "save" : undefined}
             onSignal={() => onSave()}
             className="flex items-center gap-4 text-sm text-gray-700"
           />

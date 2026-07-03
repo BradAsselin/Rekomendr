@@ -360,8 +360,8 @@ const ResultsV4: React.FC<ResultsProps> = ({
               long={rek.long}
               detailsOpen={expandedTop === rek.id}
               onToggleDetails={() => toggleTopExpand(rek.id)}
-              signal={
-                contenders.some((c) => c.id === rek.id) ? "like" : undefined
+              thumbSignal={
+                contenders.some((c) => c.id === rek.id) ? "like" : null
               }
               onThumbUp={() => handleLike(rek)}
               onThumbDown={() => handleDislike(rek)}
