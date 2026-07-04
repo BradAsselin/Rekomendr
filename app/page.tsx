@@ -127,36 +127,8 @@ export default function Page() {
   }, []);
 
   const vibePlayRef = useRef<null | (() => void)>(null);
-  const didInitRef = useRef(false);
   const searchIdRef = useRef(0);
   const snapInputRef = useRef<HTMLInputElement | null>(null);
-
-  useEffect(() => {
-    if (didInitRef.current) return;
-    didInitRef.current = true;
-    if (window.matchMedia("(max-width: 639px)").matches) return;
-
-    const loadInitial = async () => {
-      setLoading(true);
-      setLoadingLabel("Finding fresh Reks for you...");
-      try {
-        setSourceImage(null);
-        const prefs = await loadPrefsForCategory("Movies");
-        setPersistedLikedTitles(prefs.likedTitles);
-        setPersistedDislikedTitles(prefs.dislikedTitles);
-        const initial = await getTop5FromEngine({ rawQuery: "Movies||", ...prefs });
-        setReks(initial);
-        setCategory("Movies");
-        setHasSearched(true);
-      } catch (err) {
-        console.error("Initial load failed:", err);
-        setReks([]);
-      } finally {
-        setLoading(false);
-      }
-    };
-    loadInitial();
-  }, []);
 
   const openSnapPicker = () => {
     if (ENFORCE_SNAP_LIMIT && getSnapCount() >= SNAP_LIMIT) {
