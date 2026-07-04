@@ -363,6 +363,22 @@ const RekSnapResults: React.FC<Props> = ({
     return null;
   }
 
+  // One normalized membership check drives every anchor-richness gate below
+  // (long tier AND completion verbs), so they can never drift apart.
+  const anchorIsHealthMedical = HEALTH_MEDICAL_CATEGORIES.has(
+    (result.detected_item.category ?? "").trim().toLowerCase()
+  );
+
+  // Completion verbs are pure link handoffs — same YouTube-search pattern as
+  // trailers/recipes, and a neutral Google Shopping search for where-to-buy.
+  // No availability lookup, no affiliate logic.
+  const showMeHowUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(
+    `how to use ${result.detected_item.name}`
+  )}`;
+  const whereToBuyUrl = `https://www.google.com/search?tbm=shop&q=${encodeURIComponent(
+    result.detected_item.name
+  )}`;
+
   return (
     <div className="w-full flex flex-col items-center px-4 pt-2 pb-14 select-none">
       {limitReached && (
@@ -376,20 +392,16 @@ const RekSnapResults: React.FC<Props> = ({
       <div className="w-full max-w-xl">
         {/* The detected item is the anchor the whole result hangs off, so it
             is never dismissed — both thumbs mark in place (and toggle).
-            Anchor richness (the lazy long tier and its expand affordance) is
-            structurally gated for health/medical anchors: no `expandable`, so
-            the affordance never renders and the fetch can never fire — the
-            client twin of the server-side 403 in /api/reksnap. */}
+            Anchor richness (the lazy long tier + its expand affordance, and
+            the completion verbs) is structurally gated for health/medical
+            anchors: nothing renders, so the fetch/handoff can never fire —
+            the client twin of the server-side 403 in /api/reksnap. */}
         <RekCard
           accent
           title={result.detected_item.name}
           short={result.detected_item.description}
           long={anchorLong ?? undefined}
-          expandable={
-            !HEALTH_MEDICAL_CATEGORIES.has(
-              (result.detected_item.category ?? "").trim().toLowerCase()
-            )
-          }
+          expandable={!anchorIsHealthMedical}
           detailsLoading={anchorLoading}
           detailsOpen={anchorOpen}
           onToggleDetails={toggleAnchorDetails}
@@ -398,6 +410,28 @@ const RekSnapResults: React.FC<Props> = ({
           onThumbUp={() => toggleThumb(result.detected_item.name, "like")}
           onThumbDown={() => toggleThumb(result.detected_item.name, "dislike")}
           onSave={() => handleSave(result.detected_item.name)}
+          completionActions={
+            anchorIsHealthMedical ? undefined : (
+              <>
+                <a
+                  href={showMeHowUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="hover:underline flex items-center gap-1"
+                >
+                  <span>▶</span> Show me how
+                </a>
+                <a
+                  href={whereToBuyUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="hover:underline"
+                >
+                  Where to buy
+                </a>
+              </>
+            )
+          }
         />
       </div>
 
