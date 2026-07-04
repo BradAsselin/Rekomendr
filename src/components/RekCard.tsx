@@ -98,12 +98,13 @@ const RekCard: React.FC<Props> = ({
   return (
     <div
       className={[
-        "rounded-2xl p-4",
-        // Accent must read against the dark mobile bg (#0b1725), where a thin
-        // blue border vanishes: brand-blue left-edge bar + light interior tint.
+        "rounded-2xl",
+        // Accent = frame, not fill: white interior like every card (text keeps
+        // full contrast), emphasis carried by one uniform deep-navy 3px frame,
+        // one step more elevation and padding.
         accent
-          ? "bg-blue-50 border border-blue-300 border-l-4 border-l-[#2D5AB5] shadow-md"
-          : "bg-white border border-gray-300 shadow-sm",
+          ? "p-5 bg-white border-[3px] border-[#1E3A8A] shadow-lg"
+          : "p-4 bg-white border border-gray-300 shadow-sm",
         className ?? "",
       ]
         .join(" ")
@@ -119,12 +120,14 @@ const RekCard: React.FC<Props> = ({
             href={titleHref}
             target="_blank"
             rel="noopener noreferrer"
-            className="font-semibold text-[17px] hover:underline"
+            className={`font-semibold ${accent ? "text-lg" : "text-[17px]"} hover:underline`}
           >
             {titleText}
           </a>
         ) : (
-          <span className="font-semibold text-[17px]">{titleText}</span>
+          <span className={`font-semibold ${accent ? "text-lg" : "text-[17px]"}`}>
+            {titleText}
+          </span>
         )}
 
         {/* Signal controls own their taps so they never trigger card-level
@@ -148,14 +151,16 @@ const RekCard: React.FC<Props> = ({
 
       {/* SHORT DESCRIPTION + EXPAND (expand when a long body exists, or when
           the parent lazy-loads one on first expand) */}
-      <p className="text-[15px] text-gray-700 mb-2 leading-relaxed">
+      <p
+        className={`${accent ? "text-base text-gray-800" : "text-[15px] text-gray-700"} mb-2 leading-relaxed`}
+      >
         {short}
         {(long || expandable) && (
           <>
             {" "}
             <button
               onClick={onToggleDetails}
-              className="text-xs text-gray-500 hover:underline"
+              className={`text-xs ${accent ? "text-gray-600" : "text-gray-500"} hover:underline`}
             >
               {detailsOpen ? "Hide details" : "Show details"}
             </button>
@@ -167,13 +172,21 @@ const RekCard: React.FC<Props> = ({
           state for AI generation moments. */}
       {detailsOpen && detailsLoading && (
         <div className="mb-3 animate-pulse">
-          <div className="h-3 bg-gray-100 rounded w-full mb-2" />
-          <div className="h-3 bg-gray-100 rounded w-3/4" />
+          <div
+            className={`h-3 ${accent ? "bg-blue-200" : "bg-gray-100"} rounded w-full mb-2`}
+          />
+          <div
+            className={`h-3 ${accent ? "bg-blue-200" : "bg-gray-100"} rounded w-3/4`}
+          />
         </div>
       )}
 
+      {/* Long tier matches the short's treatment — the payoff never carries
+          less weight than the teaser. */}
       {long && detailsOpen && !detailsLoading && (
-        <p className="text-sm text-gray-600 mb-3">
+        <p
+          className={`${accent ? "text-base text-gray-800" : "text-[15px] text-gray-700"} leading-relaxed mb-3`}
+        >
           {long.length > LONG_PREVIEW_MAX
             ? long.slice(0, LONG_PREVIEW_MAX).trim() + "…"
             : long}
