@@ -30,6 +30,15 @@ function toRekCategory(category: Category): RekCategory {
   return category;
 }
 
+// Category-aware noun for the one honest exhaustion voice: the pool is
+// finite, and the way out is a typed title (which routes AI).
+function nounForCategory(category: Category): string {
+  if (category === "TV Shows") return "show";
+  if (category === "Books") return "book";
+  if (category === "Wine") return "wine";
+  return "movie";
+}
+
 interface ResultsProps {
   loading: boolean;
   loadingLabel?: string;
@@ -162,7 +171,9 @@ const ResultsV4: React.FC<ResultsProps> = ({
       if (!next) {
         if (exhausted) {
           setExhaustedMessage(
-            "You’ve drained this path. Hit Play for a new vibe, or switch category to keep it fresh."
+            `You’ve seen all our quick picks — type a ${nounForCategory(
+              category
+            )} you liked for fresh AI recommendations.`
           );
         } else {
           // AI backfill failure: the slot stays one short (same policy as
