@@ -23,6 +23,18 @@ export type SnapResult = {
   results: Record<SnapMode, SnapRek[]>;
 };
 
+// Graduation capacity: marked cards (thumbed-up or saved) hold their
+// position but stop counting toward the five — the five slots are for
+// unmarked candidates only.
+function countUnmarked(
+  list: SnapRek[],
+  thumbs: Record<string, "like" | "dislike">,
+  saves: Record<string, boolean>
+): number {
+  return list.filter((r) => thumbs[r.name] !== "like" && !saves[r.name])
+    .length;
+}
+
 // Plain-language labels + order for the mode toggle row.
 const MODE_TABS: { mode: SnapMode; label: string }[] = [
   { mode: "similar", label: "Similar" },
@@ -97,6 +109,17 @@ const RekSnapResults: React.FC<Props> = ({
   // Guards late backfill responses from a previous snap result.
   const resultRef = useRef(result);
 
+  // Mark-state mirrors for async updaters: backfill responses decide
+  // capacity from the marks at RESPONSE time, not at call time.
+  const thumbSignalsRef = useRef(thumbSignals);
+  const savedNamesRef = useRef(savedNames);
+  useEffect(() => {
+    thumbSignalsRef.current = thumbSignals;
+  }, [thumbSignals]);
+  useEffect(() => {
+    savedNamesRef.current = savedNames;
+  }, [savedNames]);
+
   // Which intent list is on screen. Defaults to the model's inferred mode;
   // all three lists are already loaded, so switching is instant (no API call).
   const [activeMode, setActiveMode] = useState<SnapMode>(result?.mode ?? "similar");
@@ -132,9 +155,35 @@ const RekSnapResults: React.FC<Props> = ({
     });
   };
 
+  // Graduation: marking a ranked card plants it — it stops counting toward
+  // the five, so backfill one fresh unmarked candidate. Fires only for
+  // cards in the visible list (never the anchor) and only when the mark
+  // actually drops unmarked supply below five (marking a carried extra
+  // doesn't fetch). In-flight backfills count as supply.
+  const maybeBackfillAfterMark = (
+    markedName: string,
+    nextThumbs: Record<string, "like" | "dislike">,
+    nextSaves: Record<string, boolean>
+  ) => {
+    if (!result || !lists) return;
+    const mode = activeMode;
+    const list = lists[mode];
+    if (!list.some((r) => r.name === markedName)) return;
+    if (countUnmarked(list, nextThumbs, nextSaves) + pending[mode] >= 5) {
+      return;
+    }
+    const excludeNames = [
+      result.detected_item.name,
+      ...list.map((r) => r.name),
+    ];
+    void backfillSlot(mode, excludeNames, dismissedNames);
+  };
+
   // Thumbs mark in place and toggle: second tap on the active thumb un-marks.
   // Un-marking is visual-only (no signal write) — same as the search lane;
-  // re-recording the same signal on repeat taps was data noise.
+  // re-recording the same signal on repeat taps was data noise. Un-marking
+  // never dismisses and never backfills: a resulting sixth unmarked card is
+  // carried until the next dismissal (whose backfill guard then declines).
   const toggleThumb = (itemName: string, action: "like" | "dislike") => {
     if (!result) return;
     if (thumbSignals[itemName] === action) {
@@ -151,15 +200,38 @@ const RekSnapResults: React.FC<Props> = ({
       itemCategory: result.detected_item.category,
       action,
     });
+    if (action === "like") {
+      maybeBackfillAfterMark(
+        itemName,
+        { ...thumbSignals, [itemName]: "like" },
+        savedNames
+      );
+    }
   };
 
+  // Save toggles: second tap un-marks. Un-marking is visual-only (no
+  // signal write) — same philosophy as thumbs; the original save signal
+  // stands and the schema is untouched. Un-saving also re-arms swipe on
+  // the card (marked cards are swipe-protected).
   const handleSave = (itemName: string) => {
     if (!result) return;
+    if (savedNames[itemName]) {
+      setSavedNames((prev) => {
+        const next = { ...prev };
+        delete next[itemName];
+        return next;
+      });
+      return;
+    }
     setSavedNames((prev) => ({ ...prev, [itemName]: true }));
     recordSnapSignal({
       itemName,
       itemCategory: result.detected_item.category,
       action: "save",
+    });
+    maybeBackfillAfterMark(itemName, thumbSignals, {
+      ...savedNames,
+      [itemName]: true,
     });
   };
 
@@ -240,7 +312,17 @@ const RekSnapResults: React.FC<Props> = ({
       setLists((prev) => {
         if (!prev) return prev;
         const list = prev[mode];
-        if (list.length >= 5) return prev;
+        // Capacity is five UNMARKED cards — marked keepers hold their
+        // position and don't count. Marks read at response time via refs.
+        if (
+          countUnmarked(
+            list,
+            thumbSignalsRef.current,
+            savedNamesRef.current
+          ) >= 5
+        ) {
+          return prev;
+        }
         const key = rek.name.trim().toLowerCase();
         if (list.some((r) => r.name.trim().toLowerCase() === key)) return prev;
         return {
@@ -485,6 +567,11 @@ const RekSnapResults: React.FC<Props> = ({
                 title={rek.name}
                 rank={rek.rank}
                 short={rek.description}
+                // Swipe grammar (touch only): a committed swipe in either
+                // direction dismisses + backfills (thumbs-down). Liked or
+                // saved cards don't arm. The anchor card above never gets
+                // swipeable — it never dismisses.
+                swipeable
                 thumbSignal={thumbSignals[rek.name] ?? null}
                 saved={!!savedNames[rek.name]}
                 onThumbUp={() => toggleThumb(rek.name, "like")}
