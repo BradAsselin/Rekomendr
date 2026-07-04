@@ -54,6 +54,10 @@ function loadingLabelFromQuery(query: string, cat: Category): string {
 const SNAP_COUNT_KEY = "rekomendr.snap_count";
 const SNAP_LIMIT = 5;
 
+// One failure voice for every fresh-AI-search miss (empty result or throw).
+const AI_SEARCH_FAILED_MSG =
+  "Reks Ray couldn’t fetch fresh picks — give it another go.";
+
 // The 5-Rek cap is enforced in production only. Local dev bypasses enforcement
 // so we can snap freely while testing — the limit number itself is unchanged,
 // and production behavior is identical to before.
@@ -106,6 +110,10 @@ export default function Page() {
   const [persistedLikedTitles, setPersistedLikedTitles] = useState<string[]>([]);
   const [persistedDislikedTitles, setPersistedDislikedTitles] = useState<string[]>([]);
   const [hasSearched, setHasSearched] = useState(false);
+
+  // Honest AI-failure notice for a fresh search — the engine reports empty
+  // on AI failure now (no silent pool fallback exists anymore).
+  const [searchError, setSearchError] = useState<string | null>(null);
 
   const [snapLoading, setSnapLoading] = useState(false);
   const [snapResult, setSnapResult] = useState<SnapResult | null>(null);
@@ -177,11 +185,12 @@ export default function Page() {
   const handleSearch = async (query: string, cat: string) => {
     const searchId = ++searchIdRef.current;
 
-    // A new search dismisses any RekSnap results.
+    // A new search dismisses any RekSnap results and clears a stale notice.
     setSnapResult(null);
     setSnapError(null);
     setSnapLoading(false);
     setSnapLimitReached(false);
+    setSearchError(null);
 
     const inferred = categoryFromQuery(query);
     const nextCategory = query.startsWith("__PHOTO__:")
@@ -211,10 +220,12 @@ export default function Page() {
       if (searchId !== searchIdRef.current) return;
 
       setReks(next);
+      if (next.length === 0) setSearchError(AI_SEARCH_FAILED_MSG);
     } catch (err) {
       if (searchId !== searchIdRef.current) return;
       console.error("Search failed:", err);
       setReks([]);
+      setSearchError(AI_SEARCH_FAILED_MSG);
     } finally {
       if (searchId === searchIdRef.current) {
         setLoading(false);
@@ -264,16 +275,25 @@ export default function Page() {
               </div>
             )
           ) : (
-            <ResultsV4
-              reks={reks}
-              loading={loading}
-              loadingLabel={loadingLabel}
-              sourceImage={sourceImage}
-              category={category}
-              onPlayVibe={() => vibePlayRef.current?.()}
-              persistedLikedTitles={persistedLikedTitles}
-              persistedDislikedTitles={persistedDislikedTitles}
-            />
+            <>
+              {searchError && !loading && (
+                <div className="px-4 pt-2">
+                  <div className="bg-white border border-amber-300 rounded-2xl p-4 shadow-sm">
+                    <div className="text-sm text-gray-800">{searchError}</div>
+                  </div>
+                </div>
+              )}
+              <ResultsV4
+                reks={reks}
+                loading={loading}
+                loadingLabel={loadingLabel}
+                sourceImage={sourceImage}
+                category={category}
+                onPlayVibe={() => vibePlayRef.current?.()}
+                persistedLikedTitles={persistedLikedTitles}
+                persistedDislikedTitles={persistedDislikedTitles}
+              />
+            </>
           )}
         </div>
       </div>

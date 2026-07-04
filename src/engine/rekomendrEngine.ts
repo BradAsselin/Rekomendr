@@ -1,15 +1,17 @@
 /* ------------------------------------------------------------------
    Rekomendr Engine – V1 Magic Hybrid
-   - Pool / Deer Trails for Play button and explicit mode:pool
+   - Pool / Deer Trails for the Play button (the sole mode:pool surface)
    - Full AI generation for discovery mode
    - Intent persistence so AI follows the user's path
-   - +MoreLikeThis and thumbs backfill use AI when session is in AI mode
-   - Quiet fail-open to canned pool if AI generation fails
+   - +MoreLikeThis is a deliberate act: always AI, and it flips the
+     category session to AI mode; thumbs backfill follows session mode
+   - AI failures surface honestly — no silent fail-open to the pool
 
    Philosophy:
    - Play button = fast, deterministic, safe
-   - Any clarifier or typed text = full AI discovery
+   - Any deliberate act = full AI discovery
    - Once AI mode is active for a category, refinements stay AI-driven
+     (pool returns only via another Play press)
 ------------------------------------------------------------------- */
 
 import { getTop5FromDeck } from "./deckSelector";
@@ -800,7 +802,6 @@ export async function getTop5FromEngine({
   });
 
   /* ------------------ FULL AI DISCOVERY MODE ------------------ */
-  /* ------------------ FULL AI DISCOVERY MODE ------------------ */
   if (mode === "ai") {
     const aiGenerated = await generateAIReks({
       category,
@@ -826,9 +827,10 @@ export async function getTop5FromEngine({
       return normalize(result);
     }
 
-    // quiet fail-open to pool logic below
+    // No silent fallback: a failed deliberate path reports empty and the
+    // UI shows an honest failure notice. Pool is Play-only.
+    return [];
   }
-
 
   /* ------------------ POOL / PLAY MODE ------------------ */
   const pool = await fetchPool(category);
@@ -972,8 +974,10 @@ export async function getTop5FromEngine({
 
 /* ------------------------------------------------------------------
    BACKFILL
-   - In AI mode: generate fresh AI picks and take the first good one
-   - In pool mode: deterministic backfill
+   - AI session: generate fresh picks and take the first good one; on
+     failure report {rek:null, exhausted:false} — never a pool fallback
+   - Pool (Play) session: deterministic backfill; a drained pool reports
+     {rek:null, exhausted:true} so the UI can say so honestly
 ------------------------------------------------------------------- */
 export async function getBackfillRek(args: {
   current: Rek[];
@@ -985,7 +989,7 @@ export async function getBackfillRek(args: {
   lastAction?: "like" | "dislike";
   lastActionTitle?: string;
   [key: string]: any;
-}): Promise<Rek | null> {
+}): Promise<{ rek: Rek | null; exhausted: boolean }> {
   const current = args.current ?? [];
   const rawCategory =
     args.category || args.vertical || args.rawCategory || "Movies";
@@ -1021,9 +1025,11 @@ export async function getBackfillRek(args: {
       aiGenerated?.find((r) => !sessionSeen.has(seenKey(r.title))) ?? null;
     if (chosen) {
       sessionSeen.add(seenKey(chosen.title));
-      return chosen;
+      return { rek: chosen, exhausted: false };
     }
-    // fail-open below
+    // AI failure: report it — the caller keeps the slot empty. An AI
+    // session is never backfilled from the pool.
+    return { rek: null, exhausted: false };
   }
 
   const pool = await fetchPool(category);
@@ -1045,7 +1051,7 @@ export async function getBackfillRek(args: {
   const unseenCandidates = poolForBackfill.filter(
     (r) => !used.has(seenKey(r.title))
   );
-  if (unseenCandidates.length === 0) return null;
+  if (unseenCandidates.length === 0) return { rek: null, exhausted: true };
 
   const candidatePool = unseenCandidates.slice(0, 8);
 
@@ -1065,13 +1071,16 @@ export async function getBackfillRek(args: {
     unseenCandidates[0];
 
   sessionSeen.add(seenKey(candidate.title));
-  return normalize([candidate])[0];
+  return { rek: normalize([candidate])[0], exhausted: false };
 }
 
 /* ------------------------------------------------------------------
    + MORE LIKE THIS
-   - In AI mode: seed-aware full AI generation
-   - In pool mode: deck/genre similarity
+   - Always seed-aware full AI generation: the tap names a seed, which
+     is a deliberate act — it flips the category session to AI mode
+     (one-way; only another Play press re-enters pool).
+   - Empty result = AI failure, surfaced honestly by the caller. There
+     is no pool similarity fallback, so MLT can never exhaust the pool.
 ------------------------------------------------------------------- */
 export async function getMoreLikeThisSet(args: {
   seed: Rek;
@@ -1084,101 +1093,46 @@ export async function getMoreLikeThisSet(args: {
   const rawCategory = args.category || "Movies";
   const { category } = parseRawQuery(`${rawCategory}||`);
   const sessionSeen = getSessionSeen(category);
-  const intent = getLastIntent(category);
 
-  if (intent?.mode === "ai") {
-    const context = [
-      `Vertical: ${intent.category}`,
-      intent.clarifier ? `Lane/Clarifier: ${intent.clarifier}` : "",
-      intent.text ? `User text: ${intent.text}` : "",
-      "Action: +MoreLikeThis",
-    ]
-      .filter(Boolean)
-      .join(" | ");
+  // Promote the session: keep the prior intent's context (lane, text) as
+  // flavor, but the mode is now AI — subsequent thumbs backfills follow it.
+  const prior = getLastIntent(category);
+  const intent: Intent = {
+    category,
+    clarifier: prior?.clarifier ?? "",
+    text: prior?.text ?? "",
+    deckId: prior?.deckId ?? null,
+    vibeTag: prior?.vibeTag ?? null,
+    isVibeClarifier: prior?.isVibeClarifier ?? false,
+    mode: "ai",
+  };
+  setLastIntent(intent);
 
-    const aiGenerated = await generateAIReks({
-      category,
-      count: MAX_AI_ITEMS,
-      context,
-      seedTitle: seed?.title,
-      likedTitles: args.likedTitles,
-      dislikedTitles: args.dislikedTitles,
-      seenTitles: sessionSeen,
-    });
+  const context = [
+    `Vertical: ${intent.category}`,
+    intent.clarifier ? `Lane/Clarifier: ${intent.clarifier}` : "",
+    intent.text ? `User text: ${intent.text}` : "",
+    "Action: +MoreLikeThis",
+  ]
+    .filter(Boolean)
+    .join(" | ");
 
-    if (aiGenerated && aiGenerated.length > 0) {
-      aiGenerated.forEach((r) => sessionSeen.add(seenKey(r.title)));
-      return aiGenerated.slice(0, 5);
-    }
-    // fail-open below
+  const aiGenerated = await generateAIReks({
+    category,
+    count: MAX_AI_ITEMS,
+    context,
+    seedTitle: seed?.title,
+    likedTitles: args.likedTitles,
+    dislikedTitles: args.dislikedTitles,
+    seenTitles: sessionSeen,
+  });
+
+  if (aiGenerated && aiGenerated.length > 0) {
+    aiGenerated.forEach((r) => sessionSeen.add(seenKey(r.title)));
+    return aiGenerated.slice(0, 5);
   }
 
-  const pool = await fetchPool(category);
-  const filteredPool = applyIntentFilters(pool, intent);
-
-  const textTokens = tokenizeText(intent?.text ?? "");
-  const textFiltered =
-    textTokens.length > 0
-      ? filteredPool.filter((r) => matchesTextIntent(r, textTokens))
-      : filteredPool;
-
-  const poolForSet =
-    textTokens.length > 0 && textFiltered.length >= 5 ? textFiltered : filteredPool;
-
-  if (USE_DEER_TRAILS && intent?.deckId && intent.mode !== "ai") {
-    const fromDeck = getTop5FromDeck(intent.deckId, poolForSet, sessionSeen);
-    if (fromDeck.length === 5) return normalize(fromDeck);
-  }
-
-  const seedGenres = tokensFromGenre(seed.genre);
-  const seedGenreSet = new Set(seedGenres);
-
-  let matches: Rek[] = [];
-
-  if (seedGenres.length) {
-    const genreMatches = poolForSet.filter((r) => {
-      if (sessionSeen.has(seenKey(r.title))) return false;
-      const g = tokensFromGenre(r.genre);
-      return g.some((x) => seedGenreSet.has(x));
-    });
-
-    const used = new Set(matches.map((r) => r.title));
-    for (const r of genreMatches) {
-      if (matches.length >= 5) break;
-      if (!used.has(r.title)) {
-        matches.push(r);
-        used.add(r.title);
-      }
-    }
-  }
-
-  if (matches.length < 5) {
-    const anyUnseen = poolForSet.filter(
-      (r) => !sessionSeen.has(seenKey(r.title))
-    );
-    const used = new Set(matches.map((r) => r.title));
-    for (const r of anyUnseen) {
-      if (matches.length >= 5) break;
-      if (!used.has(r.title)) {
-        matches.push(r);
-        used.add(r.title);
-      }
-    }
-  }
-
- 
-const result = matches.slice(0, 5);
-if (result.length === 0) return [];
-
-const ranked = rankMovieCandidates(result as any, {
-  activeLane: null,
-  likedTitles: args.likedTitles ?? [],
-  dislikedTitles: args.dislikedTitles ?? [],
-  moreLikeThisTitle: seed?.title ?? null,
-}) as Rek[];
-
-ranked.forEach((r) => sessionSeen.add(seenKey(r.title)));
-return normalize(ranked);
+  return [];
 }
 
 

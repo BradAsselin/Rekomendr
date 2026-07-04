@@ -152,7 +152,7 @@ const ResultsV4: React.FC<ResultsProps> = ({
     try {
       const currentNow = reksRef.current;
 
-      const next = await getBackfillRek({
+      const { rek: next, exhausted } = await getBackfillRek({
         current: currentNow,
         category,
         likedTitles: allLikedTitlesRef.current,
@@ -160,9 +160,15 @@ const ResultsV4: React.FC<ResultsProps> = ({
       });
 
       if (!next) {
-        setExhaustedMessage(
-          "You’ve drained this path. Hit Play for a new vibe, or switch category to keep it fresh."
-        );
+        if (exhausted) {
+          setExhaustedMessage(
+            "You’ve drained this path. Hit Play for a new vibe, or switch category to keep it fresh."
+          );
+        } else {
+          // AI backfill failure: the slot stays one short (same policy as
+          // the snap lane) — no false exhaustion notice, no pool fallback.
+          console.error("AI backfill failed; slot left empty.");
+        }
         return;
       }
 
@@ -210,16 +216,10 @@ const ResultsV4: React.FC<ResultsProps> = ({
       });
 
       if (!nextFive || nextFive.length === 0) {
-        const noun =
-          category === "TV Shows"
-            ? "show"
-            : category === "Books"
-            ? "book"
-            : category === "Wine"
-            ? "wine"
-            : "movie";
+        // MLT is always AI now, so an empty set is an AI failure — never
+        // pool exhaustion. Say that, honestly.
         setExhaustedMessage(
-          `You’ve seen all our quick picks — type a ${noun} you liked for fresh AI recommendations.`
+          "Reks Ray couldn’t fetch fresh picks — give it another go."
         );
         return;
       }
