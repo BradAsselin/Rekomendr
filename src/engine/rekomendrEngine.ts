@@ -212,10 +212,9 @@ function normalize(list: Rek[]): Rek[] {
 /* ------------------------------------------------------------------
    QUERY PARSE
    Rule:
-   - Explicit mode:pool wins
-   - Explicit mode:ai wins
-   - Otherwise: any clarifier OR any typed text => ai
-   - Otherwise => pool
+   - Pool is opt-in only: the Play button is the sole surface that tags
+     mode:pool. Anything else — tagged mode:ai or untagged — routes to
+     AI discovery, so nothing can drift into the canned pool.
 ------------------------------------------------------------------- */
 function parseRawQuery(rawQuery: string): {
   category: Category;
@@ -232,10 +231,7 @@ function parseRawQuery(rawQuery: string): {
   const text = (parts[2] ?? "").trim();
   const maybeMode = (parts[3] ?? "").trim().toLowerCase();
 
-  let mode: IntentMode = "pool";
-  if (maybeMode === "mode:pool") mode = "pool";
-  else if (maybeMode === "mode:ai") mode = "ai";
-  else if (clarifier || (text && text.length > 0)) mode = "ai";
+  const mode: IntentMode = maybeMode === "mode:pool" ? "pool" : "ai";
 
   const c = rawCategory.toLowerCase();
   let category: Category = "Movies";

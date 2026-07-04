@@ -202,8 +202,9 @@ const SearchBar: React.FC<SearchBarProps> = ({
     setLastSearchMode("categoryOnly");
     setLastTypedSeed("");
 
-    // Immediate search on category select (empty query valid)
-    const q = buildQuery(c, null, "", "pool");
+    // Immediate search on category select (empty query valid). Picking a
+    // category is a deliberate act — routes AI; pool is Play-only.
+    const q = buildQuery(c, null, "", "ai");
     startSearch(q, c);
   };
 
@@ -228,7 +229,8 @@ const SearchBar: React.FC<SearchBarProps> = ({
     setLastSearchMode("categoryOnly");
     setLastTypedSeed("");
 
-    const q = buildQuery(categoryRef.current, null, "", "pool");
+    // Clearing the lane fires a search — deliberate act, routes AI.
+    const q = buildQuery(categoryRef.current, null, "", "ai");
 
     startSearch(q, categoryRef.current);
   };
@@ -387,7 +389,8 @@ const runVibe = useCallback(
   setLastSearchMode("categoryOnly");
   setLastTypedSeed("");
 
-  const q = buildQuery(categoryRef.current, null, "", "pool");
+  // Empty GO is still a deliberate press — generic AI discovery, not pool.
+  const q = buildQuery(categoryRef.current, null, "", "ai");
   startSearch(q, categoryRef.current);
 }
 
