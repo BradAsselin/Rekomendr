@@ -3,6 +3,7 @@
 import React from "react";
 import { Heart } from "lucide-react";
 
+import { useSwipeToAction } from "../lib/useSwipeToAction";
 import SignalButtons from "./SignalButtons";
 
 // One shared presentational rek card — the single skeleton both lanes render
@@ -64,6 +65,13 @@ type Props = {
   completionActions?: React.ReactNode;
   // Emphasized chrome for the snap detected-item card.
   accent?: boolean;
+  // Touch-only swipe gestures: left = onThumbDown, right = onSave — the
+  // same handlers the buttons call, no new signal paths. Explicit opt-in
+  // per card; the anchor never gets it (it never dismisses).
+  swipeable?: boolean;
+  // Whether a committed right-swipe flings the card off (search: Save
+  // dismisses + backfills) or springs back in place (snap: Save marks).
+  swipeRightExits?: boolean;
   // Extra root classes/styles — ResultsV4 threads its stagger animation here.
   className?: string;
   style?: React.CSSProperties;
@@ -90,15 +98,28 @@ const RekCard: React.FC<Props> = ({
   isFavorite,
   completionActions,
   accent,
+  swipeable,
+  swipeRightExits,
   className,
   style,
 }) => {
   const titleText = year != null ? `${title} (${year})` : title;
 
+  const swipeHandlers = useSwipeToAction({
+    enabled: !!swipeable,
+    onSwipeLeft: onThumbDown,
+    onSwipeRight: onSave,
+    rightExits: !!swipeRightExits,
+  });
+
   return (
     <div
+      {...(swipeable ? swipeHandlers : {})}
       className={[
         "rounded-2xl",
+        // pan-y keeps vertical scroll native while the hook owns
+        // horizontal gestures (see useSwipeToAction).
+        swipeable ? "touch-pan-y" : "",
         // Accent = frame, not fill: white interior like every card (text keeps
         // full contrast), emphasis carried by one uniform deep-navy 3px frame,
         // one step more elevation and padding.
