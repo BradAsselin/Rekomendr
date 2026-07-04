@@ -4,8 +4,10 @@ import { useRef } from "react";
 
 /* ------------------------------------------------------------------
    SWIPE-TO-ACTION (touch only)
-   - Left = the card's thumbs-down, right = the card's Save; the hook
-     calls the SAME handlers the buttons use — no new signal paths.
+   - A committed swipe in EITHER direction fires the card's dismiss —
+     the same handler the thumbs-down button uses; no new signal paths.
+     Directional semantics (distinct left/right actions) are banked for
+     a future action-reveal pass.
    - Scroll coexistence: the card root gets touch-action: pan-y (the
      caller adds the class), so vertical panning stays native. Past a
      10px slop the gesture direction-locks ONCE — horizontal arms the
@@ -31,12 +33,10 @@ const EXIT_MS = 200;
 type Phase = "idle" | "pending" | "armed" | "scroll";
 
 type SwipeOptions = {
+  // Callers gate this per card (e.g. marked cards don't arm — they
+  // can't be flung by accident).
   enabled: boolean;
-  onSwipeLeft: () => void;
-  onSwipeRight: () => void;
-  // Whether a committed right-swipe flings the card off (search: Save
-  // dismisses) or springs back in place (snap: Save marks in place).
-  rightExits: boolean;
+  onSwipe: () => void;
 };
 
 export type SwipeHandlers = {
@@ -69,9 +69,7 @@ function flingOff(el: HTMLElement, sign: -1 | 1) {
 
 export function useSwipeToAction({
   enabled,
-  onSwipeLeft,
-  onSwipeRight,
-  rightExits,
+  onSwipe,
 }: SwipeOptions): SwipeHandlers {
   const phaseRef = useRef<Phase>("idle");
   const originRef = useRef({ x: 0, y: 0, t: 0 });
@@ -137,16 +135,10 @@ export function useSwipeToAction({
       return;
     }
 
-    if (dx < 0) {
-      flingOff(el, -1);
-      onSwipeLeft();
-    } else if (rightExits) {
-      flingOff(el, 1);
-      onSwipeRight();
-    } else {
-      snapBack(el);
-      onSwipeRight();
-    }
+    // Exit in the direction the finger was headed; the action is the
+    // same either way.
+    flingOff(el, dx < 0 ? -1 : 1);
+    onSwipe();
   };
 
   const onPointerCancel: React.PointerEventHandler<HTMLDivElement> = (e) => {

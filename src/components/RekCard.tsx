@@ -65,13 +65,12 @@ type Props = {
   completionActions?: React.ReactNode;
   // Emphasized chrome for the snap detected-item card.
   accent?: boolean;
-  // Touch-only swipe gestures: left = onThumbDown, right = onSave — the
-  // same handlers the buttons call, no new signal paths. Explicit opt-in
-  // per card; the anchor never gets it (it never dismisses).
+  // Touch-only swipe: a committed swipe in EITHER direction fires
+  // onThumbDown — the same dismiss the button calls, no new signal
+  // paths. Explicit opt-in per card; the anchor never gets it (it never
+  // dismisses). Marked cards (thumbSignal "like" or saved) don't arm,
+  // so they can't be flung by accident.
   swipeable?: boolean;
-  // Whether a committed right-swipe flings the card off (search: Save
-  // dismisses + backfills) or springs back in place (snap: Save marks).
-  swipeRightExits?: boolean;
   // Extra root classes/styles — ResultsV4 threads its stagger animation here.
   className?: string;
   style?: React.CSSProperties;
@@ -99,17 +98,15 @@ const RekCard: React.FC<Props> = ({
   completionActions,
   accent,
   swipeable,
-  swipeRightExits,
   className,
   style,
 }) => {
   const titleText = year != null ? `${title} (${year})` : title;
 
   const swipeHandlers = useSwipeToAction({
-    enabled: !!swipeable,
-    onSwipeLeft: onThumbDown,
-    onSwipeRight: onSave,
-    rightExits: !!swipeRightExits,
+    // Protection rule: a liked or saved card never arms.
+    enabled: !!swipeable && thumbSignal !== "like" && !saved,
+    onSwipe: onThumbDown,
   });
 
   return (
