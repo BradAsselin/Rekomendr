@@ -177,7 +177,12 @@ const RekCard: React.FC<Props> = ({
           <>
             {" "}
             <button
-              onClick={onToggleDetails}
+              onClick={(e) => {
+                // Inside a trail row the card body is tap-to-collapse; the
+                // details toggle must not double as a collapse.
+                e.stopPropagation();
+                onToggleDetails?.();
+              }}
               className={`text-xs ${accent ? "text-gray-600" : "text-gray-500"} hover:underline`}
             >
               {detailsOpen ? "Hide details" : "Show details"}

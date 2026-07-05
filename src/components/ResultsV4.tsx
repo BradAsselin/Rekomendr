@@ -6,6 +6,11 @@ import { Play } from "lucide-react";
 import DescriptorLine from "./DescriptorLine";
 import RekCard from "./RekCard";
 import RekSkeleton, { RekSkeletonCard } from "./RekSkeleton";
+import RekTrail, { TrailRow } from "./RekTrail";
+
+// Scroll-compensated layout commits for trail migrations (see the module
+// comment — layout changes once, animation is transform/opacity only).
+import { compensatedCommit } from "../lib/scrollCompensation";
 
 // Engine helpers
 import { getBackfillRek, getMoreLikeThisSet } from "../engine/rekomendrEngine";
@@ -33,16 +38,10 @@ function nounForCategory(category: Category): string {
   return "movie";
 }
 
-// Graduation capacity: marked cards (thumbed-up or saved) hold their
-// position but stop counting toward the five — the five slots are for
-// unmarked candidates only. Same model as the snap lane.
-function countUnmarked(list: Rek[], contenders: Rek[], saved: Rek[]): number {
-  return list.filter(
-    (r) =>
-      !contenders.some((c) => c.id === r.id) &&
-      !saved.some((s) => s.id === r.id)
-  ).length;
-}
+// Graduation upward: a marked card (thumbed-up or saved) LEAVES the five
+// and joins the compact trail at the top of the results — the frontier
+// list holds only unmarked candidates, so its length IS the capacity
+// count. Same model as the snap lane.
 
 interface ResultsProps {
   loading: boolean;
@@ -65,16 +64,23 @@ const ResultsV4: React.FC<ResultsProps> = ({
   persistedDislikedTitles = [],
 }) => {
   const [reks, setReks] = useState<Rek[]>([]);
-  // Marked cards stay in the list (graduation model, same as the snap lane):
-  // thumbs-up marks a contender, Save marks a keeper — both mark in place,
-  // toggle off on second tap, and stop counting toward the five. Kept as
-  // full Reks so their titles still feed the engine's liked-exclusion list
-  // after a set wipe.
+  // Mark state (graduation model, same as the snap lane): thumbs-up marks
+  // a contender, Save marks a keeper — both toggle off on second tap.
+  // Kept as full Reks so their titles still feed the engine's
+  // liked-exclusion list even after their cards leave the view.
   const [contenders, setContenders] = useState<Rek[]>([]);
   const [saved, setSaved] = useState<Rek[]>([]);
+  // The decided trail: marked cards graduate up here in compact form and
+  // stop occupying frontier slots. Membership = marked (like OR save);
+  // in marking order.
+  const [trail, setTrail] = useState<Rek[]>([]);
   const [sessionDislikedTitles, setSessionDislikedTitles] = useState<string[]>([]);
   const [expandedTop, setExpandedTop] = useState<number | null>(null);
   const [exiting, setExiting] = useState<number | null>(null);
+  // Card mid-migration animation — marked, fading up out of the frontier.
+  const [migrating, setMigrating] = useState<number | null>(null);
+  // Card just reinserted from the trail (toggle-off) — drops in from above.
+  const [entering, setEntering] = useState<number | null>(null);
   const [visibleIds, setVisibleIds] = useState<number[]>([]);
 
   // AI loading-state presentation:
@@ -92,12 +98,23 @@ const ResultsV4: React.FC<ResultsProps> = ({
   const reksRef = useRef<Rek[]>([]);
   useEffect(() => { reksRef.current = reks; }, [reks]);
 
-  // Mark-state mirrors for async updaters: backfill responses decide
-  // capacity from the marks at RESPONSE time, not at call time.
+  // State mirrors for deferred work — migration commits fire after the
+  // exit animation and backfill/MLT responses after a fetch, so both must
+  // read at FIRE time, not call time.
   const contendersRef = useRef<Rek[]>([]);
   const savedRef = useRef<Rek[]>([]);
+  const trailRef = useRef<Rek[]>([]);
+  const pendingBackfillsRef = useRef(0);
+  const mltLoadingRef = useRef(false);
   useEffect(() => { contendersRef.current = contenders; }, [contenders]);
   useEffect(() => { savedRef.current = saved; }, [saved]);
+  useEffect(() => { trailRef.current = trail; }, [trail]);
+  useEffect(() => { pendingBackfillsRef.current = pendingBackfills; }, [pendingBackfills]);
+  useEffect(() => { mltLoadingRef.current = mltLoading; }, [mltLoading]);
+
+  // Rendered frontier card elements by id — the scroll-compensation
+  // reference lookup at migration-commit time (see compensatedCommit).
+  const cardEls = useRef(new Map<number, HTMLDivElement>());
 
   const allLikedTitlesRef = useRef<string[]>([]);
   const allDislikedTitlesRef = useRef<string[]>([]);
@@ -133,6 +150,14 @@ const ResultsV4: React.FC<ResultsProps> = ({
    * SYNC WITH PROPS (ENGINE → UI)
    * ----------------------------- */
   useEffect(() => {
+    // A new search replaces the whole result view — the old trail leaves
+    // with it, same as marked cards always vanished on a new search. The
+    // marks persist in contenders/saved, so their titles keep feeding the
+    // engine's exclusion lists (unchanged).
+    setTrail([]);
+    setMigrating(null);
+    setEntering(null);
+
     if (!incomingReks || incomingReks.length === 0) {
       setReks([]);
       setVisibleIds([]);
@@ -159,6 +184,8 @@ const ResultsV4: React.FC<ResultsProps> = ({
 
     setReks((prev) => toggle(prev));
     setSaved((prev) => toggle(prev));
+    // Graduated cards live in the trail — the heart must reach them too.
+    setTrail((prev) => toggle(prev));
   };
 
   /* -----------------------------
@@ -196,10 +223,10 @@ const ResultsV4: React.FC<ResultsProps> = ({
       clearExhausted();
 
       setReks((prev) => {
-        // Capacity is five UNMARKED cards — marked keepers hold their
-        // position and don't count. Marks read at response time via refs.
-        if (countUnmarked(prev, contendersRef.current, savedRef.current) >= 5)
-          return prev;
+        // Marked cards live in the trail now, so the frontier list itself
+        // is the unmarked count. A carried sixth (toggle-off return)
+        // parks the list at capacity and this guard declines.
+        if (prev.length >= 5) return prev;
 
         const updated = [
           ...prev,
@@ -222,18 +249,24 @@ const ResultsV4: React.FC<ResultsProps> = ({
   const handleMoreLikeThis = async (rek: Rek) => {
     recordLike({ category, title: rek.title, year: rek.year, action: 'more_like_this' });
 
-    // Graduation: marked cards (thumbed-up or saved) survive the wipe and
-    // hold the top of the list; only the unmarked cards regenerate — the
-    // skeletons pulse beneath the keepers, and the fresh five land there.
-    const marked = reks.filter(
+    // Keepers live in the trail now, so the wipe is total. A marked card
+    // still mid-migration flushes straight to the trail (no animation)
+    // instead of dying with the frontier; the skeletons pulse beneath the
+    // trail, and the fresh five land there.
+    const stillMarked = reks.filter(
       (r) =>
         contenders.some((c) => c.id === r.id) ||
         saved.some((s) => s.id === r.id)
     );
     setExiting(null);
+    setMigrating(null);
     setMltLoading(true);
-    setReks(marked);
-    setVisibleIds(marked.map((r) => r.id));
+    setTrail((prev) => [
+      ...prev,
+      ...stillMarked.filter((m) => !prev.some((t) => t.id === m.id)),
+    ]);
+    setReks([]);
+    setVisibleIds([]);
     clearExhausted();
 
     try {
@@ -253,9 +286,12 @@ const ResultsV4: React.FC<ResultsProps> = ({
         return;
       }
 
-      // Guard against the generator repeating a surviving keeper.
+      // Guard against the generator repeating a surviving keeper — keepers
+      // sit in the trail now, so check both lists.
       const have = new Set(
-        reksRef.current.map((r) => r.title.trim().toLowerCase())
+        [...reksRef.current, ...trailRef.current].map((r) =>
+          r.title.trim().toLowerCase()
+        )
       );
       const fresh = nextFive.filter(
         (r) => !have.has(r.title.trim().toLowerCase())
@@ -274,40 +310,120 @@ const ResultsV4: React.FC<ResultsProps> = ({
   };
 
   /* -----------------------------
-   * LIKE / DISLIKE / SAVE
+   * GRADUATION UPWARD (TRAIL)
    * ----------------------------- */
-  // Graduation: marking a card plants it — it stops counting toward the
-  // five, so backfill one fresh unmarked candidate. Fires only when the
-  // mark actually drops unmarked supply below five (marking a carried
-  // extra doesn't fetch); in-flight backfills count as supply. Skipped
-  // mid-MLT: the fresh five are already on their way.
-  const maybeBackfillAfterMark = (
-    rek: Rek,
-    nextContenders: Rek[],
-    nextSaved: Rek[]
-  ) => {
-    if (mltLoading) return;
-    if (!reks.some((r) => r.id === rek.id)) return;
-    if (countUnmarked(reks, nextContenders, nextSaved) + pendingBackfills >= 5)
-      return;
-    void handleBackfill(rek);
+  // A marked frontier card animates out of the five in place (transform/
+  // opacity only — layout-inert), then ONE compensated commit moves it to
+  // the trail and backfills the freed slot. Layout never changes outside
+  // that commit, so the page can't lurch (see compensatedCommit). No-ops
+  // for already-graduated trail cards — they aren't in the frontier list.
+  const migrateToTrail = (rek: Rek) => {
+    if (!reksRef.current.some((r) => r.id === rek.id)) return;
+    setMigrating(rek.id);
+    setTimeout(() => commitMigration(rek), 250);
   };
 
-  // Thumbs-up marks the card in place as a contender (blue fill) — no
-  // removal, no holding pen. Second tap un-marks; no LikeAction exists for
+  const commitMigration = (rek: Rek) => {
+    setMigrating((cur) => (cur === rek.id ? null : cur));
+    const list = reksRef.current;
+    const idx = list.findIndex((r) => r.id === rek.id);
+    if (idx === -1) return; // dismissed or MLT-flushed mid-animation
+    // Mark toggled off mid-animation: only still-marked cards graduate
+    // (the cleared migrating state fades the card back in where it is).
+    if (
+      !contendersRef.current.some((c) => c.id === rek.id) &&
+      !savedRef.current.some((s) => s.id === rek.id)
+    ) {
+      return;
+    }
+
+    // Scroll reference: the neighbor the user reads next (below, else
+    // above), falling back to any rendered card.
+    const refId = list[idx + 1]?.id ?? list[idx - 1]?.id ?? null;
+    let refEl = refId != null ? cardEls.current.get(refId) ?? null : null;
+    if (!refEl) {
+      for (const [id, el] of Array.from(cardEls.current.entries())) {
+        if (id !== rek.id) {
+          refEl = el;
+          break;
+        }
+      }
+    }
+
+    // Skipped mid-MLT: the fresh five are already on their way. In-flight
+    // backfills count as supply.
+    const needBackfill =
+      !mltLoadingRef.current &&
+      list.length - 1 + pendingBackfillsRef.current < 5;
+
+    compensatedCommit(refEl, () => {
+      setReks((prev) => prev.filter((r) => r.id !== rek.id));
+      setTrail((prev) =>
+        prev.some((r) => r.id === rek.id) ? prev : [...prev, rek]
+      );
+      if (needBackfill) void handleBackfill(rek);
+    });
+  };
+
+  // Toggle-off return: the card leaves the trail and re-enters the
+  // frontier AT THE TOP — just across the boundary from where it sat.
+  // The frontier may briefly hold six; that's the existing carried-sixth
+  // policy (no dismissal, no backfill — the next dismissal's response
+  // guard declines instead). The visible frontier is held pixel-stable;
+  // the returning card takes the space the trail row gives up.
+  const returnToFrontier = (id: number) => {
+    const rek = trailRef.current.find((r) => r.id === id);
+    if (!rek) return;
+
+    const firstId = reksRef.current[0]?.id ?? null;
+    const refEl = firstId != null ? cardEls.current.get(firstId) ?? null : null;
+
+    compensatedCommit(refEl, () => {
+      setTrail((prev) => prev.filter((r) => r.id !== id));
+      setReks((prev) =>
+        prev.some((r) => r.id === id) ? prev : [rek, ...prev]
+      );
+      // The stagger machinery may have reset visibleIds since this card
+      // graduated — re-admit it or it would stay invisible.
+      setVisibleIds((p) => (p.includes(id) ? p : [...p, id]));
+      setEntering(id);
+    });
+    // Release the entrance state a tick later so the drop-in plays.
+    setTimeout(() => setEntering((cur) => (cur === id ? null : cur)), 30);
+  };
+
+  // Thumbs-down keeps its meaning on a trail card: record + dismiss —
+  // the same grammar as thumbing down a liked frontier card. It vacates
+  // no frontier slot, so there is nothing to backfill.
+  const handleDislikeFromTrail = (rek: Rek) => {
+    recordLike({ category, title: rek.title, year: rek.year, action: 'dislike' });
+    setSessionDislikedTitles((p) => [...p, rek.title]);
+    setContenders((p) => p.filter((c) => c.id !== rek.id));
+    setSaved((p) => p.filter((s) => s.id !== rek.id));
+    const firstId = reksRef.current[0]?.id ?? null;
+    const refEl = firstId != null ? cardEls.current.get(firstId) ?? null : null;
+    compensatedCommit(refEl, () => {
+      setTrail((prev) => prev.filter((r) => r.id !== rek.id));
+    });
+  };
+
+  /* -----------------------------
+   * LIKE / DISLIKE / SAVE
+   * ----------------------------- */
+  // Thumbs-up marks the card as a contender (blue fill) and graduates it
+  // up to the trail. Second tap un-marks; no LikeAction exists for
   // "unlike", so un-marking is visual-only and the original write stands.
-  // Un-marking never dismisses and never backfills: a resulting sixth
-  // unmarked card is carried until the next dismissal (whose backfill
-  // guard then declines).
+  // When no Save is still holding it, un-marking returns the card from
+  // the trail to the top of the frontier (trail membership = marked).
   const handleLike = (rek: Rek) => {
     if (contenders.some((c) => c.id === rek.id)) {
       setContenders((p) => p.filter((c) => c.id !== rek.id));
+      if (!saved.some((s) => s.id === rek.id)) returnToFrontier(rek.id);
       return;
     }
     recordLike({ category, title: rek.title, year: rek.year, action: 'like' });
-    const nextContenders = [...contenders, rek];
-    setContenders(nextContenders);
-    maybeBackfillAfterMark(rek, nextContenders, saved);
+    setContenders((p) => [...p, rek]);
+    migrateToTrail(rek);
   };
 
   // Thumbs-down dismisses + backfills directly — no clarify panel. The
@@ -326,19 +442,19 @@ const ResultsV4: React.FC<ResultsProps> = ({
     }, 250);
   };
 
-  // Save marks in place and toggles: second tap un-marks — no dismissal,
-  // no holding pen. Un-marking is visual-only (no signal write); the
-  // original save signal stands. Un-saving also re-arms swipe on the card
-  // (marked cards are swipe-protected).
+  // Save marks and graduates, same as a thumb-up. Second tap un-marks —
+  // visual-only (no signal write); the original save signal stands. When
+  // no like is still holding it, un-saving returns the card from the
+  // trail to the top of the frontier.
   const handleSave = (rek: Rek) => {
     if (saved.some((s) => s.id === rek.id)) {
       setSaved((p) => p.filter((s) => s.id !== rek.id));
+      if (!contenders.some((c) => c.id === rek.id)) returnToFrontier(rek.id);
       return;
     }
     recordLike({ category, title: rek.title, year: rek.year, action: 'save' });
-    const nextSaved = [...saved, rek];
-    setSaved(nextSaved);
-    maybeBackfillAfterMark(rek, contenders, nextSaved);
+    setSaved((p) => [...p, rek]);
+    migrateToTrail(rek);
   };
 
   /* -----------------------------
@@ -396,66 +512,136 @@ const ResultsV4: React.FC<ResultsProps> = ({
         </div>
       ) : (
         <div className="w-full max-w-xl space-y-3">
+          {/* THE TRAIL — the user's decided keeps, compact, at the top of
+              the results. Tapping a row expands it in place to a full
+              RekCard. Trail cards never get `swipeable` (keep-protection
+              is structural) and never get "+ More like this" (no chaining
+              from the trail); Trailer and the heart stay. */}
+          {trail.length > 0 && (
+            <RekTrail>
+              {trail.map((rek) => (
+                <TrailRow
+                  key={rek.id}
+                  title={rek.title}
+                  hint={rek.short}
+                  thumbed={contenders.some((c) => c.id === rek.id)}
+                  saved={saved.some((s) => s.id === rek.id)}
+                >
+                  <RekCard
+                    genreLine={
+                      <DescriptorLine
+                        rek={rek}
+                        category={toRekCategory(category)}
+                      />
+                    }
+                    title={rek.title}
+                    year={rek.year}
+                    titleHref={`https://www.google.com/search?q=${encodeURIComponent(
+                      `${rek.title} ${rek.year}`
+                    )}`}
+                    short={rek.short}
+                    long={rek.long}
+                    detailsOpen={expandedTop === rek.id}
+                    onToggleDetails={() => toggleTopExpand(rek.id)}
+                    thumbSignal={
+                      contenders.some((c) => c.id === rek.id) ? "like" : null
+                    }
+                    saved={saved.some((s) => s.id === rek.id)}
+                    onThumbUp={() => handleLike(rek)}
+                    onThumbDown={() => handleDislikeFromTrail(rek)}
+                    onSave={() => handleSave(rek)}
+                    onHeart={() => toggleFavorite(rek.id)}
+                    isFavorite={!!rek.isFavorite}
+                    completionActions={
+                      <button
+                        onClick={() => openTrailer(rek)}
+                        className="hover:underline flex items-center gap-1"
+                      >
+                        <span>▶</span> Trailer
+                      </button>
+                    }
+                  />
+                </TrailRow>
+              ))}
+            </RekTrail>
+          )}
+
+          {/* The frontier — five full, unmarked candidates still being
+              judged. The plain wrapper div carries the DOM handle the
+              scroll-compensated migration commit measures against; all
+              card animation stays transform/opacity on the RekCard so
+              the wrapper's layout only ever changes inside that commit. */}
           {reks.map((rek, index) => {
           const isVisible = visibleIds.includes(rek.id);
           const isExiting = exiting === rek.id;
           const isFavorite = !!rek.isFavorite;
 
           return (
-            <RekCard
+            <div
               key={rek.id}
-              genreLine={
-                <DescriptorLine rek={rek} category={toRekCategory(category)} />
-              }
-              title={rek.title}
-              year={rek.year}
-              titleHref={`https://www.google.com/search?q=${encodeURIComponent(
-                `${rek.title} ${rek.year}`
-              )}`}
-              short={rek.short}
-              long={rek.long}
-              detailsOpen={expandedTop === rek.id}
-              onToggleDetails={() => toggleTopExpand(rek.id)}
-              // Swipe grammar (touch only): a committed swipe in either
-              // direction dismisses + backfills (thumbs-down). Liked or
-              // saved cards don't arm — same protection as the snap lane.
-              swipeable
-              thumbSignal={
-                contenders.some((c) => c.id === rek.id) ? "like" : null
-              }
-              saved={saved.some((s) => s.id === rek.id)}
-              onThumbUp={() => handleLike(rek)}
-              onThumbDown={() => handleDislike(rek)}
-              onSave={() => handleSave(rek)}
-              onHeart={() => toggleFavorite(rek.id)}
-              isFavorite={isFavorite}
-              completionActions={
-                <>
-                  <button
-                    onClick={() => handleMoreLikeThis(rek)}
-                    className="hover:underline"
-                  >
-                    + More like this
-                  </button>
+              ref={(el) => {
+                if (el) cardEls.current.set(rek.id, el);
+                else cardEls.current.delete(rek.id);
+              }}
+            >
+              <RekCard
+                genreLine={
+                  <DescriptorLine rek={rek} category={toRekCategory(category)} />
+                }
+                title={rek.title}
+                year={rek.year}
+                titleHref={`https://www.google.com/search?q=${encodeURIComponent(
+                  `${rek.title} ${rek.year}`
+                )}`}
+                short={rek.short}
+                long={rek.long}
+                detailsOpen={expandedTop === rek.id}
+                onToggleDetails={() => toggleTopExpand(rek.id)}
+                // Swipe grammar (touch only): a committed swipe in either
+                // direction dismisses + backfills (thumbs-down). Liked or
+                // saved cards don't arm — same protection as the snap lane.
+                swipeable
+                thumbSignal={
+                  contenders.some((c) => c.id === rek.id) ? "like" : null
+                }
+                saved={saved.some((s) => s.id === rek.id)}
+                onThumbUp={() => handleLike(rek)}
+                onThumbDown={() => handleDislike(rek)}
+                onSave={() => handleSave(rek)}
+                onHeart={() => toggleFavorite(rek.id)}
+                isFavorite={isFavorite}
+                completionActions={
+                  <>
+                    <button
+                      onClick={() => handleMoreLikeThis(rek)}
+                      className="hover:underline"
+                    >
+                      + More like this
+                    </button>
 
-                  <button
-                    onClick={() => openTrailer(rek)}
-                    className="hover:underline flex items-center gap-1"
-                  >
-                    <span>▶</span> Trailer
-                  </button>
-                </>
-              }
-              className={[
-                isExiting
-                  ? "opacity-0 translate-x-3 scale-[0.97]"
-                  : isVisible
-                  ? "opacity-100 translate-y-0"
-                  : "opacity-0 translate-y-2",
-                "transition-all duration-300 ease-out",
-              ].join(" ")}
-              style={{ transitionDelay: `${index * 60}ms` }}
-            />
+                    <button
+                      onClick={() => openTrailer(rek)}
+                      className="hover:underline flex items-center gap-1"
+                    >
+                      <span>▶</span> Trailer
+                    </button>
+                  </>
+                }
+                className={[
+                  migrating === rek.id
+                    ? "opacity-0 -translate-y-2 scale-[0.97]" // graduating up to the trail
+                    : entering === rek.id
+                    ? "opacity-0 -translate-y-2" // dropping back in from the trail
+                    : isExiting
+                    ? "opacity-0 translate-x-3 scale-[0.97]" // dismissed sideways
+                    : isVisible
+                    ? "opacity-100 translate-y-0"
+                    : "opacity-0 translate-y-2",
+                  "transition-all duration-300 ease-out",
+                ].join(" ")}
+                style={{ transitionDelay: `${index * 60}ms` }}
+              />
+            </div>
           );
           })}
           {/* MLT regeneration: keepers stay above, the fresh five land in
