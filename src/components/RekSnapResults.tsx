@@ -8,8 +8,10 @@ import {
   NON_RECIPE_CATEGORIES,
 } from "../lib/categoryGates";
 import { recordSnapSignal, type SnapMode } from "../lib/reksnapSignals";
+import { compensatedCommit } from "../lib/scrollCompensation";
 import RekCard from "./RekCard";
 import RekSkeleton, { RekSkeletonCard } from "./RekSkeleton";
+import RekTrail, { TrailRow } from "./RekTrail";
 
 export type SnapRek = {
   name: string;
@@ -23,17 +25,11 @@ export type SnapResult = {
   results: Record<SnapMode, SnapRek[]>;
 };
 
-// Graduation capacity: marked cards (thumbed-up or saved) hold their
-// position but stop counting toward the five — the five slots are for
-// unmarked candidates only.
-function countUnmarked(
-  list: SnapRek[],
-  thumbs: Record<string, "like" | "dislike">,
-  saves: Record<string, boolean>
-): number {
-  return list.filter((r) => thumbs[r.name] !== "like" && !saves[r.name])
-    .length;
-}
+// Graduation upward: a marked card (thumbed-up or saved) LEAVES the five
+// and joins the compact trail under the anchor — the frontier list holds
+// only unmarked candidates, so its length IS the capacity count. Each
+// trail entry remembers its origin mode so toggle-off can reinsert there.
+type TrailEntry = { rek: SnapRek; mode: SnapMode };
 
 // Plain-language labels + order for the mode toggle row.
 const MODE_TABS: { mode: SnapMode; label: string }[] = [
@@ -81,6 +77,11 @@ const RekSnapResults: React.FC<Props> = ({
   >({});
   const [savedNames, setSavedNames] = useState<Record<string, boolean>>({});
 
+  // The decided trail (cross-mode): marked cards graduate up here in
+  // compact form and stop occupying frontier slots. The anchor never
+  // joins it — anchor marks stay in place, as before.
+  const [trail, setTrail] = useState<TrailEntry[]>([]);
+
   // Local copy of the three lists so thumbs-down can dismiss + backfill.
   // Reset from the prop whenever a new snap result arrives.
   const [lists, setLists] = useState<Record<SnapMode, SnapRek[]> | null>(
@@ -90,6 +91,10 @@ const RekSnapResults: React.FC<Props> = ({
   const [dismissedNames, setDismissedNames] = useState<string[]>([]);
   // Card mid-exit-animation (keyed by name; names are unique per list).
   const [exiting, setExiting] = useState<string | null>(null);
+  // Card mid-migration animation — marked, fading up out of the frontier.
+  const [migrating, setMigrating] = useState<string | null>(null);
+  // Card just reinserted from the trail (toggle-off) — drops in from above.
+  const [entering, setEntering] = useState<string | null>(null);
   // In-flight backfills per mode; each shows one skeleton card in that list.
   const [pending, setPending] = useState<Record<SnapMode, number>>({
     similar: 0,
@@ -109,16 +114,37 @@ const RekSnapResults: React.FC<Props> = ({
   // Guards late backfill responses from a previous snap result.
   const resultRef = useRef(result);
 
-  // Mark-state mirrors for async updaters: backfill responses decide
-  // capacity from the marks at RESPONSE time, not at call time.
+  // State mirrors for deferred work — migration commits fire after the
+  // exit animation and backfill responses after a fetch, so both must
+  // read at FIRE time, not call time.
   const thumbSignalsRef = useRef(thumbSignals);
   const savedNamesRef = useRef(savedNames);
+  const listsRef = useRef(lists);
+  const pendingRef = useRef(pending);
+  const dismissedNamesRef = useRef(dismissedNames);
+  const trailRef = useRef(trail);
   useEffect(() => {
     thumbSignalsRef.current = thumbSignals;
   }, [thumbSignals]);
   useEffect(() => {
     savedNamesRef.current = savedNames;
   }, [savedNames]);
+  useEffect(() => {
+    listsRef.current = lists;
+  }, [lists]);
+  useEffect(() => {
+    pendingRef.current = pending;
+  }, [pending]);
+  useEffect(() => {
+    dismissedNamesRef.current = dismissedNames;
+  }, [dismissedNames]);
+  useEffect(() => {
+    trailRef.current = trail;
+  }, [trail]);
+
+  // Rendered frontier card elements by name — the scroll-compensation
+  // reference lookup at migration-commit time (see compensatedCommit).
+  const cardEls = useRef(new Map<string, HTMLDivElement>());
 
   // Which intent list is on screen. Defaults to the model's inferred mode;
   // all three lists are already loaded, so switching is instant (no API call).
@@ -132,9 +158,12 @@ const RekSnapResults: React.FC<Props> = ({
       setActiveMode(result.mode);
       setThumbSignals({});
       setSavedNames({});
+      setTrail([]);
       setLists(result.results);
       setDismissedNames([]);
       setExiting(null);
+      setMigrating(null);
+      setEntering(null);
       setPending({ similar: 0, uses: 0, alternatives: 0 });
       setAnchorLong(null);
       setAnchorLoading(false);
@@ -155,35 +184,151 @@ const RekSnapResults: React.FC<Props> = ({
     });
   };
 
-  // Graduation: marking a ranked card plants it — it stops counting toward
-  // the five, so backfill one fresh unmarked candidate. Fires only for
-  // cards in the visible list (never the anchor) and only when the mark
-  // actually drops unmarked supply below five (marking a carried extra
-  // doesn't fetch). In-flight backfills count as supply.
-  const maybeBackfillAfterMark = (
-    markedName: string,
-    nextThumbs: Record<string, "like" | "dislike">,
-    nextSaves: Record<string, boolean>
-  ) => {
-    if (!result || !lists) return;
+  // Graduation upward: a marked frontier card animates out of the five in
+  // place (transform/opacity only — layout-inert), then ONE compensated
+  // commit moves it to the trail, renumbers the frontier, and backfills
+  // the freed slot. Layout never changes outside that commit, so the
+  // page can't lurch (see compensatedCommit). No-ops for the anchor and
+  // for already-graduated trail cards — neither is in the frontier list.
+  const migrateToTrail = (itemName: string) => {
+    const current = listsRef.current;
+    if (!current) return;
     const mode = activeMode;
-    const list = lists[mode];
-    if (!list.some((r) => r.name === markedName)) return;
-    if (countUnmarked(list, nextThumbs, nextSaves) + pending[mode] >= 5) {
-      return;
-    }
-    const excludeNames = [
-      result.detected_item.name,
-      ...list.map((r) => r.name),
-    ];
-    void backfillSlot(mode, excludeNames, dismissedNames);
+    const rek = current[mode].find((r) => r.name === itemName);
+    if (!rek) return;
+    setMigrating(itemName);
+    setTimeout(() => commitMigration(rek, mode), 250);
   };
 
-  // Thumbs mark in place and toggle: second tap on the active thumb un-marks.
-  // Un-marking is visual-only (no signal write) — same as the search lane;
-  // re-recording the same signal on repeat taps was data noise. Un-marking
-  // never dismisses and never backfills: a resulting sixth unmarked card is
-  // carried until the next dismissal (whose backfill guard then declines).
+  const commitMigration = (rek: SnapRek, mode: SnapMode) => {
+    const forResult = resultRef.current;
+    const current = listsRef.current;
+    setMigrating((cur) => (cur === rek.name ? null : cur));
+    if (!forResult || !current) return;
+    const list = current[mode];
+    const idx = list.findIndex((r) => r.name === rek.name);
+    if (idx === -1) return; // dismissed mid-animation
+    // Mark toggled off mid-animation: only still-marked cards graduate
+    // (the cleared migrating state fades the card back in where it is).
+    if (
+      thumbSignalsRef.current[rek.name] !== "like" &&
+      !savedNamesRef.current[rek.name]
+    ) {
+      return;
+    }
+
+    // Scroll reference: the neighbor the user reads next (below, else
+    // above). When the origin list isn't on screen (mode flipped mid-
+    // animation), any rendered card works — the whole visible frontier
+    // sits below the trail and shifts identically.
+    const refName = list[idx + 1]?.name ?? list[idx - 1]?.name ?? null;
+    let refEl = refName ? cardEls.current.get(refName) ?? null : null;
+    if (!refEl) {
+      for (const [name, el] of Array.from(cardEls.current.entries())) {
+        if (name !== rek.name) {
+          refEl = el;
+          break;
+        }
+      }
+    }
+
+    // Trail names must be excluded explicitly now — graduated cards are
+    // no longer in the list that used to carry them into exclusions.
+    const excludeNames = [
+      forResult.detected_item.name,
+      ...list.map((r) => r.name).filter((n) => n !== rek.name),
+      ...trailRef.current.map((e) => e.rek.name),
+      rek.name,
+    ];
+    const needBackfill = list.length - 1 + pendingRef.current[mode] < 5;
+
+    compensatedCommit(refEl, () => {
+      setLists((prev) => {
+        if (!prev) return prev;
+        const remaining = prev[mode]
+          .filter((r) => r.name !== rek.name)
+          .map((r, i) => ({ ...r, rank: i + 1 }));
+        return { ...prev, [mode]: remaining };
+      });
+      setTrail((prev) =>
+        prev.some((e) => e.rek.name === rek.name)
+          ? prev
+          : [...prev, { rek, mode }]
+      );
+      if (needBackfill) {
+        void backfillSlot(mode, excludeNames, dismissedNamesRef.current);
+      }
+    });
+  };
+
+  // Toggle-off return: the card leaves the trail and re-enters the
+  // frontier AT THE TOP — just across the boundary from where it sat.
+  // The frontier may briefly hold six; that's the existing carried-sixth
+  // policy (no dismissal, no backfill — the next dismissal's response
+  // guard declines instead). The visible frontier is held pixel-stable;
+  // the returning card takes the space the trail row gives up.
+  const returnToFrontier = (itemName: string) => {
+    const entry = trailRef.current.find((e) => e.rek.name === itemName);
+    if (!entry) return;
+
+    const firstName = listsRef.current?.[activeMode][0]?.name ?? null;
+    const refEl =
+      firstName && firstName !== itemName
+        ? cardEls.current.get(firstName) ?? null
+        : null;
+
+    compensatedCommit(refEl, () => {
+      setTrail((prev) => prev.filter((e) => e.rek.name !== itemName));
+      setLists((prev) => {
+        if (!prev) return prev;
+        const list = prev[entry.mode];
+        if (list.some((r) => r.name === itemName)) return prev;
+        const next = [entry.rek, ...list].map((r, i) => ({
+          ...r,
+          rank: i + 1,
+        }));
+        return { ...prev, [entry.mode]: next };
+      });
+      setEntering(itemName);
+    });
+    // Release the entrance state a tick later so the drop-in plays.
+    setTimeout(() => setEntering((cur) => (cur === itemName ? null : cur)), 30);
+  };
+
+  // Thumbs-down keeps its meaning on a trail card: record + dismiss —
+  // the same grammar as thumbing down a liked frontier card. It vacates
+  // no frontier slot, so there is nothing to backfill.
+  const handleDislikeFromTrail = (itemName: string) => {
+    if (!result) return;
+    recordSnapSignal({
+      itemName,
+      itemCategory: result.detected_item.category,
+      action: "dislike",
+    });
+    setThumbSignals((prev) => {
+      const next = { ...prev };
+      delete next[itemName];
+      return next;
+    });
+    setSavedNames((prev) => {
+      const next = { ...prev };
+      delete next[itemName];
+      return next;
+    });
+    setDismissedNames((p) => [...p, itemName]);
+    const firstName = listsRef.current?.[activeMode][0]?.name ?? null;
+    const refEl = firstName ? cardEls.current.get(firstName) ?? null : null;
+    compensatedCommit(refEl, () => {
+      setTrail((prev) => prev.filter((e) => e.rek.name !== itemName));
+    });
+  };
+
+  // Thumbs mark and graduate: liking a frontier card migrates it up to
+  // the trail (and backfills its slot). Second tap on the active thumb
+  // un-marks — visual-only (no signal write), same as the search lane;
+  // re-recording the same signal on repeat taps was data noise. When no
+  // Save is still holding it, un-marking returns the card from the trail
+  // to the top of the frontier (trail membership = marked, always).
   const toggleThumb = (itemName: string, action: "like" | "dislike") => {
     if (!result) return;
     if (thumbSignals[itemName] === action) {
@@ -192,6 +337,10 @@ const RekSnapResults: React.FC<Props> = ({
         delete next[itemName];
         return next;
       });
+      // No-op for the anchor — it was never in the trail.
+      if (action === "like" && !savedNames[itemName]) {
+        returnToFrontier(itemName);
+      }
       return;
     }
     setThumbSignals((prev) => ({ ...prev, [itemName]: action }));
@@ -200,19 +349,13 @@ const RekSnapResults: React.FC<Props> = ({
       itemCategory: result.detected_item.category,
       action,
     });
-    if (action === "like") {
-      maybeBackfillAfterMark(
-        itemName,
-        { ...thumbSignals, [itemName]: "like" },
-        savedNames
-      );
-    }
+    if (action === "like") migrateToTrail(itemName);
   };
 
-  // Save toggles: second tap un-marks. Un-marking is visual-only (no
-  // signal write) — same philosophy as thumbs; the original save signal
-  // stands and the schema is untouched. Un-saving also re-arms swipe on
-  // the card (marked cards are swipe-protected).
+  // Save marks and graduates, same as a thumb-up. Second tap un-marks —
+  // visual-only (no signal write); the original save signal stands and
+  // the schema is untouched. When no like is still holding it, un-saving
+  // returns the card from the trail to the top of the frontier.
   const handleSave = (itemName: string) => {
     if (!result) return;
     if (savedNames[itemName]) {
@@ -221,6 +364,7 @@ const RekSnapResults: React.FC<Props> = ({
         delete next[itemName];
         return next;
       });
+      if (thumbSignals[itemName] !== "like") returnToFrontier(itemName);
       return;
     }
     setSavedNames((prev) => ({ ...prev, [itemName]: true }));
@@ -229,10 +373,7 @@ const RekSnapResults: React.FC<Props> = ({
       itemCategory: result.detected_item.category,
       action: "save",
     });
-    maybeBackfillAfterMark(itemName, thumbSignals, {
-      ...savedNames,
-      [itemName]: true,
-    });
+    migrateToTrail(itemName);
   };
 
   // Thumbs-down on a ranked rek: record, dismiss with the exit animation,
@@ -263,6 +404,8 @@ const RekSnapResults: React.FC<Props> = ({
     const excludeNames = [
       result.detected_item.name,
       ...lists[mode].map((r) => r.name).filter((n) => n !== rek.name),
+      // Graduated keeps left the list but must stay excluded.
+      ...trail.map((e) => e.rek.name),
     ];
     const rejectedNames = [...dismissedNames, rek.name];
 
@@ -312,15 +455,10 @@ const RekSnapResults: React.FC<Props> = ({
       setLists((prev) => {
         if (!prev) return prev;
         const list = prev[mode];
-        // Capacity is five UNMARKED cards — marked keepers hold their
-        // position and don't count. Marks read at response time via refs.
-        if (
-          countUnmarked(
-            list,
-            thumbSignalsRef.current,
-            savedNamesRef.current
-          ) >= 5
-        ) {
+        // Marked cards live in the trail now, so the frontier list itself
+        // is the unmarked count. A carried sixth (toggle-off return)
+        // parks the list at capacity and this guard declines.
+        if (list.length >= 5) {
           return prev;
         }
         const key = rek.name.trim().toLowerCase();
@@ -445,10 +583,38 @@ const RekSnapResults: React.FC<Props> = ({
     return null;
   }
 
-  // One normalized membership check drives every anchor-richness gate below
-  // (long tier AND completion verbs), so they can never drift apart.
-  const anchorIsHealthMedical = HEALTH_MEDICAL_CATEGORIES.has(
-    (result.detected_item.category ?? "").trim().toLowerCase()
+  // One normalized category drives every gate below — the anchor-richness
+  // gates (long tier AND completion verbs) and the recipe push-through —
+  // so they can never drift apart.
+  const detectedCategory = (result.detected_item.category ?? "")
+    .trim()
+    .toLowerCase();
+  const anchorIsHealthMedical = HEALTH_MEDICAL_CATEGORIES.has(detectedCategory);
+
+  // "uses"-mode cards push through to a recipe by DEFAULT (food, beverages,
+  // alcohol). We suppress only known non-recipe categories (health/medical/
+  // etc. + non-consumable references) — see NON_RECIPE_CATEGORIES in
+  // lib/categoryGates.ts. Exclusion list, not a food allow-list: the
+  // model's category is unstable, so we can't enumerate every food word —
+  // we enumerate what must NOT get a recipe. Trail cards keep the
+  // push-through of their ORIGIN mode.
+  const usesGetRecipes = !NON_RECIPE_CATEGORIES.has(detectedCategory);
+
+  /* Recipe open lives ONLY on this button (not the whole card) so it
+     won't collide with the swipe-to-dismiss gesture (frontier) or the
+     tap-to-collapse wrapper (trail). Native <button> gives
+     role/focus/Enter-Space for free. */
+  const recipeButton = (dish: string) => (
+    <button
+      type="button"
+      onClick={() =>
+        onOpenRecipe?.({ dish, detectedItem: result.detected_item.name })
+      }
+      className="-mr-1 flex items-center gap-0.5 rounded-lg px-2 py-1.5 text-xs font-medium text-[#2D5AB5] transition hover:bg-[#2D5AB5]/10 active:scale-95"
+    >
+      View recipe
+      <ChevronRight size={14} />
+    </button>
   );
 
   // Completion verbs are pure link handoffs — same YouTube-search pattern as
@@ -515,6 +681,40 @@ const RekSnapResults: React.FC<Props> = ({
             )
           }
         />
+
+        {/* THE TRAIL — the user's decided keeps, compact, directly under
+            the anchor and above the mode pills. Cross-mode: a keep from
+            any list stays visible while browsing the others. Tapping a
+            row expands it in place to a full RekCard; trail cards never
+            get `swipeable`, so keep-protection is structural. */}
+        {trail.length > 0 && (
+          <RekTrail>
+            {trail.map((entry) => (
+              <TrailRow
+                key={entry.rek.name}
+                title={entry.rek.name}
+                hint={entry.rek.description}
+                thumbed={thumbSignals[entry.rek.name] === "like"}
+                saved={!!savedNames[entry.rek.name]}
+              >
+                <RekCard
+                  title={entry.rek.name}
+                  short={entry.rek.description}
+                  thumbSignal={thumbSignals[entry.rek.name] ?? null}
+                  saved={!!savedNames[entry.rek.name]}
+                  onThumbUp={() => toggleThumb(entry.rek.name, "like")}
+                  onThumbDown={() => handleDislikeFromTrail(entry.rek.name)}
+                  onSave={() => handleSave(entry.rek.name)}
+                  completionActions={
+                    entry.mode === "uses" && usesGetRecipes
+                      ? recipeButton(entry.rek.name)
+                      : undefined
+                  }
+                />
+              </TrailRow>
+            ))}
+          </RekTrail>
+        )}
       </div>
 
       {/* Ranked reks — no header; the mode pills are the section separator */}
@@ -542,28 +742,20 @@ const RekSnapResults: React.FC<Props> = ({
         </div>
 
         <div className="space-y-3">
-          {(lists?.[activeMode] ?? []).map((rek) => {
-            // "uses"-mode cards push through to a recipe by DEFAULT (food,
-            // beverages, alcohol). We suppress only known non-recipe categories
-            // (health/medical/etc. + non-consumable references) — see
-            // NON_RECIPE_CATEGORIES in lib/categoryGates.ts. Exclusion list, not
-            // a food allow-list: the model's category is unstable, so we can't
-            // enumerate every food word — we enumerate what must NOT get a recipe.
-            const category = (result.detected_item.category ?? "")
-              .trim()
-              .toLowerCase();
-            const isFoodUse =
-              activeMode === "uses" && !NON_RECIPE_CATEGORIES.has(category);
-
-            const openRecipe = () =>
-              onOpenRecipe?.({
-                dish: rek.name,
-                detectedItem: result.detected_item.name,
-              });
-
-            return (
+          {/* The frontier — five full, unmarked candidates still being
+              judged. The plain wrapper div carries the DOM handle the
+              scroll-compensated migration commit measures against; all
+              card animation stays transform/opacity on the RekCard so
+              the wrapper's layout only ever changes inside that commit. */}
+          {(lists?.[activeMode] ?? []).map((rek) => (
+            <div
+              key={rek.name}
+              ref={(el) => {
+                if (el) cardEls.current.set(rek.name, el);
+                else cardEls.current.delete(rek.name);
+              }}
+            >
               <RekCard
-                key={rek.name}
                 title={rek.name}
                 rank={rek.rank}
                 short={rek.description}
@@ -579,28 +771,22 @@ const RekSnapResults: React.FC<Props> = ({
                 onSave={() => handleSave(rek.name)}
                 className={[
                   "transition-all duration-300 ease-out",
-                  exiting === rek.name
-                    ? "opacity-0 translate-x-3 scale-[0.97]"
+                  migrating === rek.name
+                    ? "opacity-0 -translate-y-2 scale-[0.97]" // graduating up to the trail
+                    : entering === rek.name
+                    ? "opacity-0 -translate-y-2" // dropping back in from the trail
+                    : exiting === rek.name
+                    ? "opacity-0 translate-x-3 scale-[0.97]" // dismissed sideways
                     : "opacity-100",
                 ].join(" ")}
                 completionActions={
-                  /* Recipe open lives ONLY on this button (not the whole card)
-                     so it won't collide with the coming swipe-to-dismiss gesture.
-                     Native <button> gives role/focus/Enter-Space for free. */
-                  isFoodUse ? (
-                    <button
-                      type="button"
-                      onClick={openRecipe}
-                      className="-mr-1 flex items-center gap-0.5 rounded-lg px-2 py-1.5 text-xs font-medium text-[#2D5AB5] transition hover:bg-[#2D5AB5]/10 active:scale-95"
-                    >
-                      View recipe
-                      <ChevronRight size={14} />
-                    </button>
-                  ) : undefined
+                  activeMode === "uses" && usesGetRecipes
+                    ? recipeButton(rek.name)
+                    : undefined
                 }
               />
-            );
-          })}
+            </div>
+          ))}
           {/* One inline pulse per in-flight backfill for the visible mode —
               same single-slot swap pattern as the search lane. */}
           {Array.from({ length: pending[activeMode] }).map((_, i) => (
