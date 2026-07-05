@@ -1,13 +1,7 @@
 "use client";
 
 import React, { useEffect, useState, useRef } from "react";
-import {
-  Heart,
-  Bookmark,
-  ChevronDown,
-  ChevronUp,
-  Play,
-} from "lucide-react";
+import { Play } from "lucide-react";
 
 import DescriptorLine from "./DescriptorLine";
 import RekCard from "./RekCard";
@@ -39,6 +33,17 @@ function nounForCategory(category: Category): string {
   return "movie";
 }
 
+// Graduation capacity: marked cards (thumbed-up or saved) hold their
+// position but stop counting toward the five — the five slots are for
+// unmarked candidates only. Same model as the snap lane.
+function countUnmarked(list: Rek[], contenders: Rek[], saved: Rek[]): number {
+  return list.filter(
+    (r) =>
+      !contenders.some((c) => c.id === r.id) &&
+      !saved.some((s) => s.id === r.id)
+  ).length;
+}
+
 interface ResultsProps {
   loading: boolean;
   loadingLabel?: string;
@@ -61,23 +66,24 @@ const ResultsV4: React.FC<ResultsProps> = ({
   persistedDislikedTitles = [],
 }) => {
   const [reks, setReks] = useState<Rek[]>([]);
-  const [liked, setLiked] = useState<Rek[]>([]);
-  const [saved, setSaved] = useState<Rek[]>([]);
-  // Thumbed-up cards stay in the list as marked contenders (gesture grammar:
-  // thumbs = taste signal, Save = holding pen). Kept as full Reks so their
-  // titles still feed the engine's liked-exclusion list after a set wipe.
+  // Marked cards stay in the list (graduation model, same as the snap lane):
+  // thumbs-up marks a contender, Save marks a keeper — both mark in place,
+  // toggle off on second tap, and stop counting toward the five. Kept as
+  // full Reks so their titles still feed the engine's liked-exclusion list
+  // after a set wipe.
   const [contenders, setContenders] = useState<Rek[]>([]);
+  const [saved, setSaved] = useState<Rek[]>([]);
   const [sessionDislikedTitles, setSessionDislikedTitles] = useState<string[]>([]);
-  const [expanded, setExpanded] = useState<number | null>(null);
   const [expandedTop, setExpandedTop] = useState<number | null>(null);
   const [exiting, setExiting] = useState<number | null>(null);
   const [visibleIds, setVisibleIds] = useState<number[]>([]);
 
   // AI loading-state presentation:
-  // - mltLoading: "+ More like this" is regenerating the whole set
-  // - backfillPending: a single dislike/save swap is fetching one card
+  // - mltLoading: "+ More like this" is regenerating the unmarked cards
+  // - pendingBackfills: one-card swaps in flight (dismiss or mark), one
+  //   inline skeleton each; in-flight backfills count as unmarked supply
   const [mltLoading, setMltLoading] = useState(false);
-  const [backfillPending, setBackfillPending] = useState(false);
+  const [pendingBackfills, setPendingBackfills] = useState(0);
 
   // Safety valve: pool exhaustion notice
   const [exhaustedMessage, setExhaustedMessage] = useState<string | null>(null);
@@ -87,16 +93,22 @@ const ResultsV4: React.FC<ResultsProps> = ({
   const reksRef = useRef<Rek[]>([]);
   useEffect(() => { reksRef.current = reks; }, [reks]);
 
+  // Mark-state mirrors for async updaters: backfill responses decide
+  // capacity from the marks at RESPONSE time, not at call time.
+  const contendersRef = useRef<Rek[]>([]);
+  const savedRef = useRef<Rek[]>([]);
+  useEffect(() => { contendersRef.current = contenders; }, [contenders]);
+  useEffect(() => { savedRef.current = saved; }, [saved]);
+
   const allLikedTitlesRef = useRef<string[]>([]);
   const allDislikedTitlesRef = useRef<string[]>([]);
   useEffect(() => {
     allLikedTitlesRef.current = [
       ...persistedLikedTitles,
-      ...liked.map((r) => r.title),
       ...saved.map((r) => r.title),
       ...contenders.map((r) => r.title),
     ];
-  }, [persistedLikedTitles, liked, saved, contenders]);
+  }, [persistedLikedTitles, saved, contenders]);
   useEffect(() => {
     allDislikedTitlesRef.current = [...persistedDislikedTitles, ...sessionDislikedTitles];
   }, [persistedDislikedTitles, sessionDislikedTitles]);
@@ -147,7 +159,6 @@ const ResultsV4: React.FC<ResultsProps> = ({
       );
 
     setReks((prev) => toggle(prev));
-    setLiked((prev) => toggle(prev));
     setSaved((prev) => toggle(prev));
   };
 
@@ -157,7 +168,7 @@ const ResultsV4: React.FC<ResultsProps> = ({
   const handleBackfill = async (_removed: Rek) => {
     // Show a single inline pulse in the replacing slot — never wipe the
     // whole set for a one-card swap.
-    setBackfillPending(true);
+    setPendingBackfills((p) => p + 1);
     try {
       const currentNow = reksRef.current;
 
@@ -186,7 +197,10 @@ const ResultsV4: React.FC<ResultsProps> = ({
       clearExhausted();
 
       setReks((prev) => {
-        if (prev.length >= 5) return prev;
+        // Capacity is five UNMARKED cards — marked keepers hold their
+        // position and don't count. Marks read at response time via refs.
+        if (countUnmarked(prev, contendersRef.current, savedRef.current) >= 5)
+          return prev;
 
         const updated = [
           ...prev,
@@ -199,7 +213,7 @@ const ResultsV4: React.FC<ResultsProps> = ({
     } catch (err) {
       console.error("Backfill via engine failed:", err);
     } finally {
-      setBackfillPending(false);
+      setPendingBackfills((p) => Math.max(0, p - 1));
     }
   };
 
@@ -208,14 +222,19 @@ const ResultsV4: React.FC<ResultsProps> = ({
    * ----------------------------- */
   const handleMoreLikeThis = async (rek: Rek) => {
     recordLike({ category, title: rek.title, year: rek.year, action: 'more_like_this' });
-    setLiked((p) => [...p, rek]);
 
-    // Wipe the current set and show the full skeleton while the new AI set
-    // generates, then render it in place.
+    // Graduation: marked cards (thumbed-up or saved) survive the wipe and
+    // hold the top of the list; only the unmarked cards regenerate — the
+    // skeletons pulse beneath the keepers, and the fresh five land there.
+    const marked = reks.filter(
+      (r) =>
+        contenders.some((c) => c.id === r.id) ||
+        saved.some((s) => s.id === r.id)
+    );
     setExiting(null);
     setMltLoading(true);
-    setVisibleIds([]);
-    setReks([]);
+    setReks(marked);
+    setVisibleIds(marked.map((r) => r.id));
     clearExhausted();
 
     try {
@@ -228,15 +247,26 @@ const ResultsV4: React.FC<ResultsProps> = ({
 
       if (!nextFive || nextFive.length === 0) {
         // MLT is always AI now, so an empty set is an AI failure — never
-        // pool exhaustion. Say that, honestly.
+        // pool exhaustion. Say that, honestly. Marked keepers stay put.
         setExhaustedMessage(
           "Reks Ray couldn’t fetch fresh picks — give it another go."
         );
         return;
       }
 
-      setReks(nextFive);
-      animateIn(nextFive.map((r) => r.id));
+      // Guard against the generator repeating a surviving keeper.
+      const have = new Set(
+        reksRef.current.map((r) => r.title.trim().toLowerCase())
+      );
+      const fresh = nextFive.filter(
+        (r) => !have.has(r.title.trim().toLowerCase())
+      );
+
+      // Keepers are already visible — only the fresh cards stagger in.
+      setReks((prev) => [...prev, ...fresh]);
+      fresh.forEach((r, index) => {
+        setTimeout(() => setVisibleIds((p) => [...p, r.id]), index * 80);
+      });
     } catch (err) {
       console.error("More Like This via engine failed:", err);
     } finally {
@@ -247,16 +277,38 @@ const ResultsV4: React.FC<ResultsProps> = ({
   /* -----------------------------
    * LIKE / DISLIKE / SAVE
    * ----------------------------- */
+  // Graduation: marking a card plants it — it stops counting toward the
+  // five, so backfill one fresh unmarked candidate. Fires only when the
+  // mark actually drops unmarked supply below five (marking a carried
+  // extra doesn't fetch); in-flight backfills count as supply. Skipped
+  // mid-MLT: the fresh five are already on their way.
+  const maybeBackfillAfterMark = (
+    rek: Rek,
+    nextContenders: Rek[],
+    nextSaved: Rek[]
+  ) => {
+    if (mltLoading) return;
+    if (!reks.some((r) => r.id === rek.id)) return;
+    if (countUnmarked(reks, nextContenders, nextSaved) + pendingBackfills >= 5)
+      return;
+    void handleBackfill(rek);
+  };
+
   // Thumbs-up marks the card in place as a contender (blue fill) — no
   // removal, no holding pen. Second tap un-marks; no LikeAction exists for
   // "unlike", so un-marking is visual-only and the original write stands.
+  // Un-marking never dismisses and never backfills: a resulting sixth
+  // unmarked card is carried until the next dismissal (whose backfill
+  // guard then declines).
   const handleLike = (rek: Rek) => {
     if (contenders.some((c) => c.id === rek.id)) {
       setContenders((p) => p.filter((c) => c.id !== rek.id));
       return;
     }
     recordLike({ category, title: rek.title, year: rek.year, action: 'like' });
-    setContenders((p) => [...p, rek]);
+    const nextContenders = [...contenders, rek];
+    setContenders(nextContenders);
+    maybeBackfillAfterMark(rek, nextContenders, saved);
   };
 
   // Thumbs-down dismisses + backfills directly — no clarify panel. The
@@ -275,28 +327,24 @@ const ResultsV4: React.FC<ResultsProps> = ({
     }, 250);
   };
 
-  const handleSaveFromTop = (rek: Rek) => {
-    setExiting(rek.id);
+  // Save marks in place and toggles: second tap un-marks — no dismissal,
+  // no holding pen. Un-marking is visual-only (no signal write); the
+  // original save signal stands. Un-saving also re-arms swipe on the card
+  // (marked cards are swipe-protected).
+  const handleSave = (rek: Rek) => {
+    if (saved.some((s) => s.id === rek.id)) {
+      setSaved((p) => p.filter((s) => s.id !== rek.id));
+      return;
+    }
     recordLike({ category, title: rek.title, year: rek.year, action: 'save' });
-    setTimeout(() => {
-      setSaved((p) => [...p, rek]);
-      setReks((p) => p.filter((r) => r.id !== rek.id));
-      handleBackfill(rek);
-      setExiting(null);
-    }, 250);
-  };
-
-  const handleSaveFromLiked = (rek: Rek) => {
-    setLiked((p) => p.filter((r) => r.id !== rek.id));
-    setSaved((p) => [...p, rek]);
+    const nextSaved = [...saved, rek];
+    setSaved(nextSaved);
+    maybeBackfillAfterMark(rek, contenders, nextSaved);
   };
 
   /* -----------------------------
    * EXPANDERS
    * ----------------------------- */
-  const toggleExpand = (id: number) =>
-    setExpanded((prev) => (prev === id ? null : id));
-
   const toggleTopExpand = (id: number) =>
     setExpandedTop((prev) => (prev === id ? null : id));
 
@@ -311,10 +359,6 @@ const ResultsV4: React.FC<ResultsProps> = ({
       )}`;
     window.open(url, "_blank");
   };
-
-  // The whole-set skeleton shows for a fresh AI search (loading) or a
-  // "+ More like this" regeneration (mltLoading).
-  const aiPending = loading || mltLoading;
 
   return (
     <div className="w-full flex flex-col items-center px-4 pt-2 pb-14 select-none">
@@ -344,8 +388,10 @@ const ResultsV4: React.FC<ResultsProps> = ({
         </div>
       )}
 
-      {/* Top 5 Cards — or the full skeleton while an AI set generates */}
-      {aiPending ? (
+      {/* Top 5 Cards — or the full skeleton while a fresh AI search
+          generates. An MLT regeneration keeps the marked keepers on screen
+          and pulses beneath them instead (see below). */}
+      {loading ? (
         <div className="w-full max-w-xl">
           <RekSkeleton label="Reks Ray™ is finding your reks…" count={5} />
         </div>
@@ -371,12 +417,17 @@ const ResultsV4: React.FC<ResultsProps> = ({
               long={rek.long}
               detailsOpen={expandedTop === rek.id}
               onToggleDetails={() => toggleTopExpand(rek.id)}
+              // Swipe grammar (touch only): a committed swipe in either
+              // direction dismisses + backfills (thumbs-down). Liked or
+              // saved cards don't arm — same protection as the snap lane.
+              swipeable
               thumbSignal={
                 contenders.some((c) => c.id === rek.id) ? "like" : null
               }
+              saved={saved.some((s) => s.id === rek.id)}
               onThumbUp={() => handleLike(rek)}
               onThumbDown={() => handleDislike(rek)}
-              onSave={() => handleSaveFromTop(rek)}
+              onSave={() => handleSave(rek)}
               onHeart={() => toggleFavorite(rek.id)}
               isFavorite={isFavorite}
               completionActions={
@@ -408,119 +459,18 @@ const ResultsV4: React.FC<ResultsProps> = ({
             />
           );
           })}
-          {/* Single inline pulse for a one-card dislike/save swap */}
-          {backfillPending && <RekSkeletonCard />}
+          {/* MLT regeneration: keepers stay above, the fresh five land in
+              these slots. */}
+          {mltLoading && (
+            <RekSkeleton label="Reks Ray™ is finding your reks…" count={5} />
+          )}
+          {/* One inline pulse per in-flight one-card swap (dismiss or mark) */}
+          {Array.from({ length: pendingBackfills }).map((_, i) => (
+            <RekSkeletonCard key={`backfill-${i}`} />
+          ))}
         </div>
       )}
 
-      {/* SAVED REKS */}
-      {saved.length > 0 && (
-        <div className="w-full max-w-xl mt-8 px-1 mx-auto">
-          <h3 className="text-lg font-semibold text-center mb-3">
-            Your Saved Reks
-          </h3>
-
-          <ul className="space-y-3">
-            {saved.map((rek) => {
-              const isFavorite = !!rek.isFavorite;
-              const open = expanded === rek.id;
-
-              return (
-                <li
-                  key={rek.id}
-                  className="bg-white border border-gray-300 rounded-2xl p-4 shadow-sm w-full"
-                >
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm font-medium">
-                      {rek.title} ({rek.year})
-                    </span>
-
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => toggleFavorite(rek.id)}
-                        className="p-1 rounded-full border border-gray-300 text-gray-500 transition"
-                      >
-                        <Heart size={16} fill={isFavorite ? "#666666" : "none"} />
-                      </button>
-
-                      <button
-                        onClick={() => toggleExpand(rek.id)}
-                        className="text-gray-500"
-                      >
-                        {open ? (
-                          <ChevronUp size={16} />
-                        ) : (
-                          <ChevronDown size={16} />
-                        )}
-                      </button>
-                    </div>
-                  </div>
-
-                  {open && <p className="text-sm text-gray-600 mt-2">{rek.long}</p>}
-                </li>
-              );
-            })}
-          </ul>
-        </div>
-      )}
-
-      {/* LIKED REKS */}
-      {liked.length > 0 && (
-        <div className="w-full max-w-xl mt-8">
-          <h3 className="text-lg font-semibold text-center mb-3">
-            Your Liked Reks
-          </h3>
-
-          <ul className="space-y-3">
-            {liked.map((rek) => {
-              const isFavorite = !!rek.isFavorite;
-              const open = expanded === rek.id;
-
-              return (
-                <li
-                  key={rek.id}
-                  className="bg-white border border-gray-300 rounded-xl p-4 shadow-sm"
-                >
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm font-medium">
-                      {rek.title} ({rek.year})
-                    </span>
-
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => toggleFavorite(rek.id)}
-                        className="p-1 rounded-full border border-gray-300 text-gray-500 transition"
-                      >
-                        <Heart size={16} fill={isFavorite ? "#666666" : "none"} />
-                      </button>
-
-                      <button
-                        onClick={() => handleSaveFromLiked(rek)}
-                        className="p-1 rounded-full border border-gray-300 text-gray-500"
-                      >
-                        <Bookmark size={16} />
-                      </button>
-
-                      <button
-                        onClick={() => toggleExpand(rek.id)}
-                        className="text-gray-500"
-                      >
-                        {open ? (
-                          <ChevronUp size={16} />
-                        ) : (
-                          <ChevronDown size={16} />
-                        )}
-                      </button>
-                    </div>
-                  </div>
-
-                  {open && <p className="text-sm text-gray-600 mt-2">{rek.long}</p>}
-                </li>
-              );
-            })}
-          </ul>
-        </div>
-      )}
     </div>
   );
 };
