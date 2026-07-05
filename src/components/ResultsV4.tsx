@@ -48,7 +48,6 @@ interface ResultsProps {
   loading: boolean;
   loadingLabel?: string;
   reks: Rek[];
-  sourceImage?: string | null;
   category: Category;
   onPlayVibe?: () => void;
   persistedLikedTitles?: string[];

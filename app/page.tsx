@@ -22,7 +22,6 @@ function normalizeCategoryFromString(raw: string): Category {
 function categoryFromQuery(query: string): Category {
   const q = (query || "").trim();
   if (!q) return "Movies";
-  if (q.startsWith("__PHOTO__:")) return "Movies";
 
   const parts = q.includes("||") ? q.split("||") : q.split("|");
   const rawCategory = (parts[0] || "Movies").trim();
@@ -33,7 +32,6 @@ function loadingLabelFromQuery(query: string, cat: Category): string {
   const q = (query || "").trim();
 
   if (!q) return "Finding fresh Reks for you...";
-  if (q.startsWith("__PHOTO__:")) return `Finding ${cat} Reks from your photo...`;
 
   const parts = q.includes("||") ? q.split("||") : q.split("|");
   const clarifier = (parts[1] || "").trim();
@@ -105,7 +103,6 @@ export default function Page() {
   const [reks, setReks] = useState<Rek[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadingLabel, setLoadingLabel] = useState("Finding fresh Reks for you...");
-  const [sourceImage, setSourceImage] = useState<string | null>(null);
   const [category, setCategory] = useState<Category>("Movies");
   const [persistedLikedTitles, setPersistedLikedTitles] = useState<string[]>([]);
   const [persistedDislikedTitles, setPersistedDislikedTitles] = useState<string[]>([]);
@@ -182,7 +179,7 @@ export default function Page() {
     }
   };
 
-  const handleSearch = async (query: string, cat: string) => {
+  const handleSearch = async (query: string, _cat: string) => {
     const searchId = ++searchIdRef.current;
 
     // A new search dismisses any RekSnap results and clears a stale notice.
@@ -192,10 +189,7 @@ export default function Page() {
     setSnapLimitReached(false);
     setSearchError(null);
 
-    const inferred = categoryFromQuery(query);
-    const nextCategory = query.startsWith("__PHOTO__:")
-      ? normalizeCategoryFromString(cat)
-      : inferred;
+    const nextCategory = categoryFromQuery(query);
 
     setHasSearched(true);
     setCategory(nextCategory);
@@ -203,13 +197,6 @@ export default function Page() {
     setLoadingLabel(loadingLabelFromQuery(query, nextCategory));
 
     try {
-      if (query.startsWith("__PHOTO__:")) {
-        const img = query.replace("__PHOTO__:", "");
-        setSourceImage(img);
-      } else {
-        setSourceImage(null);
-      }
-
       const prefs = await loadPrefsForCategory(nextCategory);
       if (searchId !== searchIdRef.current) return;
 
@@ -243,7 +230,6 @@ export default function Page() {
           onSearch={handleSearch}
           setLoading={setLoading}
           hasHistory={reks.length > 0}
-          snapPrimary={hasSnapped}
           onSnap={openSnapPicker}
           registerVibePlay={(fn) => {
             vibePlayRef.current = fn;
@@ -287,7 +273,6 @@ export default function Page() {
                 reks={reks}
                 loading={loading}
                 loadingLabel={loadingLabel}
-                sourceImage={sourceImage}
                 category={category}
                 onPlayVibe={() => vibePlayRef.current?.()}
                 persistedLikedTitles={persistedLikedTitles}

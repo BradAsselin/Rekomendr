@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useRef, useEffect, useCallback } from "react";
-import { Camera, ChevronDown, Plus, X, Play, ChevronUp } from "lucide-react";
+import { Camera, ChevronDown, Plus, Play, ChevronUp } from "lucide-react";
 
 interface SearchBarProps {
   onSearch: (query: string, category: string) => void;
@@ -11,9 +11,8 @@ interface SearchBarProps {
   // allow Page / ResultsV4 to trigger Play
   registerVibePlay?: (fn: () => void) => void;
 
-  // RekSnap promotion: once the session has a successful snap, the camera
-  // icon becomes the primary snap entry point (brand blue, opens RekSnap).
-  snapPrimary?: boolean;
+  // The camera icon (mobile only — desktop has none; a desktop user won't
+  // file-pick a product photo) always opens the current RekSnap flow.
   onSnap?: () => void;
 }
 
@@ -61,7 +60,6 @@ const SearchBar: React.FC<SearchBarProps> = ({
   setLoading,
   hasHistory,
   registerVibePlay,
-  snapPrimary,
   onSnap,
 }) => {
   const [input, setInput] = useState("");
@@ -80,19 +78,9 @@ const SearchBar: React.FC<SearchBarProps> = ({
 
   // Track what last triggered results, so Lane can be honest
   const [lastSearchMode, setLastSearchMode] = useState<
-    "clarifier" | "typed" | "categoryOnly" | "photo" | null
+    "clarifier" | "typed" | "categoryOnly" | null
   >(null);
   const [lastTypedSeed, setLastTypedSeed] = useState<string>("");
-
-  // Camera state
-  const [isCameraOpen, setIsCameraOpen] = useState(false);
-  const [hasCaptured, setHasCaptured] = useState(false);
-  const [capturedPhoto, setCapturedPhoto] = useState<string | null>(null);
-  const [isFlashing, setIsFlashing] = useState(false);
-
-  const videoRef = useRef<HTMLVideoElement | null>(null);
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
 
   // --------------------------------------------
   // Refs to avoid stale state in Play handler
@@ -317,9 +305,6 @@ const runVibe = useCallback(
    * FEELING / LANE LABEL
    * ----------------------------- */
   const getLaneLabel = () => {
-    // Photo override
-    if (lastSearchMode === "photo") return "Based on your photo";
-
     // Base lane
     const parts: string[] = [];
     parts.push(clarifier ? clarifier : "Surprise me");
@@ -343,21 +328,6 @@ const runVibe = useCallback(
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     closeAllDropdowns();
-
-    // Photo flow
-    if (capturedPhoto) {
-      setLoading?.(true);
-      triggerPulse();
-      onSearch("__PHOTO__:" + capturedPhoto, categoryRef.current);
-
-      setCapturedPhoto(null);
-      setInput("");
-      setActiveVibe(null);
-
-      setLastSearchMode("photo");
-      setLastTypedSeed("");
-      return;
-    }
 
     const trimmed = input.trim();
 
@@ -397,95 +367,6 @@ const runVibe = useCallback(
 setInput("");
 
   };
-
-  /* -----------------------------
-   * CAMERA HANDLERS (unchanged)
-   * ----------------------------- */
-  const handleOpenCamera = () => {
-    closeAllDropdowns();
-    setActiveVibe(null);
-    setIsCameraOpen(true);
-    setHasCaptured(false);
-    setCapturedPhoto(null);
-  };
-
-  const stopStream = () => {
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((t) => t.stop());
-      streamRef.current = null;
-    }
-    if (videoRef.current) {
-      (videoRef.current as any).srcObject = null;
-    }
-  };
-
-  const handleCloseCamera = () => {
-    stopStream();
-    setIsCameraOpen(false);
-    setHasCaptured(false);
-    setCapturedPhoto(null);
-  };
-
-  const handleCameraAction = () => {
-    if (!hasCaptured) {
-      const video = videoRef.current;
-      const canvas = canvasRef.current;
-
-      if (video && canvas) {
-        const width = video.videoWidth || 640;
-        const height = video.videoHeight || 360;
-        canvas.width = width;
-        canvas.height = height;
-
-        const ctx = canvas.getContext("2d");
-        if (ctx) {
-          ctx.drawImage(video, 0, 0, width, height);
-          const dataUrl = canvas.toDataURL("image/png");
-          setCapturedPhoto(dataUrl);
-        }
-      }
-
-      stopStream();
-      setHasCaptured(true);
-      setIsFlashing(true);
-      setTimeout(() => setIsFlashing(false), 150);
-    } else {
-      if (capturedPhoto) {
-        setIsCameraOpen(false);
-        setHasCaptured(false);
-        setLoading?.(true);
-        triggerPulse();
-        onSearch("__PHOTO__:" + capturedPhoto, categoryRef.current);
-
-        setActiveVibe(null);
-        setLastSearchMode("photo");
-        setLastTypedSeed("");
-      }
-    }
-  };
-
-  useEffect(() => {
-    if (!isCameraOpen) {
-      stopStream();
-      return;
-    }
-
-    const start = async () => {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-        streamRef.current = stream;
-        if (videoRef.current) {
-          (videoRef.current as any).srcObject = stream;
-          await videoRef.current.play();
-        }
-      } catch (err) {
-        console.error("Camera error:", err);
-      }
-    };
-
-    start();
-    return () => stopStream();
-  }, [isCameraOpen]);
 
   /* -----------------------------
    * RENDER
@@ -562,22 +443,20 @@ setInput("");
             )}
           </div>
 
-          {/* CAMERA — top row on mobile only */}
+          {/* CAMERA — mobile only, and it IS RekSnap: always opens the
+              current snap flow regardless of session state. Desktop has no
+              camera icon at all (a desktop user won't file-pick a product
+              photo; removing the trigger also removes its wrong-dialog bug). */}
           <button
             type="button"
-            onClick={snapPrimary && onSnap ? onSnap : handleOpenCamera}
-            className={[
-              "ml-auto pl-3 sm:hidden transition flex-shrink-0",
-              snapPrimary
-                ? "text-[#2D5AB5] hover:text-[#244a99]"
-                : "text-gray-500 hover:text-gray-700",
-            ].join(" ")}
+            onClick={() => onSnap?.()}
+            className="ml-auto pl-3 sm:hidden text-[#2D5AB5] hover:text-[#244a99] transition flex-shrink-0"
           >
             <Camera size={20} strokeWidth={1.7} />
           </button>
         </div>
 
-        {/* ROW 2 (mobile) / right section (desktop): input + camera + GO */}
+        {/* ROW 2 (mobile) / right section (desktop): input + GO */}
         <div className="flex items-center flex-1 mt-2 sm:mt-0">
           {/* INPUT */}
           <input
@@ -590,20 +469,6 @@ setInput("");
             }}
             className="flex-grow bg-transparent outline-none text-black placeholder-gray-500 text-base min-w-0"
           />
-
-          {/* CAMERA — desktop only */}
-          <button
-            type="button"
-            onClick={snapPrimary && onSnap ? onSnap : handleOpenCamera}
-            className={[
-              "hidden sm:block transition mr-2 flex-shrink-0",
-              snapPrimary
-                ? "text-[#2D5AB5] hover:text-[#244a99]"
-                : "text-gray-500 hover:text-gray-700",
-            ].join(" ")}
-          >
-            <Camera size={20} strokeWidth={1.7} />
-          </button>
 
           {/* GO */}
           <button type="submit" className="ml-2 font-semibold text-gray-800 hover:text-black transition flex-shrink-0">
@@ -724,52 +589,6 @@ setInput("");
           isPulsing ? "bg-gray-300 animate-[pulseLine_1.2s_ease-in-out_infinite]" : "bg-transparent",
         ].join(" ")}
       />
-
-      {/* CAMERA OVERLAY */}
-      {isCameraOpen && (
-        <div className="fixed inset-0 z-50 bg-black/70 flex flex-col relative">
-          {isFlashing && <div className="absolute inset-0 bg-white opacity-80 pointer-events-none" />}
-
-          <div className="flex items-center justify-between px-4 pt-4 pb-2 text-white">
-            <button type="button" onClick={handleCloseCamera} className="p-1 -ml-1">
-              <X size={22} strokeWidth={1.7} />
-            </button>
-            <span className="text-xs uppercase tracking-[0.2em] opacity-80">REK SNAP</span>
-            <div className="w-6" />
-          </div>
-
-          <div className="flex-1 mx-4 mb-4 rounded-2xl border border-gray-700 bg-black overflow-hidden flex items-center justify-center">
-            {capturedPhoto ? (
-              <img src={capturedPhoto} alt="Captured" className="w-full h-full object-cover" />
-            ) : (
-              <>
-                <video ref={videoRef} className="w-full h-full object-cover" muted playsInline />
-                {!streamRef.current && (
-                  <span className="absolute text-[11px] uppercase tracking-[0.2em] text-gray-300">
-                    Starting camera…
-                  </span>
-                )}
-              </>
-            )}
-          </div>
-
-          <canvas ref={canvasRef} className="hidden" />
-
-          <div className="pb-10 flex flex-col items-center">
-            <button
-              type="button"
-              onClick={handleCameraAction}
-              className="w-16 h-16 rounded-full border-4 border-white flex items-center justify-center bg-white/10 active:scale-95 transition-transform"
-            >
-              <div className={["w-10 h-10 rounded-full", hasCaptured ? "bg-white/70" : "bg-white"].join(" ")} />
-            </button>
-
-            <button type="button" onClick={handleCameraAction} className="mt-3 text-sm font-medium text-white/90">
-              {hasCaptured ? "Use Photo" : "Take Photo"}
-            </button>
-          </div>
-        </div>
-      )}
 
       <style jsx>{`
         @keyframes pulseLine {
