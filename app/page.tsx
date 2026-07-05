@@ -117,9 +117,13 @@ export default function Page() {
   const [snapError, setSnapError] = useState<string | null>(null);
   const [snapLimitReached, setSnapLimitReached] = useState(false);
   // True once this session has at least one successful snap; hides the hero
-  // button and promotes the search-bar camera icon. Set in an effect so
-  // server and first client render stay in sync.
+  // button. Set in an effect so server and first client render stay in sync.
   const [hasSnapped, setHasSnapped] = useState(false);
+
+  // Bumped by the wordmark home reset; keys SearchBar so a reset remounts
+  // it — every bar internal (input, lane, vibe, category) returns to its
+  // initial state by construction.
+  const [searchBarKey, setSearchBarKey] = useState(0);
 
   // Recipe push-through modal. Non-null = open, with the dish to generate and
   // the detected item it came from. Set when a food "uses" snap card is tapped.
@@ -133,6 +137,10 @@ export default function Page() {
 
   const vibePlayRef = useRef<null | (() => void)>(null);
   const searchIdRef = useRef(0);
+  // Staleness guard for in-flight snap responses — bumped by anything that
+  // dismisses snap results (new search, home reset) so a late vision
+  // response can't repopulate a cleared screen.
+  const snapIdRef = useRef(0);
   const snapInputRef = useRef<HTMLInputElement | null>(null);
 
   const openSnapPicker = () => {
@@ -148,6 +156,7 @@ export default function Page() {
     e.target.value = ""; // allow re-snapping the same photo
     if (!file) return;
 
+    const snapId = ++snapIdRef.current;
     setSnapError(null);
     setSnapResult(null);
     setSnapLoading(true);
@@ -168,14 +177,16 @@ export default function Page() {
       ) {
         throw new Error(data?.error || "RekSnap failed");
       }
+      if (snapId !== snapIdRef.current) return; // dismissed while in flight
       setSnapResult(data as SnapResult);
       incrementSnapCount();
       setHasSnapped(true);
     } catch (err) {
       console.error("RekSnap failed:", err);
+      if (snapId !== snapIdRef.current) return;
       setSnapError("Reks Ray™ couldn't read that photo. Give it another snap.");
     } finally {
-      setSnapLoading(false);
+      if (snapId === snapIdRef.current) setSnapLoading(false);
     }
   };
 
@@ -183,6 +194,7 @@ export default function Page() {
     const searchId = ++searchIdRef.current;
 
     // A new search dismisses any RekSnap results and clears a stale notice.
+    snapIdRef.current++;
     setSnapResult(null);
     setSnapError(null);
     setSnapLoading(false);
@@ -220,13 +232,47 @@ export default function Page() {
     }
   };
 
+  // Wordmark tap → the snap-first cold-load state. No confirmation: the
+  // app is forward-only until history ships, and reset is the same
+  // dismissal grammar as starting a new search. The session snap count
+  // (and its cap) is untouched — only the UI comes home.
+  const resetToHome = () => {
+    searchIdRef.current++; // discard in-flight search responses
+    snapIdRef.current++; // discard in-flight snap responses
+    setReks([]);
+    setLoading(false);
+    setLoadingLabel("Finding fresh Reks for you...");
+    setHasSearched(false);
+    setSearchError(null);
+    setSnapLoading(false);
+    setSnapResult(null);
+    setSnapError(null);
+    setSnapLimitReached(false);
+    setHasSnapped(false); // re-show the hero snap button
+    setActiveRecipe(null);
+    setCategory("Movies");
+    setPersistedLikedTitles([]);
+    setPersistedDislikedTitles([]);
+    setSearchBarKey((k) => k + 1); // remount SearchBar → pristine bar + lane
+  };
+
   return (
     <main className="min-h-screen w-full flex justify-center px-4 py-6">
       <div className="w-full max-w-xl">
-        <div className="mb-6 text-center text-3xl font-bold tracking-tight text-[#2D5AB5]">
-          Rekomendr<span className="text-[#2D5AB5]/70">.AI</span>
+        {/* The wordmark is the app's only home affordance — no separate
+            button. */}
+        <div className="mb-6 text-center">
+          <button
+            type="button"
+            onClick={resetToHome}
+            aria-label="Back to home"
+            className="text-3xl font-bold tracking-tight text-[#2D5AB5]"
+          >
+            Rekomendr<span className="text-[#2D5AB5]/70">.AI</span>
+          </button>
         </div>
         <SearchBar
+          key={searchBarKey}
           onSearch={handleSearch}
           setLoading={setLoading}
           hasHistory={reks.length > 0}
