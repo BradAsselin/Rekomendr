@@ -5,6 +5,7 @@ import { Camera, ChevronRight } from "lucide-react";
 
 import {
   HEALTH_MEDICAL_CATEGORIES,
+  MEDIA_CATEGORIES,
   NON_RECIPE_CATEGORIES,
 } from "../lib/categoryGates";
 import { recordSnapSignal, type SnapMode } from "../lib/reksnapSignals";
@@ -590,6 +591,7 @@ const RekSnapResults: React.FC<Props> = ({
     .trim()
     .toLowerCase();
   const anchorIsHealthMedical = HEALTH_MEDICAL_CATEGORIES.has(detectedCategory);
+  const anchorIsMedia = MEDIA_CATEGORIES.has(detectedCategory);
 
   // "uses"-mode cards push through to a recipe by DEFAULT (food, beverages,
   // alcohol). We suppress only known non-recipe categories (health/medical/
@@ -618,13 +620,19 @@ const RekSnapResults: React.FC<Props> = ({
   );
 
   // Completion verbs are pure link handoffs — same YouTube-search pattern as
-  // trailers/recipes, and a neutral Google Shopping search for where-to-buy.
-  // No availability lookup, no affiliate logic.
+  // trailers/recipes, and neutral Google searches for where-to-buy /
+  // where-to-watch. No availability lookup, no affiliate logic.
   const showMeHowUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(
     `how to use ${result.detected_item.name}`
   )}`;
   const whereToBuyUrl = `https://www.google.com/search?tbm=shop&q=${encodeURIComponent(
     result.detected_item.name
+  )}`;
+  const trailerUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(
+    `${result.detected_item.name} trailer`
+  )}`;
+  const whereToWatchUrl = `https://www.google.com/search?q=${encodeURIComponent(
+    `where to watch ${result.detected_item.name}`
   )}`;
 
   return (
@@ -659,7 +667,45 @@ const RekSnapResults: React.FC<Props> = ({
           onThumbDown={() => toggleThumb(result.detected_item.name, "dislike")}
           onSave={() => handleSave(result.detected_item.name)}
           completionActions={
-            anchorIsHealthMedical ? undefined : (
+            /* Anchor verbs follow the SAME category gates as the rek cards
+               (categoryGates.ts) so the two can never drift: health/medical
+               → none; media → Trailer + Where-to-watch; recipe-gate pass
+               (food/drink/alcohol, the rek cards' usesGetRecipes verbatim)
+               → View recipe + Show-me-how; products → Show-me-how +
+               Where-to-buy. Mode-independent by design — the anchor is the
+               snapped subject, so its verbs never flip with the pills. */
+            anchorIsHealthMedical ? undefined : anchorIsMedia ? (
+              <>
+                <a
+                  href={trailerUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="hover:underline flex items-center gap-1"
+                >
+                  <span>▶</span> Trailer
+                </a>
+                <a
+                  href={whereToWatchUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="hover:underline"
+                >
+                  Where to watch
+                </a>
+              </>
+            ) : usesGetRecipes ? (
+              <>
+                {recipeButton(result.detected_item.name)}
+                <a
+                  href={showMeHowUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="hover:underline flex items-center gap-1"
+                >
+                  <span>▶</span> Show me how
+                </a>
+              </>
+            ) : (
               <>
                 <a
                   href={showMeHowUrl}

@@ -28,12 +28,19 @@ const HEALTH_MEDICAL_WORDS = [
   "health", "medical", "wellness", "first aid", "personal care", "hygiene",
 ];
 
-// Non-consumable reference categories these snaps already return and that
-// never had recipes (movies, books, products/car-care, etc.). Not exported:
-// nothing gates on non-consumables alone.
-const NON_CONSUMABLE_WORDS = [
+// Screen-media reference categories — these anchors complete with Trailer +
+// Where-to-watch instead of the product default. Books/music/games stay in
+// NON_CONSUMABLE_WORDS below: "Trailer" doesn't fit them, so they keep the
+// product verbs.
+const MEDIA_WORDS = [
   "movie", "movies", "film", "films", "tv", "television", "tv show",
   "tv shows", "show", "shows", "streaming",
+];
+
+// Non-consumable reference categories these snaps already return and that
+// never had recipes (books, products/car-care, etc.). Not exported:
+// nothing gates on non-consumables alone.
+const NON_CONSUMABLE_WORDS = [
   "book", "books", "ebook", "magazine",
   "music", "album", "albums",
   "game", "games", "video game", "video games",
@@ -47,9 +54,13 @@ const NON_CONSUMABLE_WORDS = [
 
 export const HEALTH_MEDICAL_CATEGORIES = new Set<string>(HEALTH_MEDICAL_WORDS);
 
+export const MEDIA_CATEGORIES = new Set<string>(MEDIA_WORDS);
+
 // Recipe-link gate: in "uses" mode anything you eat or drink gets
 // "View recipe ›" by DEFAULT (food, beverages, AND alcohol — a vodka "uses"
-// snap returns cocktails, which ARE recipes); suppress only for this union.
+// snap returns cocktails, which ARE recipes); suppress only for this union
+// (health ∪ media ∪ other non-consumables — identical membership to the
+// pre-split list, so the rek-card recipe gate is unchanged).
 export const NON_RECIPE_CATEGORIES = new Set<string>(
-  HEALTH_MEDICAL_WORDS.concat(NON_CONSUMABLE_WORDS)
+  HEALTH_MEDICAL_WORDS.concat(MEDIA_WORDS, NON_CONSUMABLE_WORDS)
 );
