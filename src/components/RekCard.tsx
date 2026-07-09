@@ -23,10 +23,6 @@ import SignalButtons from "./SignalButtons";
 // dismisses + backfills, Save marks) but keep their own write paths:
 // RekSnapResults → recordSnapSignal/reksnap_signals, ResultsV4 → userPrefs.
 
-// Long descriptions are previewed, not dumped — same cap search cards
-// always used.
-const LONG_PREVIEW_MAX = 420;
-
 type Props = {
   title: string;
   // Appended as "(year)" when present (search cards have it, snap doesn't).
@@ -210,9 +206,7 @@ const RekCard: React.FC<Props> = ({
         <p
           className={`${accent ? "text-base text-gray-800" : "text-[15px] text-gray-700"} leading-relaxed mb-3`}
         >
-          {long.length > LONG_PREVIEW_MAX
-            ? long.slice(0, LONG_PREVIEW_MAX).trim() + "…"
-            : long}
+          {long}
         </p>
       )}
 
