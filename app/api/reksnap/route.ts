@@ -88,26 +88,33 @@ const BACKFILL_MODE_TASK: Record<string, string> = {
     "ONE more item that serves a related but DIFFERENT need than the detected item.",
 };
 
+// Shared voice rules, consumed by BOTH the backfill prompt and the chain
+// prompts so every generated card speaks one voice. The uses block is copied
+// line-identical from SYSTEM_PROMPT's results.uses section; the
+// differentiator block is the vision prompt's rule in condensed form (same
+// RIGHT/WRONG contrast pairs). When any copy changes, change all.
+const USES_VOICE =
+  "For results.uses descriptions: exactly two sentences. These do NOT compare to the detected item — they answer 'what would making/doing this be like?'\n" +
+  "Sentence 1: the outcome, led by texture/result decision words (silky, fluffy, crispy, one-pan, no-bake) and what makes THIS use distinct from the obvious alternative.\n" +
+  "Sentence 2: the effort/occasion placement — the first question about any use: weeknight-fast vs. weekend project, few ingredients vs. a shopping trip.\n" +
+  "End on a concrete noun. BAN the thin register: 'perfect for', 'ideal for', 'a delicious way to', 'elevate', 'beautifully', 'a great option'.\n" +
+  "- RIGHT: 'A silky, savory custard that sets firmer than an omelette, with bacon and gruyère baked in. One dish and forty minutes, most of it hands-off.'\n" +
+  "- WRONG: 'These eggs are perfect for a silky, savory quiche with bacon and cheese.' (perfect-for filler; says nothing about what making it is like or what you end up with)\n";
+
+const DIFFERENTIATOR_VOICE =
+  "DIFFERENTIATOR RULE — the description is EXACTLY TWO short sentences.\n" +
+  "Sentence 1 — the differentiator: how the item DIFFERS from the detected item, OPENING with that key differentiating quality, punchy and factual, axis-first. Comparisons are ALWAYS against the detected item — the referent is implicit; do NOT repeat its name. Use bare comparatives.\n" +
+  "The FIRST comparative must place the rek against the detected item on the category's primary axis — either a difference ('Slightly sweeter...') or an affirmation ('Similarly dry, but more tannic...'). Signature notes follow the axis placement, never replace it.\n" +
+  "- RIGHT: 'Similarly dry, but more tannic. Blackcurrant and sweet oak, with a firmer grip on the finish.'\n" +
+  "- WRONG: 'Richer with more oak influence. Features dark fruit and mocha flavors.' (richer HOW? never places it on the axis the buyer decides by)\n" +
+  "Sentence 2 — one or two CONCRETE sensory/character attributes: decision words a user can hold a prior opinion about. BANNED: generic filler — 'well-balanced', 'iconic', 'crowd-pleaser', 'lively', 'refreshing option', 'great choice', 'perfect for X'. If a phrase could describe half the category, it is filler.\n" +
+  "BAN category-membership filler AND recommendation-voice padding in BOTH sentences: 'a classic X', 'a popular Y', 'a typical Z', 'known for', 'crowd-pleaser', 'wide appeal', 'perfect for those who enjoy', 'ideal for anyone who', 'great choice for', and the words 'perfect for', 'ideal for', 'refreshing experience', 'casual sipping' in ANY construction.\n" +
+  "- RIGHT: 'Similarly dry, with more tropical fruit intensity. Ripe passionfruit with a grassy, green edge.'\n" +
+  "- WRONG: 'More tropical fruit intensity. A well-balanced and iconic choice.' (sentence 2 is filler — decides nothing)\n" +
+  "Do NOT make taste or quality judgments — never 'better', 'smoother', 'superior', 'best'. Be conservative and factual with health, medical, ingestible, or safety-related items; never assert or imply efficacy.";
+
 const buildBackfillPrompt = (mode: string) => {
-  const descriptionRule =
-    mode === "uses"
-      ? // Copied line-identical from SYSTEM_PROMPT's results.uses block above.
-        "For results.uses descriptions: exactly two sentences. These do NOT compare to the detected item — they answer 'what would making/doing this be like?'\n" +
-        "Sentence 1: the outcome, led by texture/result decision words (silky, fluffy, crispy, one-pan, no-bake) and what makes THIS use distinct from the obvious alternative.\n" +
-        "Sentence 2: the effort/occasion placement — the first question about any use: weeknight-fast vs. weekend project, few ingredients vs. a shopping trip.\n" +
-        "End on a concrete noun. BAN the thin register: 'perfect for', 'ideal for', 'a delicious way to', 'elevate', 'beautifully', 'a great option'.\n" +
-        "- RIGHT: 'A silky, savory custard that sets firmer than an omelette, with bacon and gruyère baked in. One dish and forty minutes, most of it hands-off.'\n" +
-        "- WRONG: 'These eggs are perfect for a silky, savory quiche with bacon and cheese.' (perfect-for filler; says nothing about what making it is like or what you end up with)\n"
-      : "DIFFERENTIATOR RULE — the description is EXACTLY TWO short sentences.\n" +
-        "Sentence 1 — the differentiator: how the item DIFFERS from the detected item, OPENING with that key differentiating quality, punchy and factual, axis-first. Comparisons are ALWAYS against the detected item — the referent is implicit; do NOT repeat its name. Use bare comparatives.\n" +
-        "The FIRST comparative must place the rek against the detected item on the category's primary axis — either a difference ('Slightly sweeter...') or an affirmation ('Similarly dry, but more tannic...'). Signature notes follow the axis placement, never replace it.\n" +
-        "- RIGHT: 'Similarly dry, but more tannic. Blackcurrant and sweet oak, with a firmer grip on the finish.'\n" +
-        "- WRONG: 'Richer with more oak influence. Features dark fruit and mocha flavors.' (richer HOW? never places it on the axis the buyer decides by)\n" +
-        "Sentence 2 — one or two CONCRETE sensory/character attributes: decision words a user can hold a prior opinion about. BANNED: generic filler — 'well-balanced', 'iconic', 'crowd-pleaser', 'lively', 'refreshing option', 'great choice', 'perfect for X'. If a phrase could describe half the category, it is filler.\n" +
-        "BAN category-membership filler AND recommendation-voice padding in BOTH sentences: 'a classic X', 'a popular Y', 'a typical Z', 'known for', 'crowd-pleaser', 'wide appeal', 'perfect for those who enjoy', 'ideal for anyone who', 'great choice for', and the words 'perfect for', 'ideal for', 'refreshing experience', 'casual sipping' in ANY construction.\n" +
-        "- RIGHT: 'Similarly dry, with more tropical fruit intensity. Ripe passionfruit with a grassy, green edge.'\n" +
-        "- WRONG: 'More tropical fruit intensity. A well-balanced and iconic choice.' (sentence 2 is filler — decides nothing)\n" +
-        "Do NOT make taste or quality judgments — never 'better', 'smoother', 'superior', 'best'. Be conservative and factual with health, medical, ingestible, or safety-related items; never assert or imply efficacy.";
+  const descriptionRule = mode === "uses" ? USES_VOICE : DIFFERENTIATOR_VOICE;
 
   return (
     "You are a taste-aware recommendation engine. The user snapped a photo, the item below was detected, and they dismissed one recommendation — generate a single replacement.\n" +
@@ -291,6 +298,244 @@ async function handleAnchorDetail(anchorDetail: any): Promise<Response> {
   return Response.json({ long: long.trim() }, { status: 200 });
 }
 
+// ---------------------------------------------------------------------------
+// CHAIN — Slice Two steering. Two kinds, one branch:
+//   kind "steer"  — "+ More like this" on a rek card. The anchor is the line
+//     origin, the chained item the endpoint; the five new reks EXTRAPOLATE
+//     that line (never average back). Trail marks shade/confirm, rejected
+//     items steer away by attribute, and a trail-origin chain is
+//     double-weighted (verdict + pursuit).
+//   kind "reroll" — "+ More like this" on the anchor. A different job:
+//     fresh five along the anchor's own line, everything seen this snap
+//     banned. No direction block — there is no chained item.
+// Text-only like backfill/anchorDetail — the vision prompt is never touched.
+// ---------------------------------------------------------------------------
+
+const CHAIN_MODE_TASK: Record<string, string> = {
+  similar:
+    "FIVE options that are LIKE the detected item — alternatives to consider.",
+  uses:
+    "FIVE ways to USE the detected item — recipes, pairings, cocktails, or applications.",
+  alternatives:
+    "FIVE items that serve a related but DIFFERENT need than the detected item.",
+};
+
+const CHAIN_SET_SHAPE =
+  'Return JSON only, in this exact shape: { "reks": [ { "name": string, "description": string } ] } — exactly 5 items.';
+
+const buildChainSteerPrompt = (mode: string) => {
+  const voice = mode === "uses" ? USES_VOICE : DIFFERENTIATOR_VOICE;
+  return (
+    "You are a taste-aware recommendation engine. The user snapped a photo, the item below was detected, and they have been steering the results. They tapped '+ More like this' on one recommendation — the CHAINED ITEM below. Generate five fresh recommendations pursuing that direction.\n" +
+    "\n" +
+    `The lane: recommend exactly ${CHAIN_MODE_TASK[mode]}\n` +
+    "\n" +
+    "THE LINE — core rule: the ANCHOR (detected item) is the origin point; the CHAINED ITEM is where the user walked to. Two points make a line — EXTRAPOLATE it, do not average it. The five new options live BEYOND the chained item in the direction it points away from the anchor, never between the two points.\n" +
+    "- RIGHT: anchor is an oaky Napa Cabernet, chained item is a Rioja Reserva → continue toward Old-World structure: Tempranillo crianzas, Brunello, aged Douro reds — leaner and more savory, further from Napa.\n" +
+    "- WRONG: anchor is an oaky Napa Cabernet, chained item is a Rioja Reserva → five more Napa Cabernets. (that averages back toward the anchor — the user just told you which way they are walking)\n" +
+    "KEPT items shade and CONFIRM the direction — let them sharpen the line, never redefine it. REJECTED items steer away: avoid them AND lean away from their dominant characteristics in every pick — a rejected item is a signal about what to steer from, not just a name to skip.\n" +
+    "\n" +
+    "SET COMPOSITION — exactly 5 items:\n" +
+    "- Positions 1-3: strictly ON the extrapolated line.\n" +
+    "- Exactly ONE of positions 4-5 is an honest tangent — an adjacent direction this taste would plausibly love, clearly related, never a category leap. The other of positions 4-5 stays on-line.\n" +
+    "- Every card is a genuine recommendation. Zero deliberate duds, zero filler picks.\n" +
+    "\n" +
+    voice +
+    "\n\n" +
+    (mode === "uses"
+      ? ""
+      : "REFERENT OVERRIDE for this task: comparisons are ALWAYS against the CHAINED ITEM — the direction being pursued — not the detected item. The chained item is the implicit referent; do NOT repeat its name.\n\n") +
+    "Hard rules:\n" +
+    "- NEVER recommend the detected item or the chained item themselves.\n" +
+    "- NEVER recommend any name in the NEVER-REPEAT list.\n" +
+    "- NEVER recommend any name in the REJECTED list.\n" +
+    "\n" +
+    CHAIN_SET_SHAPE
+  );
+};
+
+const buildChainRerollPrompt = (mode: string) => {
+  const voice = mode === "uses" ? USES_VOICE : DIFFERENTIATOR_VOICE;
+  return (
+    "You are a taste-aware recommendation engine. The user snapped a photo, the item below was detected, and they asked for a FRESH SET — a re-roll, not a steer. Five options along the same line the detected item's profile establishes, none of which they have seen.\n" +
+    "\n" +
+    `Recommend exactly ${CHAIN_MODE_TASK[mode]}\n` +
+    "\n" +
+    "RE-ROLL RULE: every previously seen name is banned, but the DIRECTION is unchanged — stay on the line the detected item's own profile establishes; do not drift to a new interpretation of the item. KEPT items shade and confirm what the user responded to. REJECTED items steer away: avoid them AND lean away from their dominant characteristics — a rejected item is a signal about what to steer from, not just a name to skip.\n" +
+    "\n" +
+    "SET COMPOSITION — exactly 5 items, ALL on the detected item's line (a re-roll has no tangent). Every card is a genuine recommendation. Zero deliberate duds, zero filler picks.\n" +
+    "\n" +
+    voice +
+    "\n\n" +
+    "Hard rules:\n" +
+    "- NEVER recommend the detected item itself.\n" +
+    "- NEVER recommend any name in the NEVER-REPEAT list.\n" +
+    "- NEVER recommend any name in the REJECTED list.\n" +
+    "\n" +
+    CHAIN_SET_SHAPE
+  );
+};
+
+async function handleChain(chain: any): Promise<Response> {
+  const item = chain?.detectedItem;
+  const mode = chain?.mode;
+  const kind = chain?.kind;
+
+  const cleanNames = (raw: unknown): string[] =>
+    Array.isArray(raw)
+      ? raw.filter((n: unknown): n is string => typeof n === "string")
+      : [];
+
+  if (
+    !item ||
+    typeof item.name !== "string" ||
+    !item.name.trim() ||
+    typeof mode !== "string" ||
+    !(mode in CHAIN_MODE_TASK) ||
+    (kind !== "steer" && kind !== "reroll")
+  ) {
+    return Response.json({ error: "Bad chain request" }, { status: 400 });
+  }
+
+  const chained = chain?.chained;
+  if (
+    kind === "steer" &&
+    (!chained || typeof chained.name !== "string" || !chained.name.trim())
+  ) {
+    return Response.json({ error: "Bad chain request" }, { status: 400 });
+  }
+
+  // Belt-and-braces twin of the client gate (same as anchorDetail): no
+  // chain may generate for a health/medical anchor.
+  const category =
+    typeof item.category === "string" ? item.category.trim().toLowerCase() : "";
+  if (HEALTH_MEDICAL_CATEGORIES.has(category)) {
+    return Response.json(
+      { error: "Chaining not available for this category" },
+      { status: 403 }
+    );
+  }
+
+  const excludeNames = cleanNames(chain?.excludeNames);
+  const rejectedNames = cleanNames(chain?.rejectedNames);
+  const chainedOrigin = chain?.chainedOrigin === "trail" ? "trail" : "frontier";
+  const rawDepth = Number(chain?.chainDepth);
+  const chainDepth =
+    Number.isFinite(rawDepth) && rawDepth >= 1 ? Math.round(rawDepth) : 1;
+
+  // KEPT tier: weights serialize as labeled ROLES, not scalars — the model
+  // reads roles better. "pursued" = chained earlier this snap (strong).
+  const trailMarks: string[] = (Array.isArray(chain?.trail) ? chain.trail : [])
+    .filter((t: any) => t && typeof t.name === "string" && t.name.trim())
+    .map((t: any) => {
+      const mark =
+        t.mark === "pursued"
+          ? "pursued earlier this snap — strong"
+          : t.mark === "saved"
+          ? "saved"
+          : "liked";
+      return `- ${t.name} (${mark})`;
+    });
+
+  const commonTail =
+    `KEPT THIS SNAP (shade and confirm — do not redefine the direction):\n${
+      trailMarks.length ? trailMarks.join("\n") : "(none)"
+    }\n` +
+    `REJECTED THIS SNAP (steer away from their DOMINANT ATTRIBUTES, not just the names): ${
+      rejectedNames.join(", ") || "(none)"
+    }\n` +
+    `NEVER REPEAT (full exclusion union): ${
+      excludeNames.join(", ") || "(none)"
+    }`;
+
+  const userContent =
+    kind === "steer"
+      ? `ANCHOR (line origin): ${item.name}\n` +
+        (typeof item.description === "string" && item.description
+          ? `Its signature profile: ${item.description}\n`
+          : "") +
+        (category ? `Category: ${category}\n` : "") +
+        `DIRECTION (line endpoint — newest chained item): ${chained.name}` +
+        (typeof chained.description === "string" && chained.description
+          ? ` — ${chained.description}`
+          : "") +
+        "\n" +
+        (chainedOrigin === "trail"
+          ? "Chain origin: TRAIL — the user had already KEPT this item, then chose to pursue it. Verdict + pursuit: treat this direction as strongly confirmed (double weight).\n"
+          : "Chain origin: FRONTIER — pursued directly from the fresh set. Single weight.\n") +
+        `CHAIN DEPTH this snap: ${chainDepth}\n` +
+        commonTail
+      : `Detected item: ${item.name}\n` +
+        (typeof item.description === "string" && item.description
+          ? `Its signature profile: ${item.description}\n`
+          : "") +
+        (category ? `Category: ${category}\n` : "") +
+        commonTail;
+
+  const completion = await openai.chat.completions.create({
+    model: "gpt-4o",
+    temperature: 0.7,
+    // Five cards at the backfill card budget.
+    max_tokens: 1500,
+    response_format: { type: "json_object" },
+    messages: [
+      {
+        role: "system",
+        content:
+          kind === "steer"
+            ? buildChainSteerPrompt(mode)
+            : buildChainRerollPrompt(mode),
+      },
+      { role: "user", content: userContent },
+    ],
+  });
+
+  const text = completion.choices?.[0]?.message?.content ?? "";
+  let parsed: any = null;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return Response.json({ error: "Chain failed" }, { status: 502 });
+  }
+
+  const normalize = (s: string) => s.trim().toLowerCase();
+  // Belt-and-braces: the model was told, but never trust it. Violators are
+  // FILTERED and the survivors returned (honest-short over canned-full);
+  // 502 only when nothing survives.
+  const banned = new Set([
+    normalize(item.name),
+    ...(kind === "steer" ? [normalize(chained.name)] : []),
+    ...excludeNames.map(normalize),
+    ...rejectedNames.map(normalize),
+  ]);
+
+  const raw: RawRek[] = Array.isArray(parsed?.reks) ? parsed.reks : [];
+  const seen = new Set<string>();
+  const reks: { name: string; description: string }[] = [];
+  for (const r of raw) {
+    if (!r || typeof r.name !== "string" || !r.name.trim()) continue;
+    const key = normalize(r.name);
+    if (banned.has(key) || seen.has(key)) continue;
+    seen.add(key);
+    reks.push({
+      name: r.name,
+      description: typeof r.description === "string" ? r.description : "",
+    });
+    if (reks.length === 5) break;
+  }
+
+  if (reks.length === 0) {
+    return Response.json({ error: "Chain failed" }, { status: 502 });
+  }
+  if (reks.length < 5) {
+    console.warn(
+      `RekSnap chain: only ${reks.length}/5 reks survived exclusion filtering (kind: ${kind})`
+    );
+  }
+
+  return Response.json({ reks }, { status: 200 });
+}
+
 export async function POST(req: Request) {
   try {
     const body = await req.json().catch(() => ({}));
@@ -303,6 +548,11 @@ export async function POST(req: Request) {
     // Anchor-detail requests are text-only and carry no image.
     if (body?.anchorDetail && typeof body.anchorDetail === "object") {
       return await handleAnchorDetail(body.anchorDetail);
+    }
+
+    // Chain requests (steer / re-roll) are text-only and carry no image.
+    if (body?.chain && typeof body.chain === "object") {
+      return await handleChain(body.chain);
     }
 
     const image = typeof body?.image === "string" ? body.image : "";

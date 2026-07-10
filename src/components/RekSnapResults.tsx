@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
-import { Camera, ChevronRight } from "lucide-react";
+import { Camera, ChevronRight, Plus } from "lucide-react";
 
 import {
   HEALTH_MEDICAL_CATEGORIES,
@@ -50,6 +50,11 @@ type Props = {
   // call this; passes the tapped dish + the detected item it came from.
   onOpenRecipe?: (recipe: { dish: string; detectedItem: string }) => void;
 };
+
+// One failure voice, shared verbatim with the search lane's AI misses.
+// Chain failures only; auto-dismissed on the next successful chain.
+const CHAIN_FAILED_MSG =
+  "Reks Ray couldn’t fetch fresh picks — give it another go.";
 
 // Warm, non-punitive notice when the session snap limit is hit.
 const LimitCard = () => (
@@ -104,6 +109,12 @@ const RekSnapResults: React.FC<Props> = ({
     alternatives: 0,
   });
 
+  // Chain (steering) state: which mode's list is mid-regeneration — the
+  // five-skeleton wait treatment renders only on that list — plus the one
+  // inline failure notice (chain failures only).
+  const [chainingMode, setChainingMode] = useState<SnapMode | null>(null);
+  const [chainError, setChainError] = useState<string | null>(null);
+
   // Anchor long tier — lazy-loaded on first "Show details" tap, then cached
   // for the life of the snap (re-toggles are local, no re-fetch).
   const [anchorLong, setAnchorLong] = useState<string | null>(null);
@@ -148,6 +159,28 @@ const RekSnapResults: React.FC<Props> = ({
   // reference lookup at migration-commit time (see compensatedCommit).
   const cardEls = useRef(new Map<string, HTMLDivElement>());
 
+  // Per-snap chain bookkeeping (never rendered — plain refs):
+  // - chainBusyRef: SYNCHRONOUS re-entrancy guard, set at TAP. State-based
+  //   guards lag a render, and the frontier chain commits 250ms after its
+  //   tap — a second tap in that window must bounce.
+  // - chainDepthRef: 1-based count of chain-taps this snap (re-rolls don't
+  //   count — they aren't pursuit).
+  // - pursuedNamesRef: items chained earlier — serialized as strong keeps.
+  // - everShownRef: every name ever rendered in ANY list this snap — the
+  //   spine of the chain exclusion union; it survives wipes/regenerations.
+  // - listEpochRef: per-mode generation counters. A chain/re-roll bumps its
+  //   mode's epoch so stale backfill responses can never insert into a
+  //   regenerated list (races R2/R5); other modes' backfills stay live.
+  const chainBusyRef = useRef(false);
+  const chainDepthRef = useRef(0);
+  const pursuedNamesRef = useRef<Set<string>>(new Set());
+  const everShownRef = useRef<Set<string>>(new Set());
+  const listEpochRef = useRef<Record<SnapMode, number>>({
+    similar: 0,
+    uses: 0,
+    alternatives: 0,
+  });
+
   // Which intent list is on screen. Defaults to the model's inferred mode;
   // all three lists are already loaded, so switching is instant (no API call).
   const [activeMode, setActiveMode] = useState<SnapMode>(result?.mode ?? "similar");
@@ -167,6 +200,25 @@ const RekSnapResults: React.FC<Props> = ({
       setMigrating(null);
       setEntering(null);
       setPending({ similar: 0, uses: 0, alternatives: 0 });
+      setChainingMode(null);
+      setChainError(null);
+      chainBusyRef.current = false;
+      chainDepthRef.current = 0;
+      pursuedNamesRef.current = new Set();
+      everShownRef.current = new Set(
+        [
+          ...result.results.similar,
+          ...result.results.uses,
+          ...result.results.alternatives,
+        ].map((r) => r.name)
+      );
+      // Belt on top of the resultRef staleness guard: nothing from the old
+      // snap's generations may land in the new one's lists.
+      listEpochRef.current = {
+        similar: listEpochRef.current.similar + 1,
+        uses: listEpochRef.current.uses + 1,
+        alternatives: listEpochRef.current.alternatives + 1,
+      };
       setAnchorLong(null);
       setAnchorLoading(false);
       setAnchorOpen(false);
@@ -403,6 +455,9 @@ const RekSnapResults: React.FC<Props> = ({
     // this snap (including this card) is REJECTED — avoided AND steered away
     // from in the replacement.
     const mode = activeMode;
+    // R5: captured at TAP — if a chain commits during the exit animation,
+    // this dismissal's backfill belongs to the dead generation.
+    const epochAtTap = listEpochRef.current[mode];
     const excludeNames = [
       result.detected_item.name,
       ...lists[mode].map((r) => r.name).filter((n) => n !== rek.name),
@@ -420,17 +475,27 @@ const RekSnapResults: React.FC<Props> = ({
         return { ...prev, [mode]: remaining };
       });
       setExiting(null);
-      void backfillSlot(mode, excludeNames, rejectedNames);
+      void backfillSlot(mode, excludeNames, rejectedNames, epochAtTap);
     }, 250);
   };
 
   const backfillSlot = async (
     mode: SnapMode,
     excludeNames: string[],
-    rejectedNames: string[]
+    rejectedNames: string[],
+    // R5: a dismissal's 250ms exit animation is a window a chain-wipe can
+    // commit inside — the dismissal captures its epoch at TAP and passes it
+    // here. Callers that run at commit time (migration) omit it and the
+    // entry capture below is equivalent.
+    epochAtStart?: number
   ) => {
     const forResult = resultRef.current;
     if (!forResult) return;
+
+    // R2/R5 epoch guard: a chain/re-roll bumped this mode's generation —
+    // this backfill belongs to a list that no longer exists.
+    const epoch = epochAtStart ?? listEpochRef.current[mode];
+    if (epoch !== listEpochRef.current[mode]) return;
 
     setPending((p) => ({ ...p, [mode]: p[mode] + 1 }));
     try {
@@ -453,6 +518,12 @@ const RekSnapResults: React.FC<Props> = ({
       // A new snap arrived while this was in flight — the response belongs to
       // the old result; drop it.
       if (resultRef.current !== forResult) return;
+      // The list this backfill was replacing into was chain-regenerated.
+      if (epoch !== listEpochRef.current[mode]) return;
+
+      // Every generated name joins the exclusion spine, even if the insert
+      // below declines (capacity/dupe) — the model produced it, never re-ask.
+      everShownRef.current.add(rek.name);
 
       setLists((prev) => {
         if (!prev) return prev;
@@ -482,10 +553,320 @@ const RekSnapResults: React.FC<Props> = ({
       // Failed backfill: the slot just stays empty (list runs one short).
       console.error("RekSnap backfill failed:", err);
     } finally {
-      if (resultRef.current === forResult) {
+      // Epoch-stale decrements are skipped: the chain commit that killed
+      // this generation already zeroed the mode's pending count, and a late
+      // decrement here would eat a NEW generation's skeleton.
+      if (
+        resultRef.current === forResult &&
+        epoch === listEpochRef.current[mode]
+      ) {
         setPending((p) => ({ ...p, [mode]: Math.max(0, p[mode] - 1) }));
       }
     }
+  };
+
+  // ------------------------------------------------------------------
+  // CHAIN — Slice Two steering. "+ More like this" on a rek card migrates
+  // it to the trail (a chain is a super-charged like — local mark only,
+  // the 'chain' signal row subsumes the like) and regenerates the frontier
+  // along the anchor→item line. On the anchor it re-rolls the set along
+  // the anchor's own line; the anchor never moves. One chain in flight at
+  // a time, per snap.
+  // ------------------------------------------------------------------
+
+  // The full exclusion union: everything ever shown in any list this snap
+  // (survives wipes), everything trailed, everything dismissed.
+  const buildExcludeNames = (): string[] => {
+    const names = new Set<string>(everShownRef.current);
+    trailRef.current.forEach((e) => names.add(e.rek.name));
+    dismissedNamesRef.current.forEach((n) => names.add(n));
+    return Array.from(names);
+  };
+
+  // KEPT-tier mark for the prompt: pursued (chained earlier — strong)
+  // outranks saved outranks liked.
+  const markFor = (name: string): "pursued" | "saved" | "liked" =>
+    pursuedNamesRef.current.has(name)
+      ? "pursued"
+      : savedNamesRef.current[name]
+      ? "saved"
+      : "liked";
+
+  // The shared wipe, ONE compensated commit: flush every still-marked
+  // frontier card straight to the trail (R1 — no mark may strand when the
+  // list dies; the same instant-flush the search lane's MLT uses), bump
+  // the mode's epoch (R2/R5), zero its pending skeletons, wipe the list,
+  // and raise the chain skeletons. Returns what the fetch needs: the
+  // restore list for fail-soft and the trail as it will exist post-commit
+  // (trailRef won't reflect the flush until the next render).
+  const commitChainWipe = (args: {
+    mode: SnapMode;
+    // The chained card, when this wipe follows a frontier chain — trailed
+    // unconditionally (a chain is not toggleable).
+    chainedRek?: SnapRek;
+  }): { restoreList: SnapRek[]; trailForPrompt: TrailEntry[] } | null => {
+    const current = listsRef.current;
+    if (!current) return null;
+    const { mode, chainedRek } = args;
+    const list = current[mode];
+
+    const marked = list.filter(
+      (r) =>
+        r.name === chainedRek?.name ||
+        thumbSignalsRef.current[r.name] === "like" ||
+        savedNamesRef.current[r.name]
+    );
+    setMigrating(null);
+    setExiting(null);
+    setEntering(null);
+    listEpochRef.current[mode] += 1;
+
+    const restoreList = list
+      .filter((r) => !marked.some((m) => m.name === r.name))
+      .map((r, i) => ({ ...r, rank: i + 1 }));
+
+    const additions = marked
+      .filter((m) => !trailRef.current.some((e) => e.rek.name === m.name))
+      .map((m) => ({ rek: m, mode }));
+    const trailForPrompt = [...trailRef.current, ...additions];
+
+    // Scroll reference: the wiped list's first card; else any rendered one.
+    const firstName = list[0]?.name ?? null;
+    let refEl = firstName ? cardEls.current.get(firstName) ?? null : null;
+    if (!refEl) {
+      const iter = cardEls.current.values().next();
+      refEl = iter.done ? null : iter.value;
+    }
+
+    compensatedCommit(refEl, () => {
+      if (additions.length > 0) {
+        setTrail((prev) => [
+          ...prev,
+          ...additions.filter(
+            (a) => !prev.some((e) => e.rek.name === a.rek.name)
+          ),
+        ]);
+      }
+      setLists((prev) => (prev ? { ...prev, [mode]: [] } : prev));
+      setPending((p) => ({ ...p, [mode]: 0 }));
+      setChainingMode(mode);
+    });
+
+    return { restoreList, trailForPrompt };
+  };
+
+  const buildSteerPayload = (args: {
+    chained: SnapRek;
+    origin: "frontier" | "trail";
+    depth: number;
+    mode: SnapMode;
+    trailEntries: TrailEntry[];
+  }) => {
+    const forResult = resultRef.current!;
+    return {
+      kind: "steer",
+      detectedItem: forResult.detected_item,
+      mode: args.mode,
+      chained: {
+        name: args.chained.name,
+        description: args.chained.description,
+      },
+      chainedOrigin: args.origin,
+      chainDepth: args.depth,
+      // The chained item is the DIRECTION, not a shade — it never rides the
+      // KEPT tier too.
+      trail: args.trailEntries
+        .filter((e) => e.rek.name !== args.chained.name)
+        .map((e) => ({ name: e.rek.name, mark: markFor(e.rek.name) })),
+      rejectedNames: dismissedNamesRef.current,
+      excludeNames: buildExcludeNames(),
+    };
+  };
+
+  // Shared fetch + fail-soft: on any failure the wiped list is restored
+  // (the migration, if any, stands — the pursuit happened; only the
+  // generation failed) and the one failure voice shows. A short set is
+  // rendered as-is: honest-short over canned-full.
+  const fetchChainSet = async (
+    payload: Record<string, unknown>,
+    mode: SnapMode,
+    restoreList: SnapRek[]
+  ) => {
+    const forResult = resultRef.current;
+    if (!forResult) return;
+    try {
+      const res = await fetch("/api/reksnap", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chain: payload }),
+      });
+      if (!res.ok) throw new Error(`chain ${res.status}`);
+      const data = await res.json();
+      const raw = Array.isArray(data?.reks) ? data.reks : [];
+      const cleaned: SnapRek[] = raw
+        .filter(
+          (r: unknown): r is { name: string; description?: unknown } =>
+            !!r &&
+            typeof (r as { name?: unknown }).name === "string" &&
+            !!(r as { name: string }).name.trim()
+        )
+        .map((r, i) => ({
+          name: r.name,
+          description:
+            typeof r.description === "string" ? r.description : "",
+          rank: i + 1,
+        }));
+      if (resultRef.current !== forResult) return; // new snap mid-flight
+      if (cleaned.length === 0) throw new Error("chain returned no reks");
+
+      cleaned.forEach((r) => everShownRef.current.add(r.name));
+      setLists((prev) => (prev ? { ...prev, [mode]: cleaned } : prev));
+      setChainError(null);
+    } catch (err) {
+      console.error("RekSnap chain failed:", err);
+      if (resultRef.current !== forResult) return;
+      setLists((prev) => (prev ? { ...prev, [mode]: restoreList } : prev));
+      setChainError(CHAIN_FAILED_MSG);
+    } finally {
+      chainBusyRef.current = false;
+      if (resultRef.current === forResult) setChainingMode(null);
+    }
+  };
+
+  // Frontier chain: signal → local like mark → the existing graduation
+  // animation → one commit that trails the card, wipes the list, and fires
+  // the fetch. The fetch waits for the commit (not parallel): a response
+  // landing before the wipe would be wiped by it.
+  const handleChainRek = (rek: SnapRek) => {
+    const forResult = resultRef.current;
+    if (!forResult || chainBusyRef.current) return;
+    chainBusyRef.current = true;
+    const mode = activeMode;
+
+    chainDepthRef.current += 1;
+    const depth = chainDepthRef.current;
+    pursuedNamesRef.current.add(rek.name);
+    setChainError(null);
+
+    recordSnapSignal({
+      itemName: rek.name,
+      itemCategory: forResult.detected_item.category,
+      action: "chain",
+      chainDepth: depth,
+      chainOrigin: "frontier",
+    });
+
+    setThumbSignals((prev) => ({ ...prev, [rek.name]: "like" }));
+    setMigrating(rek.name);
+    setTimeout(() => {
+      setMigrating((cur) => (cur === rek.name ? null : cur));
+      if (resultRef.current !== forResult) {
+        chainBusyRef.current = false;
+        return;
+      }
+      // Re-assert the mark: a mid-animation thumb toggle must not strand
+      // the chained card outside both the trail and the wiped list.
+      setThumbSignals((prev) =>
+        prev[rek.name] === "like" ? prev : { ...prev, [rek.name]: "like" }
+      );
+      const wipe = commitChainWipe({ mode, chainedRek: rek });
+      if (!wipe) {
+        chainBusyRef.current = false;
+        return;
+      }
+      void fetchChainSet(
+        buildSteerPayload({
+          chained: rek,
+          origin: "frontier",
+          depth,
+          mode,
+          trailEntries: wipe.trailForPrompt,
+        }),
+        mode,
+        wipe.restoreList
+      );
+    }, 250);
+  };
+
+  // Trail chain: the item was already kept and is now pursued — double
+  // weight. The chain inherits the entry's ORIGIN mode and the view flips
+  // to it (programmatic — no context_flip signal; the chain row carries
+  // the intent). No migration: the card is already in the trail.
+  const handleChainTrail = (entry: TrailEntry) => {
+    const forResult = resultRef.current;
+    if (!forResult || chainBusyRef.current) return;
+    chainBusyRef.current = true;
+    const mode = entry.mode;
+
+    chainDepthRef.current += 1;
+    const depth = chainDepthRef.current;
+    pursuedNamesRef.current.add(entry.rek.name);
+    setChainError(null);
+
+    recordSnapSignal({
+      itemName: entry.rek.name,
+      itemCategory: forResult.detected_item.category,
+      action: "chain",
+      chainDepth: depth,
+      chainOrigin: "trail",
+    });
+
+    setActiveMode(mode);
+    const wipe = commitChainWipe({ mode });
+    if (!wipe) {
+      chainBusyRef.current = false;
+      return;
+    }
+    void fetchChainSet(
+      buildSteerPayload({
+        chained: entry.rek,
+        origin: "trail",
+        depth,
+        mode,
+        trailEntries: wipe.trailForPrompt,
+      }),
+      mode,
+      wipe.restoreList
+    );
+  };
+
+  // Anchor re-roll: a different signal — dissatisfaction with the set, not
+  // pursuit of an item. Fresh five along the anchor's original line with
+  // everything seen this snap excluded. The anchor never moves, and depth
+  // doesn't increment (a re-roll is not pursuit).
+  const handleAnchorReroll = () => {
+    const forResult = resultRef.current;
+    if (!forResult || chainBusyRef.current) return;
+    chainBusyRef.current = true;
+    const mode = activeMode;
+
+    setChainError(null);
+    recordSnapSignal({
+      itemName: forResult.detected_item.name,
+      itemCategory: forResult.detected_item.category,
+      action: "anchor_reroll",
+    });
+
+    const wipe = commitChainWipe({ mode });
+    if (!wipe) {
+      chainBusyRef.current = false;
+      return;
+    }
+    void fetchChainSet(
+      {
+        kind: "reroll",
+        detectedItem: forResult.detected_item,
+        mode,
+        trail: wipe.trailForPrompt.map((e) => ({
+          name: e.rek.name,
+          mark: markFor(e.rek.name),
+        })),
+        rejectedNames: dismissedNamesRef.current,
+        excludeNames: buildExcludeNames(),
+      },
+      mode,
+      wipe.restoreList
+    );
   };
 
   // Lazy long tier for the anchor: same text-only /api/reksnap pattern as
@@ -677,15 +1058,15 @@ const RekSnapResults: React.FC<Props> = ({
           onThumbDown={() => toggleThumb(result.detected_item.name, "dislike")}
           onSave={() => handleSave(result.detected_item.name)}
           /* Anchor verbs follow the SAME category gates as the rek cards
-             (categoryGates.ts) so the two can never drift, now in fixed
-             zones: health/medical → nothing at all; LEFT (▶ video verb) =
-             Trailer for media, Show-me otherwise; MIDDLE (completion verb)
-             = Where-to-watch for media, View-recipe on a recipe-gate pass
+             (categoryGates.ts) so the two can never drift, in fixed zones:
+             health/medical → nothing at all; LEFT (▶ video verb) = Trailer
+             for media, Show-me otherwise; MIDDLE (completion verb) =
+             Where-to-watch for media, View-recipe on a recipe-gate pass
              (food/drink/alcohol, the rek cards' usesGetRecipes verbatim),
-             else Where-to-buy. RIGHT stays empty-reserved on every snap
-             card — no MLT plumbing exists in this lane. Mode-independent by
-             design — the anchor is the snapped subject, so its verbs never
-             flip with the pills. */
+             else Buy. RIGHT = "+ More like this" — the anchor RE-ROLL
+             (fresh five along the anchor's own line), not a steer.
+             Mode-independent by design — the anchor is the snapped
+             subject, so its verbs never flip with the pills. */
           verbLeft={
             anchorIsHealthMedical ? undefined : anchorIsMedia ? (
               <TrailerVerb name={result.detected_item.name} />
@@ -709,6 +1090,13 @@ const RekSnapResults: React.FC<Props> = ({
               </a>
             )
           }
+          verbRight={
+            anchorIsHealthMedical ? undefined : (
+              <button onClick={handleAnchorReroll} className="hover:underline">
+                + More like this
+              </button>
+            )
+          }
         />
 
         {/* THE TRAIL — the user's decided keeps, compact, directly under
@@ -725,6 +1113,21 @@ const RekSnapResults: React.FC<Props> = ({
                 hint={entry.rek.description}
                 thumbed={thumbSignals[entry.rek.name] === "like"}
                 saved={!!savedNames[entry.rek.name]}
+                trailing={
+                  /* Compact chain affordance — a trail chain is double-
+                     weighted (verdict + pursuit). Health/medical: none. */
+                  anchorIsHealthMedical ? undefined : (
+                    <button
+                      type="button"
+                      aria-label="More like this"
+                      title="More like this"
+                      onClick={() => handleChainTrail(entry)}
+                      className="p-1 rounded-full border border-gray-300 text-gray-500 hover:border-[#2D5AB5] hover:text-[#2D5AB5] transition"
+                    >
+                      <Plus size={14} strokeWidth={1.8} />
+                    </button>
+                  )
+                }
               >
                 <RekCard
                   title={entry.rek.name}
@@ -735,7 +1138,7 @@ const RekSnapResults: React.FC<Props> = ({
                   onThumbDown={() => handleDislikeFromTrail(entry.rek.name)}
                   onSave={() => handleSave(entry.rek.name)}
                   /* Media reks carry their verbs into the trail; recipe
-                     push-through keeps its ORIGIN mode. RIGHT reserved. */
+                     push-through keeps its ORIGIN mode. RIGHT = chain. */
                   verbLeft={
                     anchorIsMedia ? (
                       <TrailerVerb name={entry.rek.name} />
@@ -748,6 +1151,16 @@ const RekSnapResults: React.FC<Props> = ({
                       recipeButton(entry.rek.name)
                     ) : undefined
                   }
+                  verbRight={
+                    anchorIsHealthMedical ? undefined : (
+                      <button
+                        onClick={() => handleChainTrail(entry)}
+                        className="hover:underline"
+                      >
+                        + More like this
+                      </button>
+                    )
+                  }
                 />
               </TrailRow>
             ))}
@@ -757,6 +1170,13 @@ const RekSnapResults: React.FC<Props> = ({
 
       {/* Ranked reks — no header; the mode pills are the section separator */}
       <div className="w-full max-w-xl mt-5">
+        {/* The one chain-failure voice — auto-dismissed on the next
+            successful chain and on every new snap. */}
+        {chainError && (
+          <div className="bg-white border border-amber-300 rounded-2xl p-4 shadow-sm mb-3">
+            <div className="text-sm text-gray-800">{chainError}</div>
+          </div>
+        )}
         {/* Mode toggle — all three lists are preloaded, so this is instant. */}
         <div className="flex justify-center gap-2 mb-3">
           {MODE_TABS.map(({ mode, label }) => {
@@ -819,9 +1239,9 @@ const RekSnapResults: React.FC<Props> = ({
                 ].join(" ")}
                 /* Media anchors give every rek card always-visible media
                    verbs (the reks ARE movies/shows); otherwise the only
-                   verb is uses-mode recipe push-through, in the MIDDLE
-                   completion zone. RIGHT stays empty-reserved — no MLT in
-                   this lane. */
+                   completion verb is uses-mode recipe push-through, in the
+                   MIDDLE zone. RIGHT = "+ More like this" — the chain:
+                   graduate this card and extrapolate its direction. */
                 verbLeft={
                   anchorIsMedia ? <TrailerVerb name={rek.name} /> : undefined
                 }
@@ -832,9 +1252,26 @@ const RekSnapResults: React.FC<Props> = ({
                     recipeButton(rek.name)
                   ) : undefined
                 }
+                verbRight={
+                  anchorIsHealthMedical ? undefined : (
+                    <button
+                      onClick={() => handleChainRek(rek)}
+                      className="hover:underline"
+                    >
+                      + More like this
+                    </button>
+                  )
+                }
               />
             </div>
           ))}
+          {/* Chain regeneration: the visible list re-rolls in place — the
+              same five-skeleton wait treatment as a fresh generation.
+              Renders only on the chaining mode's list, so pill flips
+              mid-chain still show the other lists intact. */}
+          {chainingMode === activeMode && (
+            <RekSkeleton label="Reks Ray™ is finding your reks…" count={5} />
+          )}
           {/* One inline pulse per in-flight backfill for the visible mode —
               same single-slot swap pattern as the search lane. */}
           {Array.from({ length: pending[activeMode] }).map((_, i) => (

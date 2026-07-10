@@ -16,8 +16,8 @@ import SignalButtons from "./SignalButtons";
 //      `expandable` and lazy-loads `long` on first expand (snap anchor).
 //   3. Bottom verb row, three FIXED zones: LEFT = the ▶ video verb
 //      (Show me / Trailer), MIDDLE = the category completion verb
-//      (View recipe / Where to watch / Where to buy), RIGHT = "+ More like
-//      this" — search lane only; snap cards leave it empty-reserved.
+//      (View recipe / Watch / Buy), RIGHT = "+ More like this" — search
+//      MLT or the snap chain/re-roll; health/medical cards get no verbs.
 // NO signal logic lives here. Parents own handlers and pipelines — both lanes
 // share the gesture grammar (thumbs-up marks in place + toggles, thumbs-down
 // dismisses + backfills, Save marks) but keep their own write paths:

@@ -24,8 +24,10 @@ type TrailRowProps = {
   // (filled = active). A row can show both: thumbed AND saved.
   thumbed: boolean;
   saved: boolean;
-  // Reserved right-side slot for a future per-card affordance — the
-  // layout holds room today; nothing occupies it yet.
+  // Right-side slot for a per-card action (snap lane: the compact chain
+  // affordance). Rendered as a SIBLING of the expand button — an
+  // interactive control nested inside a button is invalid HTML and
+  // misfires — so the slot's contents own their own tap.
   trailing?: React.ReactNode;
   // The expanded, full-form card (a RekCard), rendered in place on tap.
   children: React.ReactNode;
@@ -59,25 +61,30 @@ export const TrailRow: React.FC<TrailRowProps> = ({
       {open ? (
         <div onClick={() => setOpen(false)}>{children}</div>
       ) : (
-        <button
-          type="button"
-          onClick={() => setOpen(true)}
-          className="w-full flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 shadow-sm text-left hover:border-gray-400 transition-colors"
-        >
-          <span className="min-w-0 flex-1 truncate text-[14px]">
-            <span className="font-medium text-gray-900">{title}</span>
-            <span className="text-gray-500"> — {hint}</span>
-          </span>
-          <span className="flex items-center gap-1.5 shrink-0 text-gray-600">
-            {thumbed && (
-              <ThumbsUp size={14} fill="#2D5AB5" className="text-[#2D5AB5]" />
-            )}
-            {saved && (
-              <Bookmark size={14} fill="#374151" className="text-gray-700" />
-            )}
-            {trailing}
-          </span>
-        </button>
+        <div className="w-full flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 shadow-sm hover:border-gray-400 transition-colors">
+          {/* The expand tap surface — everything except the trailing action. */}
+          <button
+            type="button"
+            onClick={() => setOpen(true)}
+            className="min-w-0 flex-1 flex items-center gap-2 text-left"
+          >
+            <span className="min-w-0 flex-1 truncate text-[14px]">
+              <span className="font-medium text-gray-900">{title}</span>
+              <span className="text-gray-500"> — {hint}</span>
+            </span>
+            <span className="flex items-center gap-1.5 shrink-0 text-gray-600">
+              {thumbed && (
+                <ThumbsUp size={14} fill="#2D5AB5" className="text-[#2D5AB5]" />
+              )}
+              {saved && (
+                <Bookmark size={14} fill="#374151" className="text-gray-700" />
+              )}
+            </span>
+          </button>
+          {trailing && (
+            <span className="shrink-0 flex items-center">{trailing}</span>
+          )}
+        </div>
       )}
     </div>
   );
