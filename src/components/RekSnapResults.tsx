@@ -1058,28 +1058,35 @@ const RekSnapResults: React.FC<Props> = ({
           onThumbDown={() => toggleThumb(result.detected_item.name, "dislike")}
           onSave={() => handleSave(result.detected_item.name)}
           /* Anchor verbs follow the SAME category gates as the rek cards
-             (categoryGates.ts) so the two can never drift, in fixed zones:
-             health/medical → nothing at all; LEFT (▶ video verb) = Trailer
-             for media, Show-me otherwise; MIDDLE (completion verb) =
-             Where-to-watch for media, View-recipe on a recipe-gate pass
-             (food/drink/alcohol, the rek cards' usesGetRecipes verbatim),
-             else Buy. RIGHT = "+ More like this" — the anchor RE-ROLL
-             (fresh five along the anchor's own line), not a steer.
-             Mode-independent by design — the anchor is the snapped
-             subject, so its verbs never flip with the pills. */
+             (categoryGates.ts) so the two can never drift, in fixed zones —
+             with PROGRESSIVE DISCLOSURE (cold-tester validated): collapsed,
+             the anchor reads as an ANSWER, not a menu, so it shows at most
+             the category's single most instinctive verb in its usual slot —
+             media → ▶ Trailer (LEFT); recipe-gate pass (food/drink/alcohol,
+             the rek cards' usesGetRecipes verbatim) → View recipe (MIDDLE);
+             products and health/medical → none. Expanded (anchorOpen — a
+             category fact, so the row renders during the long-tier pulse),
+             the full standard row: LEFT Trailer/Show-me, MIDDLE
+             Watch/View-recipe/Buy, RIGHT "+ More like this" — the anchor
+             RE-ROLL, behind the expand too. Collapse re-hides symmetrically
+             (no sticky state). Same handlers, gates, and URLs — render
+             location only. Mode-independent by design — the anchor is the
+             snapped subject, so its verbs never flip with the pills. */
           verbLeft={
             anchorIsHealthMedical ? undefined : anchorIsMedia ? (
               <TrailerVerb name={result.detected_item.name} />
-            ) : (
+            ) : anchorOpen ? (
               showMeVerb
-            )
+            ) : undefined
           }
           verbMiddle={
             anchorIsHealthMedical ? undefined : anchorIsMedia ? (
-              <WhereToWatchVerb name={result.detected_item.name} />
+              anchorOpen ? (
+                <WhereToWatchVerb name={result.detected_item.name} />
+              ) : undefined
             ) : usesGetRecipes ? (
               recipeButton(result.detected_item.name)
-            ) : (
+            ) : anchorOpen ? (
               <a
                 href={whereToBuyUrl}
                 target="_blank"
@@ -1088,10 +1095,10 @@ const RekSnapResults: React.FC<Props> = ({
               >
                 Buy
               </a>
-            )
+            ) : undefined
           }
           verbRight={
-            anchorIsHealthMedical ? undefined : (
+            anchorIsHealthMedical || !anchorOpen ? undefined : (
               <button onClick={handleAnchorReroll} className="hover:underline">
                 + More like this
               </button>
