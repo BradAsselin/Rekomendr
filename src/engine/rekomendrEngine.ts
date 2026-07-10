@@ -553,6 +553,24 @@ function buildAIPrompt(args: {
   .filter(Boolean)
   .slice(-100);
 
+  // Long-tier spec, split by category: Movies/TV/Books earn a 3-4 sentence
+  // payoff (the expanded card is the read moment — what it is, who it's
+  // for, why this searcher's line points at it), under the same no-spoiler
+  // rule as short. Wine keeps its original one-sentence blurb, verbatim.
+  const mediaLong =
+    category === "Movies" || category === "TV Shows" || category === "Books";
+  const longFormat = mediaLong
+    ? "3-4 sentences: what it is, who it is for, and why this searcher's line points at it — deepening short's angle, setup only."
+    : "One sentence explaining why it is worth watching (Rotten Tomatoes style).";
+  const longRules = mediaLong
+    ? `- long must be 3-4 sentences doing three jobs: what it is, who it is for, and why THIS searcher's line points at it.
+- long must DEEPEN the angle short established — never paraphrase or re-say short in different words.
+- NO SPOILERS in long: same rule as short — setup only, never a twist, a turn, or an ending.`
+    : "- long must be ONE sentence explaining why it is worth watching.";
+  const longFitRule = mediaLong
+    ? "- long = what it is, who it is for, and why it fits this search."
+    : "- long = why it fits.";
+
   const categoryInstructions: Record<Category, string> = {
     Movies:
       "Recommend real movies only. No fake or invented films. Prefer discoverable, vibe-matching films over obvious catalog filler unless the context points there.",
@@ -585,7 +603,7 @@ ${backfill ? `{ "results": [` : "["}
     "title": "Example Title",
     "year": 2014,
     "short": "Two sentences: a characterized role + their wildly specific premise, then the complication — from the SETUP only, never a twist.",
-    "long": "One sentence explaining why it is worth watching (Rotten Tomatoes style).",
+    "long": "${longFormat}",
     "genre": "Comedy • Drama",
     "vibeTags": ["Witty", "Heartfelt"],
     "trailerUrl": "https://www.youtube.com/results?search_query=Example%20Title%20trailer"
@@ -600,12 +618,12 @@ Rules:
 - For Wine, short is exactly two sentences. Sentence 1 MUST open by placing the wine on dry vs. sweet, then signature notes in concrete decision words (grapefruit, grassy, oaky, buttery). Sentence 2: a concrete moment or contrast — when it shines and when it doesn't. End on a concrete noun. Never a mood, never an 'experience', never a recommendation.
 - RIGHT: 'Dry and citrus-led — grapefruit and lime over a subtle grassy edge. Built for a hot afternoon more than a rich dinner.'
 - WRONG: 'A crisp, refreshing white perfect for those who enjoy lighter wines.' (never places it on dry vs. sweet; perfect-for filler)
-- long must be ONE sentence explaining why it is worth watching.
+${longRules}
 - write in plain English, like a smart human curator.
 - avoid critic language, film-school jargon, and review-speak.
 - avoid starting descriptions with "The story of..."
 - prefer strong but less obvious titles over the most famous mainstream picks when possible.
-- long = why it fits.
+${longFitRule}
 - avoid repeating the same very famous titles across different searches.
 
 Rules:

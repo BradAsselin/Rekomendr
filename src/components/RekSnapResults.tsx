@@ -10,6 +10,7 @@ import {
 } from "../lib/categoryGates";
 import { recordSnapSignal, type SnapMode } from "../lib/reksnapSignals";
 import { compensatedCommit } from "../lib/scrollCompensation";
+import { TrailerVerb, WhereToWatchVerb } from "./MediaVerbs";
 import RekCard from "./RekCard";
 import RekSkeleton, { RekSkeletonCard } from "./RekSkeleton";
 import RekTrail, { TrailRow } from "./RekTrail";
@@ -621,19 +622,28 @@ const RekSnapResults: React.FC<Props> = ({
 
   // Completion verbs are pure link handoffs — same YouTube-search pattern as
   // trailers/recipes, and neutral Google searches for where-to-buy /
-  // where-to-watch. No availability lookup, no affiliate logic.
+  // where-to-watch. No availability lookup, no affiliate logic. The media
+  // pair (Trailer + Where-to-watch) lives in shared MediaVerbs components,
+  // which the search lane's expanded cards render too.
   const showMeHowUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(
     `how to use ${result.detected_item.name}`
   )}`;
   const whereToBuyUrl = `https://www.google.com/search?tbm=shop&q=${encodeURIComponent(
     result.detected_item.name
   )}`;
-  const trailerUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(
-    `${result.detected_item.name} trailer`
-  )}`;
-  const whereToWatchUrl = `https://www.google.com/search?q=${encodeURIComponent(
-    `where to watch ${result.detected_item.name}`
-  )}`;
+
+  // The LEFT-zone ▶ video verb for non-media anchors ("Show me" — the verb
+  // truncates, the ▶ and the how-to-use URL stay).
+  const showMeVerb = (
+    <a
+      href={showMeHowUrl}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="hover:underline flex items-center gap-1"
+    >
+      <span>▶</span> Show me
+    </a>
+  );
 
   return (
     <div className="w-full flex flex-col items-center px-4 pt-2 pb-14 select-none">
@@ -666,64 +676,37 @@ const RekSnapResults: React.FC<Props> = ({
           onThumbUp={() => toggleThumb(result.detected_item.name, "like")}
           onThumbDown={() => toggleThumb(result.detected_item.name, "dislike")}
           onSave={() => handleSave(result.detected_item.name)}
-          completionActions={
-            /* Anchor verbs follow the SAME category gates as the rek cards
-               (categoryGates.ts) so the two can never drift: health/medical
-               → none; media → Trailer + Where-to-watch; recipe-gate pass
-               (food/drink/alcohol, the rek cards' usesGetRecipes verbatim)
-               → View recipe + Show-me-how; products → Show-me-how +
-               Where-to-buy. Mode-independent by design — the anchor is the
-               snapped subject, so its verbs never flip with the pills. */
+          /* Anchor verbs follow the SAME category gates as the rek cards
+             (categoryGates.ts) so the two can never drift, now in fixed
+             zones: health/medical → nothing at all; LEFT (▶ video verb) =
+             Trailer for media, Show-me otherwise; MIDDLE (completion verb)
+             = Where-to-watch for media, View-recipe on a recipe-gate pass
+             (food/drink/alcohol, the rek cards' usesGetRecipes verbatim),
+             else Where-to-buy. RIGHT stays empty-reserved on every snap
+             card — no MLT plumbing exists in this lane. Mode-independent by
+             design — the anchor is the snapped subject, so its verbs never
+             flip with the pills. */
+          verbLeft={
             anchorIsHealthMedical ? undefined : anchorIsMedia ? (
-              <>
-                <a
-                  href={trailerUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="hover:underline flex items-center gap-1"
-                >
-                  <span>▶</span> Trailer
-                </a>
-                <a
-                  href={whereToWatchUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="hover:underline"
-                >
-                  Where to watch
-                </a>
-              </>
-            ) : usesGetRecipes ? (
-              <>
-                {recipeButton(result.detected_item.name)}
-                <a
-                  href={showMeHowUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="hover:underline flex items-center gap-1"
-                >
-                  <span>▶</span> Show me how
-                </a>
-              </>
+              <TrailerVerb name={result.detected_item.name} />
             ) : (
-              <>
-                <a
-                  href={showMeHowUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="hover:underline flex items-center gap-1"
-                >
-                  <span>▶</span> Show me how
-                </a>
-                <a
-                  href={whereToBuyUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="hover:underline"
-                >
-                  Where to buy
-                </a>
-              </>
+              showMeVerb
+            )
+          }
+          verbMiddle={
+            anchorIsHealthMedical ? undefined : anchorIsMedia ? (
+              <WhereToWatchVerb name={result.detected_item.name} />
+            ) : usesGetRecipes ? (
+              recipeButton(result.detected_item.name)
+            ) : (
+              <a
+                href={whereToBuyUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="hover:underline"
+              >
+                Buy
+              </a>
             )
           }
         />
@@ -751,10 +734,19 @@ const RekSnapResults: React.FC<Props> = ({
                   onThumbUp={() => toggleThumb(entry.rek.name, "like")}
                   onThumbDown={() => handleDislikeFromTrail(entry.rek.name)}
                   onSave={() => handleSave(entry.rek.name)}
-                  completionActions={
-                    entry.mode === "uses" && usesGetRecipes
-                      ? recipeButton(entry.rek.name)
-                      : undefined
+                  /* Media reks carry their verbs into the trail; recipe
+                     push-through keeps its ORIGIN mode. RIGHT reserved. */
+                  verbLeft={
+                    anchorIsMedia ? (
+                      <TrailerVerb name={entry.rek.name} />
+                    ) : undefined
+                  }
+                  verbMiddle={
+                    anchorIsMedia ? (
+                      <WhereToWatchVerb name={entry.rek.name} />
+                    ) : entry.mode === "uses" && usesGetRecipes ? (
+                      recipeButton(entry.rek.name)
+                    ) : undefined
                   }
                 />
               </TrailRow>
@@ -825,10 +817,20 @@ const RekSnapResults: React.FC<Props> = ({
                     ? "opacity-0 translate-x-3 scale-[0.97]" // dismissed sideways
                     : "opacity-100",
                 ].join(" ")}
-                completionActions={
-                  activeMode === "uses" && usesGetRecipes
-                    ? recipeButton(rek.name)
-                    : undefined
+                /* Media anchors give every rek card always-visible media
+                   verbs (the reks ARE movies/shows); otherwise the only
+                   verb is uses-mode recipe push-through, in the MIDDLE
+                   completion zone. RIGHT stays empty-reserved — no MLT in
+                   this lane. */
+                verbLeft={
+                  anchorIsMedia ? <TrailerVerb name={rek.name} /> : undefined
+                }
+                verbMiddle={
+                  anchorIsMedia ? (
+                    <WhereToWatchVerb name={rek.name} />
+                  ) : activeMode === "uses" && usesGetRecipes ? (
+                    recipeButton(rek.name)
+                  ) : undefined
                 }
               />
             </div>

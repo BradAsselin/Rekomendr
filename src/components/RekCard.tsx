@@ -1,23 +1,23 @@
 "use client";
 
 import React from "react";
-import { Heart } from "lucide-react";
 
 import { useSwipeToAction } from "../lib/useSwipeToAction";
 import SignalButtons from "./SignalButtons";
 
 // One shared presentational rek card — the single skeleton both lanes render
-// onto (snap-origin and search-origin). Four zones:
-//   1. Top row: optional genre/category line, then title (+ year) left,
-//      optional #rank + thumbs right.
+// onto (snap-origin and search-origin). Three zones:
+//   1. Top row: optional genre/category line, then title (+ year) left —
+//      the title doubles as the details toggle — and the verdict cluster
+//      right: optional #rank, Save (icon-only bookmark), then thumbs. Save
+//      is the single keep verb on every card, both lanes.
 //   2. Description: `short`, with a "Show details" expander when `long`
 //      exists (search cards arrive with it) or when the parent marks the card
 //      `expandable` and lazy-loads `long` on first expand (snap anchor).
-//   3. Bottom-left (affinity): Save, plus heart/favorite when the lane
-//      supports it (search only for now).
-//   4. Bottom-right (completion verb): whatever the parent passes — search
-//      sends "+ More like this" + "Trailer", snap food-uses sends
-//      "View recipe ›".
+//   3. Bottom verb row, three FIXED zones: LEFT = the ▶ video verb
+//      (Show me / Trailer), MIDDLE = the category completion verb
+//      (View recipe / Where to watch / Where to buy), RIGHT = "+ More like
+//      this" — search lane only; snap cards leave it empty-reserved.
 // NO signal logic lives here. Parents own handlers and pipelines — both lanes
 // share the gesture grammar (thumbs-up marks in place + toggles, thumbs-down
 // dismisses + backfills, Save marks) but keep their own write paths:
@@ -27,8 +27,6 @@ type Props = {
   title: string;
   // Appended as "(year)" when present (search cards have it, snap doesn't).
   year?: number;
-  // When set, the title renders as an external link (search's Google link).
-  titleHref?: string;
   // Rendered above the title row (search's DescriptorLine). Omit for snap.
   genreLine?: React.ReactNode;
   // Snap cards show their list position next to the thumbs.
@@ -54,11 +52,11 @@ type Props = {
   onThumbUp: () => void;
   onThumbDown: () => void;
   onSave: () => void;
-  // Heart renders only when the lane provides a handler.
-  onHeart?: () => void;
-  isFavorite?: boolean;
-  // Bottom-right completion-verb slot.
-  completionActions?: React.ReactNode;
+  // The three fixed verb zones (see header). Zones hold their position even
+  // when neighbors are empty; the row renders only if at least one is set.
+  verbLeft?: React.ReactNode;
+  verbMiddle?: React.ReactNode;
+  verbRight?: React.ReactNode;
   // Emphasized chrome for the snap detected-item card.
   accent?: boolean;
   // Touch-only swipe: a committed swipe in EITHER direction fires
@@ -75,7 +73,6 @@ type Props = {
 const RekCard: React.FC<Props> = ({
   title,
   year,
-  titleHref,
   genreLine,
   rank,
   short,
@@ -89,9 +86,9 @@ const RekCard: React.FC<Props> = ({
   onThumbUp,
   onThumbDown,
   onSave,
-  onHeart,
-  isFavorite,
-  completionActions,
+  verbLeft,
+  verbMiddle,
+  verbRight,
   accent,
   swipeable,
   className,
@@ -127,17 +124,23 @@ const RekCard: React.FC<Props> = ({
     >
       {genreLine}
 
-      {/* TITLE + THUMBS */}
+      {/* TITLE + THUMBS — the title is the expand toggle wherever a long
+          tier exists (or will lazy-load), unified across both lanes. Cards
+          with no long tier keep a plain, non-tappable title. */}
       <div className="flex justify-between items-start mb-2">
-        {titleHref ? (
-          <a
-            href={titleHref}
-            target="_blank"
-            rel="noopener noreferrer"
-            className={`font-semibold ${accent ? "text-lg" : "text-[17px]"} hover:underline`}
+        {(long || expandable) && onToggleDetails ? (
+          <button
+            type="button"
+            onClick={(e) => {
+              // Inside a trail row the card body is tap-to-collapse; the
+              // title toggle must not double as a collapse.
+              e.stopPropagation();
+              onToggleDetails();
+            }}
+            className={`font-semibold ${accent ? "text-lg" : "text-[17px]"} text-left hover:underline`}
           >
             {titleText}
-          </a>
+          </button>
         ) : (
           <span className={`font-semibold ${accent ? "text-lg" : "text-[17px]"}`}>
             {titleText}
@@ -155,6 +158,16 @@ const RekCard: React.FC<Props> = ({
               #{rank}
             </span>
           )}
+          {/* Save sits left of the thumbs with widened spacing (mr-2 on top
+              of the cluster gap ≈ 16px) — adjacent verdicts, never crowding
+              the thumb-up. */}
+          <SignalButtons
+            variant="save"
+            iconOnly
+            current={saved ? "save" : undefined}
+            onSignal={() => onSave()}
+            className="mr-2"
+          />
           <SignalButtons
             variant="thumbs"
             current={thumbSignal ?? undefined}
@@ -210,38 +223,19 @@ const RekCard: React.FC<Props> = ({
         </p>
       )}
 
-      {/* AFFINITY (left) + COMPLETION VERBS (right) */}
-      <div
-        className="mt-3 flex items-center justify-between"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center gap-4">
-          <SignalButtons
-            variant="save"
-            current={saved ? "save" : undefined}
-            onSignal={() => onSave()}
-            className="flex items-center gap-4 text-sm text-gray-700"
-          />
-          {onHeart && (
-            <button
-              onClick={onHeart}
-              className="p-1 rounded-full border border-gray-300 text-gray-500 hover:text-gray-700 hover:border-gray-500 transition"
-            >
-              <Heart
-                size={18}
-                strokeWidth={1.6}
-                fill={isFavorite ? "#666666" : "none"}
-              />
-            </button>
-          )}
+      {/* COMPLETION VERBS — three fixed zones. A grid keeps each verb's
+          position stable when neighbors are empty; the row disappears
+          entirely only when all three are (health/medical: zero verbs). */}
+      {(verbLeft || verbMiddle || verbRight) && (
+        <div
+          className="mt-3 grid grid-cols-3 items-center text-sm text-gray-700"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex justify-start">{verbLeft}</div>
+          <div className="flex justify-center">{verbMiddle}</div>
+          <div className="flex justify-end">{verbRight}</div>
         </div>
-
-        {completionActions && (
-          <div className="flex items-center gap-4 text-sm text-gray-700">
-            {completionActions}
-          </div>
-        )}
-      </div>
+      )}
     </div>
   );
 };

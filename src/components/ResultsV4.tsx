@@ -4,6 +4,7 @@ import React, { useEffect, useState, useRef } from "react";
 import { Play } from "lucide-react";
 
 import DescriptorLine from "./DescriptorLine";
+import { TrailerVerb, WhereToWatchVerb } from "./MediaVerbs";
 import RekCard from "./RekCard";
 import RekSkeleton, { RekSkeletonCard } from "./RekSkeleton";
 import RekTrail, { TrailRow } from "./RekTrail";
@@ -19,6 +20,11 @@ import { recordLike } from "../lib/userPrefs";
 
 // Descriptor typing
 import type { RekCategory } from "../lib/descriptors";
+
+// Media gate — same set the snap lane's anchor verbs use, so the two lanes
+// can never drift. "movies" and "tv shows" are exact members; Books/Wine
+// are not, so they get no media verbs (retiring the old Wine-Trailer wart).
+import { MEDIA_CATEGORIES } from "../lib/categoryGates";
 
 // UI-facing category labels
 type Category = "Movies" | "TV Shows" | "Books" | "Wine";
@@ -164,29 +170,9 @@ const ResultsV4: React.FC<ResultsProps> = ({
       return;
     }
 
-    const normalized = incomingReks.map((r) => ({
-      ...r,
-      isFavorite: r.isFavorite ?? false,
-    }));
-
-    setReks(normalized);
-    animateIn(normalized.map((r) => r.id));
+    setReks(incomingReks);
+    animateIn(incomingReks.map((r) => r.id));
   }, [incomingReks]);
-
-  /* -----------------------------
-   * FAVORITE TOGGLE
-   * ----------------------------- */
-  const toggleFavorite = (rekId: number) => {
-    const toggle = (list: Rek[]) =>
-      list.map((r) =>
-        r.id === rekId ? { ...r, isFavorite: !r.isFavorite } : r
-      );
-
-    setReks((prev) => toggle(prev));
-    setSaved((prev) => toggle(prev));
-    // Graduated cards live in the trail — the heart must reach them too.
-    setTrail((prev) => toggle(prev));
-  };
 
   /* -----------------------------
    * BACKFILL — CATEGORY EXPLICIT
@@ -228,10 +214,7 @@ const ResultsV4: React.FC<ResultsProps> = ({
         // parks the list at capacity and this guard declines.
         if (prev.length >= 5) return prev;
 
-        const updated = [
-          ...prev,
-          { ...next, isFavorite: next.isFavorite ?? false },
-        ];
+        const updated = [...prev, next];
 
         animateIn(updated.map((r) => r.id));
         return updated;
@@ -463,17 +446,11 @@ const ResultsV4: React.FC<ResultsProps> = ({
   const toggleTopExpand = (id: number) =>
     setExpandedTop((prev) => (prev === id ? null : id));
 
-  /* -----------------------------
-   * TRAILER OPEN
-   * ----------------------------- */
-  const openTrailer = (rek: Rek) => {
-    const url =
-      rek.trailerUrl ||
-      `https://www.youtube.com/results?search_query=${encodeURIComponent(
-        rek.title + " trailer"
-      )}`;
-    window.open(url, "_blank");
-  };
+  // Media completion verbs (Trailer + Where-to-watch) belong to the
+  // EXPANDED card — the read moment — and only for screen media. Same
+  // gate as the snap anchor's verbs (categoryGates.ts), evaluated once:
+  // the whole result set shares one category.
+  const isMedia = MEDIA_CATEGORIES.has(category.toLowerCase());
 
   return (
     <div className="w-full flex flex-col items-center px-4 pt-2 pb-14 select-none">
@@ -516,7 +493,7 @@ const ResultsV4: React.FC<ResultsProps> = ({
               the results. Tapping a row expands it in place to a full
               RekCard. Trail cards never get `swipeable` (keep-protection
               is structural) and never get "+ More like this" (no chaining
-              from the trail); Trailer and the heart stay. */}
+              from the trail); the media verbs (on expanded details) stay. */}
           {trail.length > 0 && (
             <RekTrail>
               {trail.map((rek) => (
@@ -536,9 +513,6 @@ const ResultsV4: React.FC<ResultsProps> = ({
                     }
                     title={rek.title}
                     year={rek.year}
-                    titleHref={`https://www.google.com/search?q=${encodeURIComponent(
-                      `${rek.title} ${rek.year}`
-                    )}`}
                     short={rek.short}
                     long={rek.long}
                     detailsOpen={expandedTop === rek.id}
@@ -550,15 +524,17 @@ const ResultsV4: React.FC<ResultsProps> = ({
                     onThumbUp={() => handleLike(rek)}
                     onThumbDown={() => handleDislikeFromTrail(rek)}
                     onSave={() => handleSave(rek)}
-                    onHeart={() => toggleFavorite(rek.id)}
-                    isFavorite={!!rek.isFavorite}
-                    completionActions={
-                      <button
-                        onClick={() => openTrailer(rek)}
-                        className="hover:underline flex items-center gap-1"
-                      >
-                        <span>▶</span> Trailer
-                      </button>
+                    /* Media verbs stay expansion-gated in this lane; RIGHT
+                       stays empty — no chaining from the trail. */
+                    verbLeft={
+                      isMedia && expandedTop === rek.id ? (
+                        <TrailerVerb name={rek.title} href={rek.trailerUrl} />
+                      ) : undefined
+                    }
+                    verbMiddle={
+                      isMedia && expandedTop === rek.id ? (
+                        <WhereToWatchVerb name={rek.title} />
+                      ) : undefined
                     }
                   />
                 </TrailRow>
@@ -574,7 +550,6 @@ const ResultsV4: React.FC<ResultsProps> = ({
           {reks.map((rek, index) => {
           const isVisible = visibleIds.includes(rek.id);
           const isExiting = exiting === rek.id;
-          const isFavorite = !!rek.isFavorite;
 
           return (
             <div
@@ -590,9 +565,6 @@ const ResultsV4: React.FC<ResultsProps> = ({
                 }
                 title={rek.title}
                 year={rek.year}
-                titleHref={`https://www.google.com/search?q=${encodeURIComponent(
-                  `${rek.title} ${rek.year}`
-                )}`}
                 short={rek.short}
                 long={rek.long}
                 detailsOpen={expandedTop === rek.id}
@@ -608,24 +580,26 @@ const ResultsV4: React.FC<ResultsProps> = ({
                 onThumbUp={() => handleLike(rek)}
                 onThumbDown={() => handleDislike(rek)}
                 onSave={() => handleSave(rek)}
-                onHeart={() => toggleFavorite(rek.id)}
-                isFavorite={isFavorite}
-                completionActions={
-                  <>
-                    <button
-                      onClick={() => handleMoreLikeThis(rek)}
-                      className="hover:underline"
-                    >
-                      + More like this
-                    </button>
-
-                    <button
-                      onClick={() => openTrailer(rek)}
-                      className="hover:underline flex items-center gap-1"
-                    >
-                      <span>▶</span> Trailer
-                    </button>
-                  </>
+                /* Media verbs stay expansion-gated in this lane (logic
+                   unchanged, position only); MLT is the RIGHT chain verb —
+                   search lane only, where its plumbing lives. */
+                verbLeft={
+                  isMedia && expandedTop === rek.id ? (
+                    <TrailerVerb name={rek.title} href={rek.trailerUrl} />
+                  ) : undefined
+                }
+                verbMiddle={
+                  isMedia && expandedTop === rek.id ? (
+                    <WhereToWatchVerb name={rek.title} />
+                  ) : undefined
+                }
+                verbRight={
+                  <button
+                    onClick={() => handleMoreLikeThis(rek)}
+                    className="hover:underline"
+                  >
+                    + More like this
+                  </button>
                 }
                 className={[
                   migrating === rek.id

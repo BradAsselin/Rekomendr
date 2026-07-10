@@ -13,9 +13,12 @@ type Props = {
   variant: "thumbs" | "save";
   current?: SnapSignalAction;
   onSignal: (action: SnapSignalAction) => void;
-  // Overrides the default wrapper classes. RekCard places the save variant
-  // inside its own bottom flex row, where the default mt-3 would misalign it;
-  // all other callers omit this and render exactly as before.
+  // Icon-only save: the bookmark renders as a round-border chip — the same
+  // treatment as the thumbs — for RekCard's top verdict cluster. Default
+  // off, so the recipe modal keeps its labeled Save unchanged.
+  iconOnly?: boolean;
+  // Overrides the default wrapper classes (labeled save), or appends to the
+  // chip classes (iconOnly — RekCard threads extra spacing here).
   className?: string;
 };
 
@@ -33,6 +36,7 @@ const SignalButtons: React.FC<Props> = ({
   variant,
   current,
   onSignal,
+  iconOnly,
   className,
 }) => {
   if (variant === "thumbs") {
@@ -63,6 +67,26 @@ const SignalButtons: React.FC<Props> = ({
           />
         </button>
       </div>
+    );
+  }
+
+  if (iconOnly) {
+    // Chip treatment matches the thumbs exactly; active uses the bookmark's
+    // established muted-dark fill (same family as the active thumb-down).
+    const active = current === "save";
+    return (
+      <button
+        onClick={() => onSignal("save")}
+        className={[
+          thumbClass(active, "border-gray-700 text-gray-700"),
+          className ?? "",
+        ]
+          .join(" ")
+          .trim()}
+        aria-label={active ? "Saved" : "Save"}
+      >
+        <Bookmark size={18} fill={active ? "#374151" : "none"} />
+      </button>
     );
   }
 

@@ -190,10 +190,9 @@ const SearchBar: React.FC<SearchBarProps> = ({
     setLastSearchMode("categoryOnly");
     setLastTypedSeed("");
 
-    // Immediate search on category select (empty query valid). Picking a
-    // category is a deliberate act — routes AI; pool is Play-only.
-    const q = buildQuery(c, null, "", "ai");
-    startSearch(q, c);
+    // No auto-search: switching category only re-aims the bar. The user
+    // types (or picks a lane via +) and GO fires the search — until then
+    // the previous category's results stay on screen, accepted.
   };
 
   const handleSelectClarifier = (c: string) => {
