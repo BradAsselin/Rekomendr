@@ -560,15 +560,23 @@ function buildAIPrompt(args: {
   const mediaLong =
     category === "Movies" || category === "TV Shows" || category === "Books";
   const longFormat = mediaLong
-    ? "3-4 sentences: what it is, who it is for, and why this searcher's line points at it — deepening short's angle, setup only."
+    ? "3-4 sentences: the setup's concrete situation, the texture, the viewing moment it wins — deepening short's angle, setup only."
     : "One sentence explaining why it is worth watching (Rotten Tomatoes style).";
   const longRules = mediaLong
-    ? `- long must be 3-4 sentences doing three jobs: what it is, who it is for, and why THIS searcher's line points at it.
+    ? `- long is EXACTLY 3-4 sentences, one job each:
+  - Sentence 1: the world and the concrete situation the setup drops you into — specifics only this title has.
+  - Sentence 2: the texture — pace, tone, and one vivid element (a performance, a setting, a running device) named concretely.
+  - Sentence 3: the viewing situation it wins, and it MUST be phrased as a situation, not a suitability claim — start it with 'One for...', 'Save it for...', or 'Best on...' ('One for a solo weeknight', 'Save it for a slow Sunday'). NEVER 'perfect/ideal/great/made for', never a type of person ('fans of...', 'those who enjoy...').
+  - Optional sentence 4: what to expect going in — honest texture (slow burn, talky, violent), the friend-warning a trailer won't give.
 - long must DEEPEN the angle short established — never paraphrase or re-say short in different words.
-- NO SPOILERS in long: same rule as short — setup only, never a twist, a turn, or an ending.`
+- NO SPOILERS in long: setup only, never a twist, a turn, or an ending.
+- Decision rule: if a phrase could describe half of all movies, delete it and say something only this title earns.
+- BAN in any construction: 'heartwarming', 'a journey of', 'refreshing take', 'must-watch', 'a rollercoaster', 'keeps you on the edge of your seat', 'perfect for', 'fans of', 'those who enjoy', 'explores themes of', 'a testament to', 'resonates', 'ideal for', 'great for', 'lingers long after', 'stays with you'.
+- RIGHT (fictional title, for shape only): 'A night-shift tollbooth operator starts finding handwritten confessions taped inside returned toll baskets and becomes obsessed with identifying the writers. It moves slowly and quietly, most of it shot inside the booth, carried by one wary, wordless lead performance. One for a solo weeknight when you want something small that sticks. Expect long silences — it trusts you to sit in them.'
+- WRONG (same shape of title): 'A heartwarming journey of connection that explores themes of loneliness. A refreshing take on the mystery genre, perfect for fans of slow cinema. A must-watch that resonates long after.' (could describe five hundred films; three banned constructions; names nothing this title owns)`
     : "- long must be ONE sentence explaining why it is worth watching.";
   const longFitRule = mediaLong
-    ? "- long = what it is, who it is for, and why it fits this search."
+    ? "- long, sentence 1 or 2, should tilt its specifics toward the searcher's line where it's natural — the same premise reads differently after a 'funny feel-good' search than after a 'dark thriller' search. Never announce the fit ('since you searched...', 'if you're looking for...'); let the chosen specifics carry it."
     : "- long = why it fits.";
 
   const categoryInstructions: Record<Category, string> = {
@@ -631,7 +639,6 @@ Rules:
 - It is better to return strong real recommendations than force bad filler.
 - Use plain strings only.
 - year must be numeric.
-- long should feel like a recommendation blurb, not a plot summary dump — and must not repeat short's premise in different words; it earns its place by saying why THIS viewer's search makes it a fit.
 - Keep the set coherent but not repetitive.
 - Do not include any title from the avoid list.
 - ${backfill ? "This is a single replacement/backfill moment after a thumbs action. Give the next best discoveries." : "This is a fresh recommendation set."}
