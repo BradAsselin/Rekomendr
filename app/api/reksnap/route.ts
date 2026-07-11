@@ -230,12 +230,18 @@ async function handleBackfill(backfill: any): Promise<Response> {
 const ANCHOR_DETAIL_PROMPT =
   "You are a taste-aware recommendation engine. The user snapped a photo of the item below and was shown its two-sentence profile. They tapped 'Show details' — write the longer detail that profile expands into.\n" +
   "\n" +
-  "Write ONE paragraph of 3 to 5 sentences that DEEPENS the displayed profile — same item, same voice, more depth.\n" +
-  "HARD RULE — same axis: the displayed profile opened by placing the item on its category's primary axis (wine = dry vs. sweet; whiskey = smoky vs. smooth; coffee = light vs. dark roast; tools = strength, speed, what it works on). Keep that EXACT placement and extend it: finer notes along the same axis, how it sits against one or two close neighbors in its category, one more concrete moment it fits. NEVER re-characterize on a different axis, never contradict the profile, never restate its sentences in other words — the user just read them.\n" +
+  "Write ONE sentence per job below — 3 sentences, or 4 only if the optional job earns it. Never more. One paragraph.\n" +
+  "- Sentence 1: extend the profile's primary-axis placement (wine = dry vs. sweet; whiskey = smoky vs. smooth; coffee = light vs. dark roast; tools = strength, speed, what it works on) with finer CONCRETE decision words (grapefruit pith, char, bond strength) — never re-characterize on a different axis, never contradict the profile. When the axis is a two-camp fork, NAME the side outright even if the profile only implied it — for whisky, say whether there is peat/smoke ('no peat here' / 'gently peated'); the reader may not know that 'smooth' means unpeated.\n" +
+  "- Sentence 2: place it against one or two NAMED close neighbors in its category — how it differs, in plain decision words.\n" +
+  "- Sentence 3: one concrete moment or pairing where it wins.\n" +
+  "- Optional sentence 4: where a neighbor wins instead.\n" +
+  "The FINAL WORD of the paragraph must be a concrete noun — a food, a moment, a place, a task. Never end on a verb phrase or a mood.\n" +
+  "NEVER repeat the item's name — the title sits directly above this text.\n" +
+  "NEVER restate the profile's sentences in other words — the user just read them.\n" +
+  "Decision rule: if a phrase could describe half the category, delete it and say something only this item earns. This is a friend talking across a table, not a magazine review.\n" +
+  "BAN these in any construction: 'perfect for', 'ideal for', 'great choice', 'a classic X', 'crowd-pleaser', 'known for', 'gentle caress', 'elegance', 'notes unfold', 'refreshing experience'.\n" +
   "- RIGHT (profile said 'Dry and citrus-led — grapefruit and lime...'): 'The dryness runs bone-deep — no residual sugar rounding the citrus, which leans grapefruit pith more than juice. Next to a typical Marlborough pour it drinks leaner and flintier, with a saline edge on the finish. It holds up to oysters or a goat-cheese salad where a riper style would turn syrupy.' (extends dry + citrus, adds neighbors and a concrete moment)\n" +
-  "- WRONG (same profile): 'A rich, tropical wine with ripe passionfruit and a smooth, rounded finish that many fans consider a classic.' (re-rolls the characterization on a different axis and contradicts the profile on screen)\n" +
-  "BAN category-membership filler AND recommendation-voice padding: 'a classic X', 'a popular Y', 'known for', 'crowd-pleaser', 'wide appeal', 'well-balanced', 'perfect for', 'ideal for', 'great choice', 'refreshing experience' in ANY construction. If a phrase could describe half the category, it fails.\n" +
-  "End on a concrete noun — a food, a moment, a place, a task. No trailing clause after the concrete content.\n" +
+  "- WRONG (profile said 'Smooth and slightly sweet, with notes of vanilla, honey, and a hint of fruitiness'): 'Its silky texture glides across the palate, enhanced by a subtle sweetness akin to clover honey. The vanilla notes are gentle yet persistent, rounding out the soft edges with a comforting warmth... its understated elegance complements without overwhelming.' (nearly double the allowed length; tasting-poetry that could describe fifty bottles; opens by repeating the item's name; never names a neighbor; ends on a mood, not a noun)\n" +
   "\n" +
   'Return JSON only, in this exact shape: { "long": string }';
 
