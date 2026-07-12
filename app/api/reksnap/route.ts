@@ -574,6 +574,20 @@ const CHAIN_MODE_TASK: Record<string, string> = {
     "FIVE items that serve a related but DIFFERENT need than the detected item.",
 };
 
+// Steer-only lane tasks: the lane must point the same way as the CATEGORY
+// FRAME in the steer user message — at the direction being pursued, not the
+// anchor — or the two rules resolve unpredictably. The reroll keeps
+// CHAIN_MODE_TASK verbatim (a reroll IS the anchor's second throw), and
+// uses-mode still names the detected item as the thing being used.
+const CHAIN_STEER_MODE_TASK: Record<string, string> = {
+  similar:
+    "FIVE options that are LIKE the direction being pursued — alternatives to consider.",
+  uses:
+    "FIVE ways to USE the detected item — recipes, pairings, cocktails, or applications — steered toward the direction being pursued.",
+  alternatives:
+    "FIVE items that serve a related but DIFFERENT need, continuing the direction being pursued.",
+};
+
 const CHAIN_SET_SHAPE =
   'Return JSON only, in this exact shape: { "reks": [ { "name": string, "description": string } ] } — exactly 5 items.';
 
@@ -582,7 +596,7 @@ const buildChainSteerPrompt = (mode: string) => {
   return (
     "You are a taste-aware recommendation engine. The user snapped a photo, the item below was detected, and they have been steering the results. They tapped '+ More like this' on one recommendation — the CHAINED ITEM below. Generate five fresh recommendations pursuing that direction.\n" +
     "\n" +
-    `The lane: recommend exactly ${CHAIN_MODE_TASK[mode]}\n` +
+    `The lane: recommend exactly ${CHAIN_STEER_MODE_TASK[mode]}\n` +
     "\n" +
     "THE LINE — core rule: the ANCHOR (detected item) is the origin point; the CHAINED ITEM is where the user walked to. Two points make a line — EXTRAPOLATE it, do not average it. The five new options live BEYOND the chained item in the direction it points away from the anchor, never between the two points.\n" +
     "- RIGHT: anchor is an oaky Napa Cabernet, chained item is a Rioja Reserva → continue toward Old-World structure: Tempranillo crianzas, Brunello, aged Douro reds — leaner and more savory, further from Napa.\n" +
@@ -725,12 +739,18 @@ async function handleChain(chain: any): Promise<Response> {
         (typeof item.description === "string" && item.description
           ? `Its signature profile: ${item.description}\n`
           : "") +
-        (category ? `Category: ${category}\n` : "") +
         `DIRECTION (line endpoint — newest chained item): ${chained.name}` +
         (typeof chained.description === "string" && chained.description
           ? ` — ${chained.description}`
           : "") +
         "\n" +
+        // The anchor's category is a starting point, never a fence: the
+        // chained item may have walked the session out of it (cognac →
+        // Glenlivet), and asserting the anchor category as the sole frame
+        // made the model extrapolate inside the wrong category.
+        (category
+          ? `CATEGORY FRAME: The session began with ${item.name} (${category}). The user has since walked to ${chained.name} — which may sit inside, adjacent to, or outside that starting category. Identify what the chained item actually IS from its name, and extrapolate in ITS category and direction. The starting category describes where the session began, not where it must stay.\n`
+          : "") +
         (chainedOrigin === "trail"
           ? "Chain origin: TRAIL — the user had already KEPT this item, then chose to pursue it. Verdict + pursuit: treat this direction as strongly confirmed (double weight).\n"
           : "Chain origin: FRONTIER — pursued directly from the fresh set. Single weight.\n") +
