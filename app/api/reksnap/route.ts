@@ -1,4 +1,5 @@
 import OpenAI from "openai";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { HEALTH_MEDICAL_CATEGORIES } from "../../../src/lib/categoryGates";
 
@@ -191,6 +192,23 @@ async function handleBackfill(backfill: any): Promise<Response> {
     return Response.json({ error: "Bad backfill request" }, { status: 400 });
   }
 
+  // Cross-session shading (raced, fail-soft): category-scoped prior
+  // dislikes, with everything the session already frames stripped out.
+  const clientId = cleanClientId(backfill?.clientId);
+  const prior = clientId
+    ? await racePriorDislikes({
+        clientId,
+        category:
+          typeof item.category === "string" && item.category.trim()
+            ? item.category.trim().toLowerCase()
+            : undefined,
+      })
+    : null;
+  const priorBlock = buildPriorTasteBlock(
+    stripSessionNames(prior, [item.name, ...excludeNames, ...rejectedNames]),
+    false
+  );
+
   const completion = await openai.chat.completions.create({
     model: "gpt-4o",
     temperature: 0.7,
@@ -211,7 +229,7 @@ async function handleBackfill(backfill: any): Promise<Response> {
           `Already shown (do not repeat): ${excludeNames.join(", ") || "(none)"}\n` +
           `REJECTED (user disliked these — avoid them and lean away from their dominant characteristics): ${
             rejectedNames.join(", ") || "(none)"
-          }`,
+          }` + (priorBlock ? `\n${priorBlock}` : ""),
       },
     ],
   });
@@ -342,6 +360,199 @@ async function handleAnchorDetail(anchorDetail: any): Promise<Response> {
 }
 
 // ---------------------------------------------------------------------------
+// PRIOR TASTE — cross-session dislike shading (read-only; Supabase service
+// role). The first true READ of reksnap_signals: this client's prior
+// dislikes in the matching category ride the USER message of every
+// generation path as soft steering — weight, not law. No prompt constant
+// changes, no writes, fail-soft at every step: missing env, query error,
+// timeout, or empty result all mean no block, and the prompt is
+// byte-identical to today's. Every call site goes through racePriorDislikes
+// (200ms cap) — a snap that waits on history would be a regression.
+// ---------------------------------------------------------------------------
+
+const PRIOR_WINDOW_DAYS = 60;
+const PRIOR_MAX_GROUPS = 5;
+const PRIOR_MAX_ITEMS_PER_GROUP = 12;
+
+type PriorDislikeGroup = {
+  category: string;
+  items: { name: string; times: number }[];
+  // Total dislike rows behind the group (drives the graduated opener) —
+  // rows beyond the per-group item cap still count here.
+  total: number;
+};
+
+// Reject junk ids without being precious about format — the client mints
+// anon_<uuid> strings, but anything short or absent just means no history.
+const cleanClientId = (raw: unknown): string | null => {
+  if (typeof raw !== "string") return null;
+  const id = raw.trim();
+  return id.length >= 8 && id.length <= 64 ? id : null;
+};
+
+// supabaseServer throws AT IMPORT TIME when its env vars are missing, so it
+// is only ever loaded dynamically, behind an env check, memoized. A missing
+// secret silently disables shading; it can never 500 a generation.
+let signalsReaderPromise: Promise<SupabaseClient | null> | null = null;
+const getSignalsReader = (): Promise<SupabaseClient | null> => {
+  if (!signalsReaderPromise) {
+    signalsReaderPromise =
+      process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY
+        ? import("../../../src/lib/supabaseServer")
+            .then((m) => m.supabaseServer)
+            .catch(() => null)
+        : Promise.resolve(null);
+  }
+  return signalsReaderPromise;
+};
+
+async function loadPriorDislikes(args: {
+  clientId: string;
+  // Omitted on the vision path — the category is unknown until the model
+  // answers, so all recent groups ride along and the block tells the model
+  // to apply only the group matching what it detects.
+  category?: string;
+}): Promise<PriorDislikeGroup[] | null> {
+  const reader = await getSignalsReader();
+  if (!reader) return null;
+
+  const cutoff = new Date(
+    Date.now() - PRIOR_WINDOW_DAYS * 24 * 60 * 60 * 1000
+  ).toISOString();
+  let query = reader
+    .from("reksnap_signals")
+    .select("item_name, item_category, created_at")
+    .eq("client_id", args.clientId)
+    .eq("action", "dislike")
+    .gte("created_at", cutoff)
+    .order("created_at", { ascending: false })
+    .limit(args.category ? 24 : 60);
+  if (args.category) {
+    // ilike with no wildcards = case-insensitive equality. "wine" vs
+    // "red wine" deliberately does NOT match — near-misses under-shade,
+    // the fail-safe direction for a weight-not-law feature.
+    query = query.ilike("item_category", args.category);
+  }
+  const { data, error } = await query;
+  if (error || !Array.isArray(data)) return null;
+
+  const normalize = (s: string) => s.trim().toLowerCase();
+  // Rows arrive newest-first; insertion order keeps both the group list
+  // and each item list fresh-biased. That window + cap IS the recency
+  // mechanism — old rows age out, no decay math.
+  const groups = new Map<
+    string,
+    Map<string, { name: string; times: number }>
+  >();
+  const totals = new Map<string, number>();
+  for (const row of data) {
+    if (typeof row?.item_name !== "string" || !row.item_name.trim()) continue;
+    const cat =
+      typeof row.item_category === "string" && row.item_category.trim()
+        ? normalize(row.item_category)
+        : "unknown";
+    let items = groups.get(cat);
+    if (!items) {
+      if (groups.size >= PRIOR_MAX_GROUPS) continue;
+      items = new Map();
+      groups.set(cat, items);
+    }
+    totals.set(cat, (totals.get(cat) ?? 0) + 1);
+    const key = normalize(row.item_name);
+    const existing = items.get(key);
+    if (existing) {
+      existing.times += 1;
+    } else if (items.size < PRIOR_MAX_ITEMS_PER_GROUP) {
+      items.set(key, { name: row.item_name.trim().slice(0, 60), times: 1 });
+    }
+  }
+
+  return Array.from(groups.entries()).map(([category, items]) => ({
+    category,
+    items: Array.from(items.values()),
+    total: totals.get(category) ?? items.size,
+  }));
+}
+
+// No double-counting: anything the session already frames (shown, rejected,
+// the anchor itself) leaves the history block entirely — the session
+// speaks, history whispers. Group totals shrink with the strip so the
+// graduated opener can't overclaim from a mostly-stripped group.
+const stripSessionNames = (
+  groups: PriorDislikeGroup[] | null,
+  sessionNames: string[]
+): PriorDislikeGroup[] => {
+  if (!groups) return [];
+  const normalize = (s: string) => s.trim().toLowerCase();
+  const banned = new Set(sessionNames.map(normalize));
+  return groups
+    .map((g) => {
+      const items = g.items.filter((it) => !banned.has(normalize(it.name)));
+      const removed = g.items.reduce(
+        (n, it) => (banned.has(normalize(it.name)) ? n + it.times : n),
+        0
+      );
+      return {
+        category: g.category,
+        items,
+        total: Math.max(items.length, g.total - removed),
+      };
+    })
+    .filter((g) => g.items.length > 0);
+};
+
+// Graduated accumulation language — the bands choose the VERB only, never
+// inclusion or exclusion. No cliffs: one dislike is noise, a pile is a
+// neighborhood.
+const priorOpener = (total: number): string =>
+  total <= 1
+    ? "One earlier pass, barely a signal — shade only if it costs nothing"
+    : total <= 3
+    ? "The user has moved away from these in earlier sessions"
+    : "The user consistently avoids the direction these share";
+
+function buildPriorTasteBlock(
+  groups: PriorDislikeGroup[],
+  isVision: boolean
+): string {
+  if (groups.length === 0) return "";
+  const lines: string[] = [
+    "PRIOR TASTE — cross-session shading (WEIGHT, not law):",
+  ];
+  for (const g of groups) {
+    lines.push(`${priorOpener(g.total)} (category: ${g.category}):`);
+    for (const it of g.items) {
+      lines.push(
+        `- ${it.name}${it.times > 1 ? ` (disliked ${it.times}x)` : ""}`
+      );
+    }
+  }
+  if (isVision) {
+    lines.push(
+      "Apply ONLY the group whose category matches the item you detect; ignore every other group entirely."
+    );
+  }
+  lines.push(
+    "These are PRIOR sessions — a neighborhood to lean away from, never a fence: no name here is banned, and nothing here may be treated as an exclusion.",
+    "Within-session signals (KEPT / REJECTED / NEVER-REPEAT) always outrank this block — the session speaks, history whispers.",
+    "Never mention or allude to the user's history in any description.",
+    "THE TANGENT IS EXEMPT: any honest-tangent slot in the set composition ignores this block entirely — it is the discovery slot and is never shaped by prior dislikes."
+  );
+  return lines.join("\n");
+}
+
+// The ONLY way generation paths reach loadPriorDislikes: capped at 200ms,
+// resolves null on timeout or error — nothing ever waits on history.
+const racePriorDislikes = (args: {
+  clientId: string;
+  category?: string;
+}): Promise<PriorDislikeGroup[] | null> =>
+  Promise.race([
+    loadPriorDislikes(args).catch(() => null),
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), 200)),
+  ]);
+
+// ---------------------------------------------------------------------------
 // CHAIN — Slice Two steering. Two kinds, one branch:
 //   kind "steer"  — "+ More like this" on a rek card. The anchor is the line
 //     origin, the chained item the endpoint; the five new reks EXTRAPOLATE
@@ -466,6 +677,23 @@ async function handleChain(chain: any): Promise<Response> {
   const chainDepth =
     Number.isFinite(rawDepth) && rawDepth >= 1 ? Math.round(rawDepth) : 1;
 
+  // Cross-session shading (raced, fail-soft): category-scoped prior
+  // dislikes, stripped of everything the session already frames. The block
+  // rides BELOW the session tiers in commonTail — history whispers last.
+  const clientId = cleanClientId(chain?.clientId);
+  const prior = clientId
+    ? await racePriorDislikes({ clientId, category: category || undefined })
+    : null;
+  const priorBlock = buildPriorTasteBlock(
+    stripSessionNames(prior, [
+      item.name,
+      ...(kind === "steer" ? [chained.name] : []),
+      ...excludeNames,
+      ...rejectedNames,
+    ]),
+    false
+  );
+
   // KEPT tier: weights serialize as labeled ROLES, not scalars — the model
   // reads roles better. "pursued" = chained earlier this snap (strong).
   const trailMarks: string[] = (Array.isArray(chain?.trail) ? chain.trail : [])
@@ -489,7 +717,7 @@ async function handleChain(chain: any): Promise<Response> {
     }\n` +
     `NEVER REPEAT (full exclusion union): ${
       excludeNames.join(", ") || "(none)"
-    }`;
+    }` + (priorBlock ? `\n${priorBlock}` : "");
 
   const userContent =
     kind === "steer"
@@ -604,6 +832,15 @@ export async function POST(req: Request) {
       return Response.json({ error: "Missing image" }, { status: 400 });
     }
 
+    // Cross-session shading for the vision call: the category is unknown
+    // until the model answers, so ALL recent groups ride the user message
+    // and the block instructs the model to apply only the matching group.
+    // Raced at 200ms and fail-soft — with no history the request is
+    // byte-identical to today's.
+    const clientId = cleanClientId(body?.clientId);
+    const prior = clientId ? await racePriorDislikes({ clientId }) : null;
+    const priorBlock = buildPriorTasteBlock(prior ?? [], true);
+
     const completion = await openai.chat.completions.create({
       model: "gpt-4o",
       temperature: 0.7,
@@ -615,7 +852,12 @@ export async function POST(req: Request) {
         { role: "system", content: SYSTEM_PROMPT },
         {
           role: "user",
-          content: [{ type: "image_url", image_url: { url: image } }],
+          content: priorBlock
+            ? [
+                { type: "image_url", image_url: { url: image } },
+                { type: "text", text: priorBlock },
+              ]
+            : [{ type: "image_url", image_url: { url: image } }],
         },
       ],
     });

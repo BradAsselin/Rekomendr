@@ -7,7 +7,7 @@ import RekSnapButton from "../src/components/RekSnapButton";
 import RekSnapResults, { type SnapResult } from "../src/components/RekSnapResults";
 import RecipeModal from "../src/components/RecipeModal";
 import { getTop5FromEngine, type Rek } from "../src/engine/rekomendrEngine";
-import { loadPrefsForCategory } from "../src/lib/userPrefs";
+import { getAnonymousClientId, loadPrefsForCategory } from "../src/lib/userPrefs";
 
 export type Category = "Movies" | "TV Shows" | "Books" | "Wine";
 
@@ -166,7 +166,9 @@ export default function Page() {
       const res = await fetch("/api/reksnap", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ image }),
+        // clientId keys the server's cross-session dislike shading (raced,
+        // fail-soft — an empty id just means no history).
+        body: JSON.stringify({ image, clientId: getAnonymousClientId() }),
       });
       const data = await res.json().catch(() => null);
       if (

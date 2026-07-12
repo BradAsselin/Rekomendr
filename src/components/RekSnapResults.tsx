@@ -10,6 +10,7 @@ import {
 } from "../lib/categoryGates";
 import { recordSnapSignal, type SnapMode } from "../lib/reksnapSignals";
 import { compensatedCommit } from "../lib/scrollCompensation";
+import { getAnonymousClientId } from "../lib/userPrefs";
 import { TrailerVerb, WhereToWatchVerb } from "./MediaVerbs";
 import RekCard from "./RekCard";
 import RekSkeleton, { RekSkeletonCard } from "./RekSkeleton";
@@ -508,6 +509,8 @@ const RekSnapResults: React.FC<Props> = ({
             mode,
             excludeNames,
             rejectedNames,
+            // Keys the server's cross-session dislike shading (fail-soft).
+            clientId: getAnonymousClientId(),
           },
         }),
       });
@@ -680,6 +683,8 @@ const RekSnapResults: React.FC<Props> = ({
         .map((e) => ({ name: e.rek.name, mark: markFor(e.rek.name) })),
       rejectedNames: dismissedNamesRef.current,
       excludeNames: buildExcludeNames(),
+      // Keys the server's cross-session dislike shading (fail-soft).
+      clientId: getAnonymousClientId(),
     };
   };
 
@@ -863,6 +868,8 @@ const RekSnapResults: React.FC<Props> = ({
         })),
         rejectedNames: dismissedNamesRef.current,
         excludeNames: buildExcludeNames(),
+        // Keys the server's cross-session dislike shading (fail-soft).
+        clientId: getAnonymousClientId(),
       },
       mode,
       wipe.restoreList
