@@ -160,7 +160,7 @@ Two more anchor-category dependencies on this path, for completeness:
 
 ---
 
-## Fix shape (next session — NOT yet implemented)
+## Fix shape — IMPLEMENTED 2026-07-17 (S1, pending live validation)
 
 Two parts:
 
@@ -175,14 +175,9 @@ Two parts:
    when the chained item's category differs — carry the chained item's category
    into the payload/prompt so the DIRECTION is category-honest.
 
-## Open design question
+## Historical rows — RESOLVED 2026-07-17: leave them
 
-What to do with the historical mislabeled rows already in `reksnap_signals`:
-
-- **Backfill-correct** — reclassify old rows (needs a categorizer pass; risk of
-  new mislabels).
-- **Window-out** — exclude rows written before the fix ships from shading reads.
-- **Let 60-day decay flush** — do nothing; `PRIOR_WINDOW_DAYS = 60` ages them
-  out naturally, accepting up to two months of mis-routed shading.
-
-Undecided as of 2026-07-12.
+No backfill-correction, no deletion, no read-side windowing. The 60-day
+recency window (`PRIOR_WINDOW_DAYS = 60`) is the forgetting mechanism —
+mislabeled history ages out naturally, accepting up to two months of
+mis-routed shading.

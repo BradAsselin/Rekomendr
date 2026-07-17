@@ -19,6 +19,10 @@ import RekTrail, { TrailRow } from "./RekTrail";
 export type SnapRek = {
   name: string;
   description: string;
+  // The rek's OWN generation-labeled category. Optional: sets generated
+  // before the field shipped have none — every consumer falls back to the
+  // anchor's detected category.
+  category?: string;
   rank: number;
 };
 
@@ -353,11 +357,11 @@ const RekSnapResults: React.FC<Props> = ({
   // Thumbs-down keeps its meaning on a trail card: record + dismiss —
   // the same grammar as thumbing down a liked frontier card. It vacates
   // no frontier slot, so there is nothing to backfill.
-  const handleDislikeFromTrail = (itemName: string) => {
+  const handleDislikeFromTrail = (itemName: string, category?: string) => {
     if (!result) return;
     recordSnapSignal({
       itemName,
-      itemCategory: result.detected_item.category,
+      itemCategory: category || result.detected_item.category,
       action: "dislike",
     });
     setThumbSignals((prev) => {
@@ -384,7 +388,13 @@ const RekSnapResults: React.FC<Props> = ({
   // re-recording the same signal on repeat taps was data noise. When no
   // Save is still holding it, un-marking returns the card from the trail
   // to the top of the frontier (trail membership = marked, always).
-  const toggleThumb = (itemName: string, action: "like" | "dislike") => {
+  // `category` is the tapped card's own label (rek cards pass it, the
+  // anchor's call sites don't — the fallback IS the anchor's category).
+  const toggleThumb = (
+    itemName: string,
+    action: "like" | "dislike",
+    category?: string
+  ) => {
     if (!result) return;
     if (thumbSignals[itemName] === action) {
       setThumbSignals((prev) => {
@@ -401,7 +411,7 @@ const RekSnapResults: React.FC<Props> = ({
     setThumbSignals((prev) => ({ ...prev, [itemName]: action }));
     recordSnapSignal({
       itemName,
-      itemCategory: result.detected_item.category,
+      itemCategory: category || result.detected_item.category,
       action,
     });
     if (action === "like") migrateToTrail(itemName);
@@ -411,7 +421,7 @@ const RekSnapResults: React.FC<Props> = ({
   // visual-only (no signal write); the original save signal stands and
   // the schema is untouched. When no like is still holding it, un-saving
   // returns the card from the trail to the top of the frontier.
-  const handleSave = (itemName: string) => {
+  const handleSave = (itemName: string, category?: string) => {
     if (!result) return;
     if (savedNames[itemName]) {
       setSavedNames((prev) => {
@@ -425,7 +435,7 @@ const RekSnapResults: React.FC<Props> = ({
     setSavedNames((prev) => ({ ...prev, [itemName]: true }));
     recordSnapSignal({
       itemName,
-      itemCategory: result.detected_item.category,
+      itemCategory: category || result.detected_item.category,
       action: "save",
     });
     migrateToTrail(itemName);
@@ -439,7 +449,7 @@ const RekSnapResults: React.FC<Props> = ({
 
     recordSnapSignal({
       itemName: rek.name,
-      itemCategory: result.detected_item.category,
+      itemCategory: rek.category || result.detected_item.category,
       action: "dislike",
     });
     // Drop any contender mark so the item isn't marked liked AND dismissed.
@@ -547,6 +557,10 @@ const RekSnapResults: React.FC<Props> = ({
               name: rek.name,
               description:
                 typeof rek.description === "string" ? rek.description : "",
+              category:
+                typeof rek.category === "string" && rek.category
+                  ? rek.category
+                  : undefined,
               rank: list.length + 1,
             },
           ],
@@ -673,6 +687,10 @@ const RekSnapResults: React.FC<Props> = ({
       chained: {
         name: args.chained.name,
         description: args.chained.description,
+        // The chained item's own category — the server scopes steer shading
+        // by it and health-gates the pursued direction; absent on sets
+        // predating the field (server falls back to the anchor's).
+        category: args.chained.category,
       },
       chainedOrigin: args.origin,
       chainDepth: args.depth,
@@ -710,7 +728,9 @@ const RekSnapResults: React.FC<Props> = ({
       const raw = Array.isArray(data?.reks) ? data.reks : [];
       const cleaned: SnapRek[] = raw
         .filter(
-          (r: unknown): r is { name: string; description?: unknown } =>
+          (
+            r: unknown
+          ): r is { name: string; description?: unknown; category?: unknown } =>
             !!r &&
             typeof (r as { name?: unknown }).name === "string" &&
             !!(r as { name: string }).name.trim()
@@ -719,6 +739,10 @@ const RekSnapResults: React.FC<Props> = ({
           name: r.name,
           description:
             typeof r.description === "string" ? r.description : "",
+          category:
+            typeof r.category === "string" && r.category
+              ? r.category
+              : undefined,
           rank: i + 1,
         }));
       if (resultRef.current !== forResult) return; // new snap mid-flight
@@ -755,7 +779,7 @@ const RekSnapResults: React.FC<Props> = ({
 
     recordSnapSignal({
       itemName: rek.name,
-      itemCategory: forResult.detected_item.category,
+      itemCategory: rek.category || forResult.detected_item.category,
       action: "chain",
       chainDepth: depth,
       chainOrigin: "frontier",
@@ -810,7 +834,7 @@ const RekSnapResults: React.FC<Props> = ({
 
     recordSnapSignal({
       itemName: entry.rek.name,
-      itemCategory: forResult.detected_item.category,
+      itemCategory: entry.rek.category || forResult.detected_item.category,
       action: "chain",
       chainDepth: depth,
       chainOrigin: "trail",
@@ -1148,9 +1172,13 @@ const RekSnapResults: React.FC<Props> = ({
                   short={entry.rek.description}
                   thumbSignal={thumbSignals[entry.rek.name] ?? null}
                   saved={!!savedNames[entry.rek.name]}
-                  onThumbUp={() => toggleThumb(entry.rek.name, "like")}
-                  onThumbDown={() => handleDislikeFromTrail(entry.rek.name)}
-                  onSave={() => handleSave(entry.rek.name)}
+                  onThumbUp={() =>
+                    toggleThumb(entry.rek.name, "like", entry.rek.category)
+                  }
+                  onThumbDown={() =>
+                    handleDislikeFromTrail(entry.rek.name, entry.rek.category)
+                  }
+                  onSave={() => handleSave(entry.rek.name, entry.rek.category)}
                   /* Media reks carry their verbs into the trail; recipe
                      push-through keeps its ORIGIN mode. RIGHT = chain. */
                   verbLeft={
@@ -1238,9 +1266,9 @@ const RekSnapResults: React.FC<Props> = ({
                 swipeable
                 thumbSignal={thumbSignals[rek.name] ?? null}
                 saved={!!savedNames[rek.name]}
-                onThumbUp={() => toggleThumb(rek.name, "like")}
+                onThumbUp={() => toggleThumb(rek.name, "like", rek.category)}
                 onThumbDown={() => handleDislikeRek(rek)}
-                onSave={() => handleSave(rek.name)}
+                onSave={() => handleSave(rek.name, rek.category)}
                 className={[
                   "transition-all duration-300 ease-out",
                   migrating === rek.name

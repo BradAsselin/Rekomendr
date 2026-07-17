@@ -81,15 +81,21 @@ const SYSTEM_PROMPT =
   "- RIGHT: 'A silky, savory custard that sets firmer than an omelette, with bacon and gruyère baked in. One dish, forty minutes, and most of that hands-off in the oven.'\n" +
   "- WRONG: 'These eggs are perfect for a silky, savory quiche with bacon and cheese.' (perfect-for filler; says nothing about what making it is like or what you end up with)\n" +
   "\n" +
+  "Every rek in every list carries its OWN category — same register as detected_item.category (a short lowercase label); it may differ from the detected item's (a bourbon alternative under a scotch anchor is 'bourbon'; a cocktail in results.uses is 'cocktails').\n" +
   "Return JSON only, in this exact shape:\n" +
-  "{ \"detected_item\": { \"name\": string, \"description\": string, \"category\": string }, \"mode\": \"similar\"|\"uses\"|\"alternatives\", \"results\": { \"similar\": [ { \"name\": string, \"description\": string, \"rank\": number } ], \"uses\": [ ... ], \"alternatives\": [ ... ] } }\n" +
+  "{ \"detected_item\": { \"name\": string, \"description\": string, \"category\": string }, \"mode\": \"similar\"|\"uses\"|\"alternatives\", \"results\": { \"similar\": [ { \"name\": string, \"description\": string, \"category\": string, \"rank\": number } ], \"uses\": [ ... ], \"alternatives\": [ ... ] } }\n" +
   "\n" +
   "Hard rules for EVERY list (similar, uses, alternatives):\n" +
   "- Each list must contain EXACTLY 5 items, every time, no fewer.\n" +
   "- No list may ever include the detected item itself — every entry must be a DISTINCT recommendation.\n" +
   "- No two items within the same list may share the same name.";
 
-type RawRek = { name?: unknown; description?: unknown; rank?: unknown };
+type RawRek = {
+  name?: unknown;
+  description?: unknown;
+  rank?: unknown;
+  category?: unknown;
+};
 
 // ---------------------------------------------------------------------------
 // BACKFILL — single replacement rek after a thumbs-down dismissal.
@@ -166,7 +172,9 @@ const buildBackfillPrompt = (mode: string) => {
     "- NEVER recommend any name in the already-shown list (the user has seen these).\n" +
     "- NEVER recommend any name in the REJECTED list. These are items the user thumbs-downed: avoid them AND lean away from their dominant characteristics in your replacement — a rejected item is a signal about what to steer from, not just a name to skip.\n" +
     "\n" +
-    'Return JSON only, in this exact shape: { "rek": { "name": string, "description": string } }'
+    "The rek carries its OWN category — a short lowercase label for what the rek itself IS (e.g. scotch, bourbon, wine), which may differ from the detected item's category.\n" +
+    "\n" +
+    'Return JSON only, in this exact shape: { "rek": { "name": string, "description": string, "category": string } }'
   );
 };
 
@@ -259,12 +267,19 @@ async function handleBackfill(backfill: any): Promise<Response> {
     return Response.json({ error: "Backfill failed" }, { status: 502 });
   }
 
+  // The rek's own category, anchor's as the floor — a missing label never
+  // fails a backfill.
+  const rekCategory =
+    (typeof rek.category === "string" ? normalize(rek.category) : "") ||
+    (typeof item.category === "string" ? normalize(item.category) : "");
+
   return Response.json(
     {
       rek: {
         name: rek.name,
         description:
           typeof rek.description === "string" ? rek.description : "",
+        category: rekCategory || undefined,
       },
     },
     { status: 200 }
@@ -589,7 +604,8 @@ const CHAIN_STEER_MODE_TASK: Record<string, string> = {
 };
 
 const CHAIN_SET_SHAPE =
-  'Return JSON only, in this exact shape: { "reks": [ { "name": string, "description": string } ] } — exactly 5 items.';
+  "Each rek carries its OWN category — a short lowercase label for what that rek IS (e.g. scotch, bourbon, wine), which may differ from the detected item's category.\n" +
+  'Return JSON only, in this exact shape: { "reks": [ { "name": string, "description": string, "category": string } ] } — exactly 5 items.';
 
 const buildChainSteerPrompt = (mode: string) => {
   const voice = mode === "uses" ? USES_VOICE : DIFFERENTIATOR_VOICE;
@@ -684,6 +700,22 @@ async function handleChain(chain: any): Promise<Response> {
     );
   }
 
+  // The chained item's own category (steer only) — generation labels it
+  // below; absent from sets predating the field, so every consumer falls
+  // back to the anchor's.
+  const chainedCategory =
+    kind === "steer" && typeof chained?.category === "string"
+      ? chained.category.trim().toLowerCase()
+      : "";
+  // Belt-and-braces twin of the anchor gate above: a chain PURSUING a
+  // health/medical direction is gated the same way.
+  if (HEALTH_MEDICAL_CATEGORIES.has(chainedCategory)) {
+    return Response.json(
+      { error: "Chaining not available for this category" },
+      { status: 403 }
+    );
+  }
+
   const excludeNames = cleanNames(chain?.excludeNames);
   const rejectedNames = cleanNames(chain?.rejectedNames);
   const chainedOrigin = chain?.chainedOrigin === "trail" ? "trail" : "frontier";
@@ -695,8 +727,16 @@ async function handleChain(chain: any): Promise<Response> {
   // dislikes, stripped of everything the session already frames. The block
   // rides BELOW the session tiers in commonTail — history whispers last.
   const clientId = cleanClientId(chain?.clientId);
+  // On a steer the DIRECTION being pursued owns the shading scope — the
+  // chained item's category (cognac → Glenlivet shades by scotch), the
+  // anchor's otherwise.
   const prior = clientId
-    ? await racePriorDislikes({ clientId, category: category || undefined })
+    ? await racePriorDislikes({
+        clientId,
+        category:
+          (kind === "steer" ? chainedCategory || category : category) ||
+          undefined,
+      })
     : null;
   const priorBlock = buildPriorTasteBlock(
     stripSessionNames(prior, [
@@ -740,6 +780,7 @@ async function handleChain(chain: any): Promise<Response> {
           ? `Its signature profile: ${item.description}\n`
           : "") +
         `DIRECTION (line endpoint — newest chained item): ${chained.name}` +
+        (chainedCategory ? ` (${chainedCategory})` : "") +
         (typeof chained.description === "string" && chained.description
           ? ` — ${chained.description}`
           : "") +
@@ -802,7 +843,7 @@ async function handleChain(chain: any): Promise<Response> {
 
   const raw: RawRek[] = Array.isArray(parsed?.reks) ? parsed.reks : [];
   const seen = new Set<string>();
-  const reks: { name: string; description: string }[] = [];
+  const reks: { name: string; description: string; category?: string }[] = [];
   for (const r of raw) {
     if (!r || typeof r.name !== "string" || !r.name.trim()) continue;
     const key = normalize(r.name);
@@ -811,6 +852,12 @@ async function handleChain(chain: any): Promise<Response> {
     reks.push({
       name: r.name,
       description: typeof r.description === "string" ? r.description : "",
+      // The rek's own category, anchor's as the floor — a missing label
+      // never drops a rek.
+      category:
+        (typeof r.category === "string" ? normalize(r.category) : "") ||
+        category ||
+        undefined,
     });
     if (reks.length === 5) break;
   }
@@ -912,6 +959,13 @@ export async function POST(req: Request) {
     const normalize = (s: string) => s.trim().toLowerCase();
     const detectedName = normalize(detected.name);
 
+    // Anchor category, normalized once — the response's detected_item value
+    // and the per-rek floor in cleanList ("unknown" floor, as before).
+    const anchorCategory =
+      typeof detected.category === "string" && detected.category.trim()
+        ? normalize(detected.category)
+        : "unknown";
+
     // Clean a single list: drop the detected item, drop intra-list dupes,
     // cap at 5, and normalise the rek shape.
     const cleanList = (raw: unknown, listName: string): SnapRekOut[] => {
@@ -927,6 +981,11 @@ export async function POST(req: Request) {
         out.push({
           name: r.name,
           description: typeof r.description === "string" ? r.description : "",
+          // The rek's own category, anchor's as the floor — a missing
+          // label never drops a rek.
+          category:
+            (typeof r.category === "string" ? normalize(r.category) : "") ||
+            anchorCategory,
           rank: typeof r.rank === "number" ? r.rank : out.length + 1,
         });
         if (out.length === 5) break;
@@ -977,10 +1036,7 @@ export async function POST(req: Request) {
             typeof detected.description === "string"
               ? detected.description
               : "",
-          category:
-            typeof detected.category === "string" && detected.category.trim()
-              ? detected.category.trim().toLowerCase()
-              : "unknown",
+          category: anchorCategory,
         },
         mode,
         results: cleaned,
@@ -993,4 +1049,9 @@ export async function POST(req: Request) {
   }
 }
 
-type SnapRekOut = { name: string; description: string; rank: number };
+type SnapRekOut = {
+  name: string;
+  description: string;
+  category: string;
+  rank: number;
+};
