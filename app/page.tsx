@@ -6,6 +6,7 @@ import ResultsV4 from "../src/components/ResultsV4";
 import RekSnapButton from "../src/components/RekSnapButton";
 import RekSnapResults, { type SnapResult } from "../src/components/RekSnapResults";
 import RecipeModal from "../src/components/RecipeModal";
+import AuthControl from "../src/components/AuthControl";
 import { getTop5FromEngine, type Rek } from "../src/engine/rekomendrEngine";
 import { getAnonymousClientId, loadPrefsForCategory } from "../src/lib/userPrefs";
 
@@ -262,8 +263,9 @@ export default function Page() {
     <main className="min-h-screen w-full flex justify-center px-4 py-6">
       <div className="w-full max-w-xl">
         {/* The wordmark is the app's only home affordance — no separate
-            button. */}
-        <div className="mb-6 text-center">
+            button. AuthControl sits quietly at the right edge; it gates
+            nothing (anonymous stays primary). */}
+        <div className="relative mb-6 text-center">
           <button
             type="button"
             onClick={resetToHome}
@@ -272,6 +274,7 @@ export default function Page() {
           >
             Rekomendr<span className="text-[#2D5AB5]/70">.AI</span>
           </button>
+          <AuthControl />
         </div>
         <SearchBar
           key={searchBarKey}
