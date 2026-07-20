@@ -1,6 +1,8 @@
 // src/lib/userPrefs.ts
-// Anonymous persistent preference storage via Supabase.
+// Anonymous persistent preference storage.
 // No auth required — uses a stable UUID in localStorage as the client identity.
+// Writes go straight to Supabase; reads go through /api/prefs (service-role)
+// so anon SELECT on user_likes can be dropped (S2b Block B).
 
 import { supabase } from './supabaseClient';
 
@@ -45,29 +47,21 @@ export async function loadPrefsForCategory(category: string): Promise<{
   const clientId = getAnonymousClientId();
   if (!clientId) return { likedTitles: [], dislikedTitles: [] };
 
-  const { data } = await supabase
-    .from('user_likes')
-    .select('title, action')
-    .eq('client_id', clientId)
-    .eq('category', category)
-    .order('created_at', { ascending: false })
-    .limit(100);
-
-  if (!data) return { likedTitles: [], dislikedTitles: [] };
-
-  const liked = new Set<string>();
-  const disliked = new Set<string>();
-
-  for (const row of data) {
-    if (row.action === 'like' || row.action === 'save' || row.action === 'more_like_this') {
-      liked.add(row.title);
-    } else if (row.action === 'dislike') {
-      disliked.add(row.title);
-    }
+  // Fail-soft on any failure (network, non-200, bad JSON): empty prefs,
+  // never a throw into the search flow.
+  try {
+    const res = await fetch('/api/prefs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clientId, category }),
+    });
+    if (!res.ok) return { likedTitles: [], dislikedTitles: [] };
+    const data = await res.json();
+    return {
+      likedTitles: Array.isArray(data?.likedTitles) ? data.likedTitles : [],
+      dislikedTitles: Array.isArray(data?.dislikedTitles) ? data.dislikedTitles : [],
+    };
+  } catch {
+    return { likedTitles: [], dislikedTitles: [] };
   }
-
-  return {
-    likedTitles: Array.from(liked),
-    dislikedTitles: Array.from(disliked),
-  };
 }
