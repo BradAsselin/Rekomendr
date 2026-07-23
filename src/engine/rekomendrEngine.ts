@@ -709,18 +709,20 @@ async function generateAIReks(args: {
       backfill: args.backfill,
     });
 
-    // Only the backfill path runs under a hard timeout: it must stay
-    // bounded — on failure the slot stays empty and the caller shows the
-    // honest running-dry notice (no pool fallback exists). 10s, up from
-    // 6s: the backfill ask grew from 2 items to 5 (RC-3), and the route is
-    // non-streamed gpt-4o-mini whose completion time scales with output —
-    // a 2-item batch fit 6s, a 5-item batch lands ~5-8s plus network, so
-    // 6s would abort the very generations the larger ask exists to
-    // produce. Non-backfill generations (fresh search, MLT, the top-up)
-    // still run untimed, as before.
+    // Only the backfill path runs under a hard timeout, and the timeout's
+    // job is HANG PROTECTION, not a latency SLA — it must sit above the
+    // p99 of LEGITIMATE completions. The 5-item, two-tier ask generates
+    // ~1,200-1,500 completion tokens on non-streamed gpt-4o-mini, which
+    // lands ~10-25s; the previous 10s sat inside that healthy band and
+    // aborted essentially every real generation (AbortError, 100% backfill
+    // failure in production — the field receipt). 30s clears the worst
+    // estimate with margin while still bounding a true network hang; the
+    // UX is covered either way (inline skeleton while waiting, honest
+    // running-dry notice on real failure). Non-backfill generations
+    // (fresh search, MLT, the top-up) still run untimed, as before.
     const controller = args.backfill ? new AbortController() : null;
     const timeoutId = controller
-      ? setTimeout(() => controller.abort(), 10000)
+      ? setTimeout(() => controller.abort(), 30000)
       : null;
     let res: Response;
     try {
@@ -803,6 +805,9 @@ async function generateAIReks(args: {
     console.warn("[short-sets] AI generation threw", {
       path: args.backfill ? "backfill" : "fresh/MLT",
       category: args.category,
+      // name identifies the class at a glance — an abort is "AbortError",
+      // which the message text alone left ambiguous in the field.
+      name: err instanceof Error ? err.name : undefined,
       error: err instanceof Error ? err.message : String(err),
     });
     return null;
