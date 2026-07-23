@@ -1076,6 +1076,11 @@ export async function getBackfillRek(args: {
   rawCategory?: string;
   likedTitles?: string[];
   dislikedTitles?: string[];
+  // The session trail (kept cards, marking order oldest→newest). Present,
+  // it anchors AI backfill the way a chain steer anchors the snap lane:
+  // newest keep = seed, the rest = the line. Absent/empty = the old
+  // bare-category behavior, unchanged.
+  trailTitles?: string[];
   lastAction?: "like" | "dislike";
   lastActionTitle?: string;
   [key: string]: any;
@@ -1089,10 +1094,27 @@ export async function getBackfillRek(args: {
   const intent = getLastIntent(category);
 
   if (intent?.mode === "ai") {
+    // Trail-anchoring: a bare-category backfill prompt starves narrow
+    // lanes (the questionless prompt was the disease, not the seen-
+    // filter). With a trail, the newest keep rides the existing seedTitle
+    // grammar ("smart more-like-this" — the same anchor MLT uses) and the
+    // full line rides one context sentence, chain-steer class: continue
+    // the line, newest weigh heaviest, never repeat. Zero trail
+    // (dislike-only session) = the previous context, byte-identical.
+    const trail = (args.trailTitles ?? []).filter(Boolean);
+    const seedTitle = trail.length > 0 ? trail[trail.length - 1] : undefined;
+
     const context = [
       `Vertical: ${intent.category}`,
       intent.clarifier ? `Lane/Clarifier: ${intent.clarifier}` : "",
       intent.text ? `User text: ${intent.text}` : "",
+      trail.length > 0
+        ? `Session trail — titles the user KEPT this session, oldest to newest: ${trail
+            .slice(-8)
+            .join(
+              ", "
+            )}. Continue the line these define; the newest weigh heaviest. Never repeat them.`
+        : "",
       args.lastAction ? `Last action: ${args.lastAction}` : "",
       args.lastActionTitle ? `On: ${args.lastActionTitle}` : "",
       "Backfill request after thumbs action. Generate the next best discovery picks.",
@@ -1104,6 +1126,7 @@ export async function getBackfillRek(args: {
       category,
       count: MAX_AI_BACKFILL_OPTIONS,
       context,
+      seedTitle,
       likedTitles: args.likedTitles,
       dislikedTitles: args.dislikedTitles,
       currentTitles: current.map((r) => r.title),

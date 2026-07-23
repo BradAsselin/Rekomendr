@@ -177,18 +177,35 @@ const ResultsV4: React.FC<ResultsProps> = ({
   /* -----------------------------
    * BACKFILL — CATEGORY EXPLICIT
    * ----------------------------- */
-  const handleBackfill = async (_removed: Rek) => {
+  const handleBackfill = async (removed: Rek) => {
     // Show a single inline pulse in the replacing slot — never wipe the
     // whole set for a one-card swap.
     setPendingBackfills((p) => p + 1);
     try {
       const currentNow = reksRef.current;
 
+      // Session trail as direction (marking order, oldest→newest). A
+      // like/save-triggered backfill fires inside the same commit that
+      // trails the card, so trailRef lags one render — append the removed
+      // card when it's marked (it IS the newest keep, the strongest
+      // signal). A dislike-removed card is not kept and never appended:
+      // that backfill steers by the remaining keeps, or none.
+      const removedKept =
+        contendersRef.current.some((c) => c.id === removed.id) ||
+        savedRef.current.some((s) => s.id === removed.id);
+      const trailTitles = [
+        ...trailRef.current.map((r) => r.title),
+        ...(removedKept && !trailRef.current.some((r) => r.id === removed.id)
+          ? [removed.title]
+          : []),
+      ];
+
       const { rek: next, exhausted } = await getBackfillRek({
         current: currentNow,
         category,
         likedTitles: allLikedTitlesRef.current,
         dislikedTitles: allDislikedTitlesRef.current,
+        trailTitles,
       });
 
       if (!next) {
