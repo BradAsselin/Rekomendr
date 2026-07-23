@@ -15,7 +15,6 @@
 ------------------------------------------------------------------- */
 
 import { getTop5FromDeck } from "./deckSelector";
-import { buildCompassTop5FromDeck } from "./compass/compassPick";
 import { rankMovieCandidates } from "./movieProfileScorer";
 
 /**
@@ -48,9 +47,10 @@ type Intent = {
   category: Category;
   clarifier: string;
   text: string;
-  deckId: string | null;
-  vibeTag: string | null;
-  isVibeClarifier: boolean;
+  // The active vibe (picker string) — a TONE INSTRUCTION on the genre
+  // subject, never a keyword. Rides its own query segment (vibe:), so it
+  // can never collide with the user's typed text.
+  vibe: string | null;
   mode: IntentMode;
 };
 
@@ -81,7 +81,7 @@ function getSessionSeen(category: Category): Set<string> {
 // sessionSeen stores normalized (trimmed, lowercased) title keys — always
 // add and check through seenKey so formatting differences between AI-generated
 // and pool titles can't slip an already-shown title back through.
-// deckSelector (normalizeTitle) and compassPick mirror this normalization.
+// deckSelector (normalizeTitle) mirrors this normalization.
 function seenKey(title: string): string {
   return (title ?? "").trim().toLowerCase();
 }
@@ -144,63 +144,89 @@ function pickWithTierBias(args: {
 }
 
 /* ------------------------------------------------------------------
-   VIBE → STARTER DECK MAP (LOCKED 12 VIBES)
+   VIBE → TONE CLAUSE (tone on genre, never intersection)
+   A vibe is a TONE INSTRUCTION applied to the genre subject — "crime
+   played for laughs" (The Nice Guys, Game Night), never a second
+   keyword the results must intersect (that overlap produced ONE rek
+   in the field). Keyed by the picker string; the picker is category-
+   scoped (VIBES_BY_CATEGORY in SearchBar), so wine clauses can never
+   surface on media and vice versa. Names shared across categories
+   (Dark & Twisty, Smart & Witty) share one medium-neutral clause.
+   Unknown names fail soft: no tone line, lane-only behavior.
 ------------------------------------------------------------------- */
-const VIBE_TO_DECK: Record<string, string> = {
-  "Comfort Watch": "comfort-core",
-  "Goofy / Silly Fun": "goofy-fun",
-  "Feel-Good Crowd Pleaser": "feelgood-crowd",
-  "Smart & Witty": "smart-witty",
-  "Romantic / Heartfelt": "romantic-heartfelt",
-  "Dark & Twisty": "dark-twisty",
-  "Suspense / Edge-of-Seat": "edge-seat",
-  "Epic / Immersive": "epic-immersive",
-  "Action / Adrenaline": "action-adrenaline",
-  "Thought-Provoking / Meaningful": "thoughtful-meaningful",
-  "Weird / Offbeat": "weird-offbeat",
-  "Documentary / Real Stories": "doc-real",
+const TONE_BY_VIBE: Record<string, string> = {
+  // Movies
+  "Comfort Watch":
+    "played warm and familiar — low stakes, rewatchable, gentle humor — not bleak, cruel, or anxiety-inducing",
+  "Goofy / Silly Fun":
+    "played for laughs — capers, buddy energy, bumbling schemers, absurd escalation — not grim or brooding",
+  "Feel-Good Crowd Pleaser":
+    "played big-hearted and winning — underdogs, warm ensembles, against-the-odds payoffs — not cynical or downbeat",
+  "Smart & Witty":
+    "played sharp and verbal — rapid-fire dialogue, verbal sparring, dry wit — not broad slapstick or solemn",
+  "Romantic / Heartfelt":
+    "played tender and sincere — longing, chemistry, earned emotional beats — not raunchy parody or cold irony",
+  "Dark & Twisty":
+    "played grim and serpentine — moral rot, unreliable surfaces, dread that tightens — not jokey or cozy",
+  "Suspense / Edge-of-Seat":
+    "played taut — ticking clocks, traps closing, held-breath set pieces — not leisurely or meandering",
+  "Epic / Immersive":
+    "played vast — sweeping scale, world-swallowing stakes, long-arc grandeur — not small-scale or contained",
+  "Action / Adrenaline":
+    "played kinetic — chases, set-piece momentum, physical stakes — not talky or static",
+  "Thought-Provoking / Meaningful":
+    "played weighty and probing — moral questions that linger, ideas over spectacle — not disposable or glib",
+  "Weird / Offbeat":
+    "played strange — left-field premises, tonal risk, cult sensibility — not conventional or safe",
+  // Format constraint, not strictly tone — flagged in the plan review.
+  "Documentary / Real Stories":
+    "grounded in real events — documentaries or true-story tellings, actual people and stakes — not fictional inventions",
+  // TV
+  "Binge & Chill":
+    "played easy and propulsive — episode-to-episode pull, low homework, comfortable momentum — not dense or demanding",
+  "Comfort Rewatch":
+    "played warm and familiar — ensemble hangouts, gentle stakes, episodes you can live inside — not harrowing or heavy",
+  "Prestige Drama":
+    "played serious and crafted — novelistic arcs, heavyweight performances, patient build — not disposable or campy",
+  "Reality Escape":
+    "played unscripted and moreish — competition or docusoap energy, personalities you pick sides on — not scripted drama",
+  "Edge-of-Seat":
+    "played taut — cliffhanger construction, traps closing, held-breath momentum — not leisurely or meandering",
+  // Books (Can’t Put Down keeps the picker's curly apostrophe)
+  "Can’t Put Down":
+    "played propulsive — short chapters, hooks that yank, one-more-page construction — not meandering or ornamental",
+  "Thought-Provoking":
+    "played weighty and probing — ideas that linger, moral questions over plot candy — not disposable or glib",
+  "Comfort Read":
+    "played warm and familiar — gentle stakes, beloved-shelf feel, prose that soothes — not harrowing or bleak",
+  // Wine (wine-only by picker scoping; "played" reads as palate register)
+  "Crisp & Dry":
+    "lean and bone-dry — high acid, citrus and mineral, unoaked — not rich, buttery, or sweet",
+  "Easy Sipper":
+    "easygoing — soft tannins, smooth fruit, no-decoder-ring drinking — not tannic, oaky, or hot with alcohol",
+  "Special Occasion":
+    "built to impress — structured, cellar-worthy, worth-the-splurge bottles — not everyday quaffers",
+  "Bright & Fresh":
+    "vivid and zesty — snappy acidity, fresh fruit, lift — not heavy, jammy, or flat",
+  "Rich & Cozy":
+    "plush and warming — full body, dark fruit, round texture — not lean, sharp, or austere",
 };
 
-function deckFromClarifier(clarifier: string): string | null {
-  const c = (clarifier || "").trim();
-  if (!c) return null;
-
-  if (c.toLowerCase().startsWith("vibe:")) {
-    const vibeName = c.slice(5).trim();
-    return VIBE_TO_DECK[vibeName] ?? null;
-  }
-
-  return null;
-}
-
-function tagFromClarifier(clarifier: string): string | null {
-  const c = (clarifier || "").trim();
-  if (!c) return null;
-  if (!c.toLowerCase().startsWith("vibe:")) return null;
-
-  const name = c.slice(5).trim();
-  if (!name) return null;
-  if (VIBE_TO_DECK[name]) return null;
-  return name;
+// The single tone line every path (fresh search, backfill, MLT) appends
+// when a vibe is active — the mapping lives HERE only, never copied per
+// path. Unknown vibe → null (fail-soft, lane-only behavior).
+function toneLineForVibe(
+  vibe: string | null | undefined,
+  subject: string
+): string | null {
+  const clause = vibe ? TONE_BY_VIBE[vibe] : undefined;
+  if (!clause) return null;
+  return `Tone instruction: the subject stays ${subject}; play it ${clause}. Tone shapes HOW the subject is played — never a second keyword to intersect with.`;
 }
 
 /* ------------------------------------------------------------------
-   NORMALIZATION / TAG HELPERS
+   NORMALIZATION HELPERS
 ------------------------------------------------------------------- */
-function normalizeTag(t: string): string {
-  return (t || "")
-    .trim()
-    .toLowerCase()
-    .replace(/[“”"']/g, "")
-    .replace(/\s+/g, " ");
-}
-
-function hasVibeTag(rek: Rek, tag: string): boolean {
-  if (!rek?.vibeTags?.length) return false;
-  const n = normalizeTag(tag);
-  return rek.vibeTags.some((x) => normalizeTag(x) === n);
-}
-
 function normalize(list: Rek[]): Rek[] {
   return list.map((r) => ({
     ...r,
@@ -224,6 +250,7 @@ function parseRawQuery(rawQuery: string): {
   category: Category;
   clarifier: string;
   text: string;
+  vibe: string | null;
   context: string;
   mode: IntentMode;
 } {
@@ -234,6 +261,13 @@ function parseRawQuery(rawQuery: string): {
   const clarifier = (parts[1] ?? "").trim();
   const text = (parts[2] ?? "").trim();
   const maybeMode = (parts[3] ?? "").trim().toLowerCase();
+  // Segment 5: the vibe channel ("vibe:Goofy / Silly Fun"). Its own slot
+  // so it can never ride the PRIMARY-signal text slot again — that was
+  // the intersection bug. Absent on every non-vibe query.
+  const rawVibe = (parts[4] ?? "").trim();
+  const vibe = rawVibe.toLowerCase().startsWith("vibe:")
+    ? rawVibe.slice(5).trim() || null
+    : null;
 
   const mode: IntentMode = maybeMode === "mode:pool" ? "pool" : "ai";
 
@@ -247,12 +281,13 @@ function parseRawQuery(rawQuery: string): {
     `Vertical: ${category}`,
     clarifier ? `Lane/Clarifier: ${clarifier}` : "",
     text ? `User text: ${text}` : "",
+    toneLineForVibe(vibe, clarifier || category) ?? "",
     `Mode: ${mode}`,
   ]
     .filter(Boolean)
     .join(" | ");
 
-  return { category, clarifier, text, context, mode };
+  return { category, clarifier, text, vibe, context, mode };
 }
 
 /* ------------------------------------------------------------------
@@ -332,12 +367,7 @@ function matchesTextIntent(rek: Rek, tokens: string[]): boolean {
 function applyIntentFilters(pool: Rek[], intent: Intent | null): Rek[] {
   if (!intent) return pool;
 
-  if (intent.vibeTag) {
-    const tagged = pool.filter((r) => hasVibeTag(r, intent.vibeTag!));
-    if (tagged.length >= 5) return tagged;
-  }
-
-  if (!intent.isVibeClarifier && intent.clarifier) {
+  if (intent.clarifier) {
     return applyClarifierFilter(pool, intent.clarifier);
   }
 
@@ -814,53 +844,6 @@ async function generateAIReks(args: {
   }
 }
 /* ------------------------------------------------------------------
-   PER-TILE TAG BRANCH (deterministic helper retained)
-------------------------------------------------------------------- */
-export async function getSetFromVibeTag(args: {
-  tag: string;
-  category?: string;
-  vertical?: string;
-  rawCategory?: string;
-}): Promise<Rek[]> {
-  const rawCategory =
-    args.category || args.vertical || args.rawCategory || "Movies";
-  const { category } = parseRawQuery(`${rawCategory}||`);
-  const sessionSeen = getSessionSeen(category);
-
-  const tag = (args.tag || "").trim();
-  if (!tag) return [];
-
-  const pool = await fetchPool(category);
-
-  const tagged = pool.filter(
-    (r) => hasVibeTag(r, tag) && !sessionSeen.has(seenKey(r.title))
-  );
-  if (tagged.length === 0) return [];
-
-  const used = new Set<string>();
-  sessionSeen.forEach((t) => used.add(t));
-
-  let picked = pickCohesiveFive({
-    pool: tagged,
-    usedTitles: used,
-    anchorHint: null,
-    preferGenre: null,
-  });
-
-  if (picked.length < 5) {
-    const usedNow = new Set<string>(picked.map((r) => r.title));
-    const filler = pool.filter(
-      (r) => !sessionSeen.has(seenKey(r.title)) && !usedNow.has(r.title)
-    );
-    picked = [...picked, ...filler].slice(0, 5);
-  }
-
-  if (picked.length === 0) return [];
-  picked.forEach((r) => sessionSeen.add(seenKey(r.title)));
-  return normalize(picked);
-}
-
-/* ------------------------------------------------------------------
    PRIMARY ENTRY
 ------------------------------------------------------------------- */
 export async function getTop5FromEngine({
@@ -874,26 +857,11 @@ export async function getTop5FromEngine({
   likedTitles?: string[];
   dislikedTitles?: string[];
 }): Promise<Rek[]> {
-  const { category, clarifier, text, context, mode } = parseRawQuery(rawQuery);
+  const { category, clarifier, text, vibe, context, mode } =
+    parseRawQuery(rawQuery);
   const sessionSeen = getSessionSeen(category);
 
-  const isVibeClarifier = (clarifier || "")
-    .trim()
-    .toLowerCase()
-    .startsWith("vibe:");
-
-  const deckId = deckFromClarifier(clarifier);
-  const vibeTag = tagFromClarifier(clarifier);
-
-  setLastIntent({
-    category,
-    clarifier,
-    text,
-    deckId: deckId ?? null,
-    vibeTag,
-    isVibeClarifier,
-    mode,
-  });
+  setLastIntent({ category, clarifier, text, vibe, mode });
 
   /* ------------------ FULL AI DISCOVERY MODE ------------------ */
   if (mode === "ai") {
@@ -942,81 +910,12 @@ export async function getTop5FromEngine({
       ? textFiltered
       : poolForSelection;
 
-  const compassEligible =
-    category === "Movies" &&
-    USE_DEER_TRAILS &&
-    !!deckId &&
-    sessionSeen.size === 0 &&
-    mode === "pool";
-
-  if (compassEligible) {
-    const compass = buildCompassTop5FromDeck({
-      deckId,
-      pool: finalPoolForSelection,
-      sessionSeen,
-      count: 5,
-    });
-
-    if (compass.length > 0) {
-      if (compass.length < 5) {
-        const used = new Set<string>();
-        sessionSeen.forEach((t) => used.add(t));
-        compass.forEach((r) => used.add(seenKey(r.title)));
-
-        const fillerPool = finalPoolForSelection.filter(
-          (r) => !used.has(seenKey(r.title))
-        );
-        const fill = pickCohesiveFive({
-          pool: fillerPool,
-          usedTitles: new Set<string>(),
-          anchorHint: compass[0] ?? null,
-          preferGenre: null,
-        });
-
-        const merged = [...compass, ...fill].slice(0, 5);
-        merged.forEach((r) => sessionSeen.add(seenKey(r.title)));
-        return normalize(merged);
-      }
-
-      compass.forEach((r) => sessionSeen.add(seenKey(r.title)));
-      return normalize(compass);
-    }
-  }
-
-  if (vibeTag) {
-    const tagged = finalPoolForSelection.filter(
-      (r) => hasVibeTag(r, vibeTag) && !sessionSeen.has(seenKey(r.title))
-    );
-
-    if (tagged.length > 0) {
-      const used = new Set<string>();
-      sessionSeen.forEach((t) => used.add(t));
-
-      let picked = pickCohesiveFive({
-        pool: tagged,
-        usedTitles: used,
-        anchorHint: null,
-        preferGenre: null,
-      });
-
-      if (picked.length < 5) {
-        const usedNow = new Set<string>(picked.map((r) => r.title));
-        const filler = pool.filter(
-          (r) => !sessionSeen.has(seenKey(r.title)) && !usedNow.has(r.title)
-        );
-        picked = [...picked, ...filler].slice(0, 5);
-      }
-
-      if (picked.length > 0) {
-        picked.forEach((r) => sessionSeen.add(seenKey(r.title)));
-        return normalize(picked);
-      }
-    }
-  }
-
   if (USE_DEER_TRAILS && mode === "pool") {
-    const chosenDeckId = deckId ?? starterDeckId;
-    const fromDeck = getTop5FromDeck(chosenDeckId, finalPoolForSelection, sessionSeen);
+    const fromDeck = getTop5FromDeck(
+      starterDeckId,
+      finalPoolForSelection,
+      sessionSeen
+    );
     if (fromDeck.length === 5) return normalize(fromDeck);
   }
 
@@ -1113,6 +1012,9 @@ export async function getBackfillRek(args: {
       `Vertical: ${intent.category}`,
       intent.clarifier ? `Lane/Clarifier: ${intent.clarifier}` : "",
       intent.text ? `User text: ${intent.text}` : "",
+      // Tone and trail COMPOSE: the backfill continues the liked line
+      // WITHIN the tone — subject → tone → trail, one prompt.
+      toneLineForVibe(intent.vibe, intent.clarifier || intent.category) ?? "",
       trail.length > 0
         ? `Session trail — titles the user KEPT this session, oldest to newest: ${trail
             .slice(-8)
@@ -1219,9 +1121,7 @@ export async function getMoreLikeThisSet(args: {
     category,
     clarifier: prior?.clarifier ?? "",
     text: prior?.text ?? "",
-    deckId: prior?.deckId ?? null,
-    vibeTag: prior?.vibeTag ?? null,
-    isVibeClarifier: prior?.isVibeClarifier ?? false,
+    vibe: prior?.vibe ?? null,
     mode: "ai",
   };
   setLastIntent(intent);
@@ -1230,6 +1130,8 @@ export async function getMoreLikeThisSet(args: {
     `Vertical: ${intent.category}`,
     intent.clarifier ? `Lane/Clarifier: ${intent.clarifier}` : "",
     intent.text ? `User text: ${intent.text}` : "",
+    // An active vibe survives the chain: MLT extends the line in-tone.
+    toneLineForVibe(intent.vibe, intent.clarifier || intent.category) ?? "",
     "Action: +MoreLikeThis",
   ]
     .filter(Boolean)

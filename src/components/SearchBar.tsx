@@ -105,12 +105,21 @@ const SearchBar: React.FC<SearchBarProps> = ({
    * HELPERS
    * ----------------------------- */
 
-  // Use "||" format (engine supports both)
-  const buildQuery = (cat: string, clar: string | null, text: string, mode: "pool" | "ai") => {
-  const safeText = text.trim();
-  const clarPart = clar ?? "";
-  return `${cat}||${clarPart}||${safeText}||mode:${mode}`;
-};
+  // Use "||" format (engine supports both). A vibe rides its OWN fifth
+  // segment (vibe:<name>) — never the text slot, which the engine treats
+  // as the user's PRIMARY typed signal. Tone on genre, not intersection.
+  const buildQuery = (
+    cat: string,
+    clar: string | null,
+    text: string,
+    mode: "pool" | "ai",
+    vibe?: string
+  ) => {
+    const safeText = text.trim();
+    const clarPart = clar ?? "";
+    const base = `${cat}||${clarPart}||${safeText}||mode:${mode}`;
+    return vibe ? `${base}||vibe:${vibe}` : base;
+  };
 
 
   const triggerPulse = () => {
@@ -246,7 +255,9 @@ const runVibe = useCallback(
 
     if (typeof indexOverride === "number") setVibeIndex(indexOverride);
 
-    const q = buildQuery(cat, lane, vibeName, "ai");
+    // Text stays EMPTY — the vibe is a tone instruction on the lane, not
+    // a keyword; it travels in the dedicated vibe segment.
+    const q = buildQuery(cat, lane, "", "ai", vibeName);
     startSearch(q, cat);
   },
   // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -37,12 +37,15 @@ function loadingLabelFromQuery(query: string, cat: Category): string {
   const parts = q.includes("||") ? q.split("||") : q.split("|");
   const clarifier = (parts[1] || "").trim();
   const text = (parts[2] || "").trim();
+  // The vibe travels in its own fifth segment now (tone on genre) — the
+  // old "vibe:" clarifier prefix was a read with no writer.
+  const rawVibe = (parts[4] || "").trim();
+  const vibe = rawVibe.toLowerCase().startsWith("vibe:")
+    ? rawVibe.slice(5).trim()
+    : "";
 
   if (text) return `Finding ${cat} Reks for "${text}"...`;
-  if (clarifier.toLowerCase().startsWith("vibe:")) {
-    const vibe = clarifier.slice(5).trim();
-    return `Finding ${cat} Reks for ${vibe || "that vibe"}...`;
-  }
+  if (clarifier && vibe) return `Finding ${cat} Reks for ${clarifier} • ${vibe}...`;
   if (clarifier) return `Finding ${cat} Reks for ${clarifier}...`;
 
   return "Finding fresh Reks for you...";
