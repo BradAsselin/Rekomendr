@@ -122,6 +122,13 @@ const ResultsV4: React.FC<ResultsProps> = ({
   // reference lookup at migration-commit time (see compensatedCommit).
   const cardEls = useRef(new Map<number, HTMLDivElement>());
 
+  // Frontier generation counter — bumped whenever the list is wholesale
+  // replaced (new-search sync, MLT wipe). A backfill response from a dead
+  // generation must not insert, animate, or show notices: aborted
+  // requests can't race, but the 30s window lets successful ones land
+  // across a wipe (the snap lane's listEpochRef, R2/R5 — same race class).
+  const frontierEpochRef = useRef(0);
+
   const allLikedTitlesRef = useRef<string[]>([]);
   const allDislikedTitlesRef = useRef<string[]>([]);
   useEffect(() => {
@@ -160,6 +167,7 @@ const ResultsV4: React.FC<ResultsProps> = ({
     // with it, same as marked cards always vanished on a new search. The
     // marks persist in contenders/saved, so their titles keep feeding the
     // engine's exclusion lists (unchanged).
+    frontierEpochRef.current++; // in-flight backfills belong to the old view
     setTrail([]);
     setMigrating(null);
     setEntering(null);
@@ -180,6 +188,7 @@ const ResultsV4: React.FC<ResultsProps> = ({
   const handleBackfill = async (removed: Rek) => {
     // Show a single inline pulse in the replacing slot — never wipe the
     // whole set for a one-card swap.
+    const epochAtStart = frontierEpochRef.current;
     setPendingBackfills((p) => p + 1);
     try {
       const currentNow = reksRef.current;
@@ -207,6 +216,13 @@ const ResultsV4: React.FC<ResultsProps> = ({
         dislikedTitles: allDislikedTitlesRef.current,
         trailTitles,
       });
+
+      // Epoch guard BEFORE any response handling: a backfill that crossed
+      // an MLT wipe or a new search belongs to a list that no longer
+      // exists — no insert (the sixth card), no animateIn (the visibleIds
+      // reset that stranded fresh cards mid-transition), and no stale
+      // "running dry" notice from a dead generation's null.
+      if (epochAtStart !== frontierEpochRef.current) return;
 
       if (!next) {
         if (exhausted) {
@@ -279,6 +295,8 @@ const ResultsV4: React.FC<ResultsProps> = ({
     setExiting(null);
     setMigrating(null);
     setMltLoading(true);
+    frontierEpochRef.current++; // the wipe kills the old generation —
+    // any in-flight backfill response landing after this must decline
     setTrail((prev) => [
       ...prev,
       ...stillMarked.filter((m) => !prev.some((t) => t.id === m.id)),
