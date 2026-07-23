@@ -199,11 +199,12 @@ const ResultsV4: React.FC<ResultsProps> = ({
             )} you liked for fresh AI recommendations.`
           );
         } else {
-          // AI backfill failure (RC-4): the slot still stays one short (no
-          // pool fallback), but never silently — name it in the log and
-          // say it to the user in the same honest voice as the pool
-          // exhaustion notice. Deliberately points at the one action that
-          // exists even with an empty frontier: typing a title.
+          // AI backfill failure (RC-4), two concerns split: the tripwire
+          // log fires on EVERY null (silent failures get named), but the
+          // user notice renders ONLY when this null lands on an EMPTY
+          // frontier — a missing slot among visible cards is a log line,
+          // not a banner. A sibling in-flight backfill that later succeeds
+          // clears the notice (clearExhausted on the success path).
           console.warn(
             "[short-sets] AI backfill returned null — slot left empty",
             {
@@ -212,11 +213,13 @@ const ResultsV4: React.FC<ResultsProps> = ({
               pendingBackfills: pendingBackfillsRef.current,
             }
           );
-          setExhaustedMessage(
-            `Running dry on this line — type a ${nounForCategory(
-              category
-            )} you liked to point it somewhere fresh.`
-          );
+          if (reksRef.current.length === 0) {
+            setExhaustedMessage(
+              `Running dry on this line — type a ${nounForCategory(
+                category
+              )} you liked to point it somewhere fresh.`
+            );
+          }
         }
         return;
       }
@@ -476,12 +479,16 @@ const ResultsV4: React.FC<ResultsProps> = ({
             <div className="text-sm text-gray-800">{exhaustedMessage}</div>
 
             <div className="mt-3 flex gap-2">
+              {/* Truthful label: the handler is handlePlayStable, which
+                  cycles the GENRE LANE via a Play/pool search — it never
+                  touched the vibe list. One card serves both exhaustion
+                  voices (pool + AI running-dry), so one label = one voice. */}
               <button
                 onClick={() => onPlayVibe?.()}
                 className="px-3 py-2 rounded-xl text-sm bg-gray-900 text-white hover:opacity-90"
               >
                 <Play size={16} className="inline-block mr-1" />
-                New vibe
+                Try another lane
               </button>
 
               <button
