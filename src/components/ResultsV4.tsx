@@ -199,9 +199,24 @@ const ResultsV4: React.FC<ResultsProps> = ({
             )} you liked for fresh AI recommendations.`
           );
         } else {
-          // AI backfill failure: the slot stays one short (same policy as
-          // the snap lane) — no false exhaustion notice, no pool fallback.
-          console.error("AI backfill failed; slot left empty.");
+          // AI backfill failure (RC-4): the slot still stays one short (no
+          // pool fallback), but never silently — name it in the log and
+          // say it to the user in the same honest voice as the pool
+          // exhaustion notice. Deliberately points at the one action that
+          // exists even with an empty frontier: typing a title.
+          console.warn(
+            "[short-sets] AI backfill returned null — slot left empty",
+            {
+              category,
+              frontier: reksRef.current.length,
+              pendingBackfills: pendingBackfillsRef.current,
+            }
+          );
+          setExhaustedMessage(
+            `Running dry on this line — type a ${nounForCategory(
+              category
+            )} you liked to point it somewhere fresh.`
+          );
         }
         return;
       }

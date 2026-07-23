@@ -58,9 +58,11 @@ type Intent = {
    FEATURE TOGGLES / CONSTANTS
 ------------------------------------------------------------------- */
 const MAX_AI_ITEMS = 6;
-// Backfill keeps only the first unseen item; request a small margin (2)
-// to tolerate the occasional dedup/seen collision without paying for 3.
-const MAX_AI_BACKFILL_OPTIONS = 2;
+// Backfill keeps only the first unseen item. The old narrow ask (2) starved
+// tight lanes ("crime"): the seen-filter routinely ate the whole batch and
+// the slot silently stayed empty (RC-3). Request 5 and take what survives —
+// still one slot filled, but the filter can't zero out the batch as easily.
+const MAX_AI_BACKFILL_OPTIONS = 5;
 
 /* ------------------------------------------------------------------
    SESSION-LEVEL MEMORY
@@ -677,26 +679,48 @@ async function generateAIReks(args: {
   seenTitles?: Set<string>;
   backfill?: boolean;
 }): Promise<Rek[] | null> {
-  try {
+  const seen = new Set<string>(
+    Array.from(args.seenTitles ?? []).map((t) => t.toLowerCase())
+  );
+
+  const out: Rek[] = [];
+  const dedupe = new Set<string>();
+  // Tripwire counters (RC-4): when a set ships short, the log below names
+  // what filtered it — silent failures get named.
+  let produced = 0;
+  const drops = { sanitize: 0, dupe: 0, seen: 0 };
+
+  // One generation round-trip: build the prompt, fetch, fold survivors into
+  // `out`. Two passes share `out`/`dedupe`/`seen`, so a top-up can never
+  // re-admit a first-pass title. Returns false on a transport/parse miss.
+  const runPass = async (
+    count: number,
+    currentTitles: string[]
+  ): Promise<boolean> => {
     const prompt = buildAIPrompt({
       category: args.category,
-      count: args.count,
+      count,
       context: args.context,
       seedTitle: args.seedTitle,
       likedTitles: args.likedTitles,
       dislikedTitles: args.dislikedTitles,
-      currentTitles: args.currentTitles,
+      currentTitles,
       seenTitles: Array.from(args.seenTitles ?? []),
       backfill: args.backfill,
     });
 
-    // Only the backfill path runs under a hard 6s timeout: it must stay snappy
-    // and fails open to the pool. Larger non-backfill generations (e.g.
-    // "+ More like this", count=6) need more time, so they run without a
-    // timeout, as they did before the backfill latency work.
+    // Only the backfill path runs under a hard timeout: it must stay
+    // bounded — on failure the slot stays empty and the caller shows the
+    // honest running-dry notice (no pool fallback exists). 10s, up from
+    // 6s: the backfill ask grew from 2 items to 5 (RC-3), and the route is
+    // non-streamed gpt-4o-mini whose completion time scales with output —
+    // a 2-item batch fit 6s, a 5-item batch lands ~5-8s plus network, so
+    // 6s would abort the very generations the larger ask exists to
+    // produce. Non-backfill generations (fresh search, MLT, the top-up)
+    // still run untimed, as before.
     const controller = args.backfill ? new AbortController() : null;
     const timeoutId = controller
-      ? setTimeout(() => controller.abort(), 6000)
+      ? setTimeout(() => controller.abort(), 10000)
       : null;
     let res: Response;
     try {
@@ -713,34 +737,74 @@ async function generateAIReks(args: {
       if (timeoutId) clearTimeout(timeoutId);
     }
 
-    if (!res.ok) return null;
+    if (!res.ok) return false;
 
     const raw = await res.text();
     const arr = extractJsonArray(raw);
-    if (!arr || arr.length === 0) return null;
+    if (!arr || arr.length === 0) return false;
 
-    const seen = new Set<string>(
-      Array.from(args.seenTitles ?? []).map((t) => t.toLowerCase())
-    );
-
-       const out: Rek[] = [];
-    const dedupe = new Set<string>();
-
+    produced += arr.length;
     for (const item of arr) {
       if (out.length >= args.count) break;
 
       const safe = sanitizeGeneratedRek(item, args.category);
-      if (!safe) continue;
+      if (!safe) {
+        drops.sanitize++;
+        continue;
+      }
 
       const titleKey = safe.title.toLowerCase();
-      if (dedupe.has(titleKey)) continue;
-      if (seen.has(titleKey)) continue;
+      if (dedupe.has(titleKey)) {
+        drops.dupe++;
+        continue;
+      }
+      if (seen.has(titleKey)) {
+        drops.seen++;
+        continue;
+      }
 
       dedupe.add(titleKey);
       out.push(safe);
     }
-        return out.length >= 1 ? normalize(out.slice(0, args.count)) : null;
-  } catch {
+    return true;
+  };
+
+  try {
+    await runPass(args.count, args.currentTitles ?? []);
+
+    // RC-2 floor: ONE top-up when a non-backfill set ships short of five —
+    // re-ask for exactly the shortfall, with the first pass's survivors
+    // added to the avoid list (currentTitles) on top of everything seen.
+    // One retry only, then ship what exists: honest-short over canned-full
+    // — never pad, never loop. Backfill keeps its own economics (RC-3).
+    if (!args.backfill && out.length < 5) {
+      await runPass(5 - out.length, [
+        ...(args.currentTitles ?? []),
+        ...out.map((r) => r.title),
+      ]);
+    }
+
+    // Tripwire (RC-4): name the short set — which path, what filtered it.
+    if (out.length < Math.min(args.count, 5)) {
+      console.warn("[short-sets] AI generation shipped short", {
+        path: args.backfill ? "backfill" : "fresh/MLT",
+        category: args.category,
+        requested: args.count,
+        shipped: out.length,
+        produced,
+        drops,
+      });
+    }
+
+    return out.length >= 1 ? normalize(out.slice(0, args.count)) : null;
+  } catch (err) {
+    // Named, not silent (RC-4): transport throws and the backfill's 10s
+    // abort both land here.
+    console.warn("[short-sets] AI generation threw", {
+      path: args.backfill ? "backfill" : "fresh/MLT",
+      category: args.category,
+      error: err instanceof Error ? err.message : String(err),
+    });
     return null;
   }
 }
@@ -854,6 +918,7 @@ export async function getTop5FromEngine({
 
     // No silent fallback: a failed deliberate path reports empty and the
     // UI shows an honest failure notice. Pool is Play-only.
+    console.warn("[short-sets] fresh AI search returned empty", { category });
     return [];
   }
 
