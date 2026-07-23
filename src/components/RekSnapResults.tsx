@@ -11,7 +11,7 @@ import {
 import { recordSnapSignal, type SnapMode } from "../lib/reksnapSignals";
 import { compensatedCommit } from "../lib/scrollCompensation";
 import { getAnonymousClientId } from "../lib/userPrefs";
-import { TrailerVerb, WhereToWatchVerb } from "./MediaVerbs";
+import { TrailerVerb, WhereToWatchVerb, titleInfoUrl } from "./MediaVerbs";
 import RekCard from "./RekCard";
 import RekSkeleton, { RekSkeletonCard } from "./RekSkeleton";
 import RekTrail, { TrailRow } from "./RekTrail";
@@ -1078,6 +1078,11 @@ const RekSnapResults: React.FC<Props> = ({
           accent
           title={result.detected_item.name}
           short={result.detected_item.description}
+          /* Media titles link out — same anchorIsMedia gate as the media
+             verbs; expand stays reachable via "Show details". */
+          titleHref={
+            anchorIsMedia ? titleInfoUrl(result.detected_item.name) : undefined
+          }
           long={anchorLong ?? undefined}
           expandable={!anchorIsHealthMedical}
           detailsLoading={anchorLoading}
@@ -1151,6 +1156,9 @@ const RekSnapResults: React.FC<Props> = ({
                 hint={entry.rek.description}
                 thumbed={thumbSignals[entry.rek.name] === "like"}
                 saved={!!savedNames[entry.rek.name]}
+                titleHref={
+                  anchorIsMedia ? titleInfoUrl(entry.rek.name) : undefined
+                }
                 trailing={
                   /* Compact chain affordance — a trail chain is double-
                      weighted (verdict + pursuit). Health/medical: none. */
@@ -1170,6 +1178,9 @@ const RekSnapResults: React.FC<Props> = ({
                 <RekCard
                   title={entry.rek.name}
                   short={entry.rek.description}
+                  titleHref={
+                    anchorIsMedia ? titleInfoUrl(entry.rek.name) : undefined
+                  }
                   thumbSignal={thumbSignals[entry.rek.name] ?? null}
                   saved={!!savedNames[entry.rek.name]}
                   onThumbUp={() =>
@@ -1259,6 +1270,7 @@ const RekSnapResults: React.FC<Props> = ({
                 title={rek.name}
                 rank={rek.rank}
                 short={rek.description}
+                titleHref={anchorIsMedia ? titleInfoUrl(rek.name) : undefined}
                 // Swipe grammar (touch only): a committed swipe in either
                 // direction dismisses + backfills (thumbs-down). Liked or
                 // saved cards don't arm. The anchor card above never gets

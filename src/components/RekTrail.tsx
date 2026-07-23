@@ -29,6 +29,11 @@ type TrailRowProps = {
   // interactive control nested inside a button is invalid HTML and
   // misfires — so the slot's contents own their own tap.
   trailing?: React.ReactNode;
+  // Media titles link out (Google info page, new tab). Same sibling
+  // pattern as `trailing`: the title leaves the expand button and becomes
+  // an <a> beside it — a link nested inside a button is invalid HTML.
+  // The rest of the row (hint + icons) remains the expand surface.
+  titleHref?: string;
   // The expanded, full-form card (a RekCard), rendered in place on tap.
   children: React.ReactNode;
 };
@@ -39,6 +44,7 @@ export const TrailRow: React.FC<TrailRowProps> = ({
   thumbed,
   saved,
   trailing,
+  titleHref,
   children,
 }) => {
   const [open, setOpen] = useState(false);
@@ -62,15 +68,33 @@ export const TrailRow: React.FC<TrailRowProps> = ({
         <div onClick={() => setOpen(false)}>{children}</div>
       ) : (
         <div className="w-full flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 shadow-sm hover:border-gray-400 transition-colors">
-          {/* The expand tap surface — everything except the trailing action. */}
+          {/* Media title: an <a> SIBLING of the expand button (a link inside
+              a button is invalid HTML — same rule as `trailing`). Capped so
+              the hint keeps a usable expand surface beside it. */}
+          {titleHref && (
+            <a
+              href={titleHref}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="shrink-0 max-w-[55%] truncate text-[14px] font-medium text-gray-900 hover:underline"
+            >
+              {title}
+            </a>
+          )}
+          {/* The expand tap surface — everything except the trailing action
+              (and, on media rows, the title link). */}
           <button
             type="button"
             onClick={() => setOpen(true)}
             className="min-w-0 flex-1 flex items-center gap-2 text-left"
           >
             <span className="min-w-0 flex-1 truncate text-[14px]">
-              <span className="font-medium text-gray-900">{title}</span>
-              <span className="text-gray-500"> — {hint}</span>
+              {!titleHref && (
+                <span className="font-medium text-gray-900">{title}</span>
+              )}
+              <span className="text-gray-500">
+                {titleHref ? `— ${hint}` : ` — ${hint}`}
+              </span>
             </span>
             <span className="flex items-center gap-1.5 shrink-0 text-gray-600">
               {thumbed && (

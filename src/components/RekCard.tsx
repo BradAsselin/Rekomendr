@@ -45,6 +45,11 @@ type Props = {
   // existing semantics (ResultsV4 allows one open card at a time).
   detailsOpen?: boolean;
   onToggleDetails?: () => void;
+  // Media titles link out (Google info page, new tab) instead of toggling
+  // details — expand stays reachable via the "Show details" text button,
+  // which renders independently of the title. Unset = the original
+  // title-as-toggle (or plain span) behavior, untouched.
+  titleHref?: string;
   // Highlight state, split so a card can be thumbed AND saved at once:
   // thumbs are one-active-within-thumbs, Save is independent.
   thumbSignal?: "like" | "dislike" | null;
@@ -81,6 +86,7 @@ const RekCard: React.FC<Props> = ({
   detailsLoading,
   detailsOpen,
   onToggleDetails,
+  titleHref,
   thumbSignal,
   saved,
   onThumbUp,
@@ -124,11 +130,26 @@ const RekCard: React.FC<Props> = ({
     >
       {genreLine}
 
-      {/* TITLE + THUMBS — the title is the expand toggle wherever a long
-          tier exists (or will lazy-load), unified across both lanes. Cards
-          with no long tier keep a plain, non-tappable title. */}
+      {/* TITLE + THUMBS — media titles link out to their Google info page
+          (new tab; expand stays on "Show details" below). Otherwise the
+          title is the expand toggle wherever a long tier exists (or will
+          lazy-load); cards with no long tier keep a plain title. */}
       <div className="flex justify-between items-start mb-2">
-        {(long || expandable) && onToggleDetails ? (
+        {titleHref ? (
+          <a
+            href={titleHref}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => {
+              // Inside a trail row the card body is tap-to-collapse; the
+              // title handoff must not double as a collapse.
+              e.stopPropagation();
+            }}
+            className={`font-semibold ${accent ? "text-lg" : "text-[17px]"} text-left hover:underline`}
+          >
+            {titleText}
+          </a>
+        ) : (long || expandable) && onToggleDetails ? (
           <button
             type="button"
             onClick={(e) => {

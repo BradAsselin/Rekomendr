@@ -4,7 +4,7 @@ import React, { useEffect, useState, useRef } from "react";
 import { Play } from "lucide-react";
 
 import DescriptorLine from "./DescriptorLine";
-import { TrailerVerb, WhereToWatchVerb } from "./MediaVerbs";
+import { TrailerVerb, WhereToWatchVerb, titleInfoUrl } from "./MediaVerbs";
 import RekCard from "./RekCard";
 import RekSkeleton, { RekSkeletonCard } from "./RekSkeleton";
 import RekTrail, { TrailRow } from "./RekTrail";
@@ -503,6 +503,8 @@ const ResultsV4: React.FC<ResultsProps> = ({
                   hint={rek.short}
                   thumbed={contenders.some((c) => c.id === rek.id)}
                   saved={saved.some((s) => s.id === rek.id)}
+                  /* Media titles link out — same gate as the media verbs. */
+                  titleHref={isMedia ? titleInfoUrl(rek.title) : undefined}
                 >
                   <RekCard
                     genreLine={
@@ -515,6 +517,7 @@ const ResultsV4: React.FC<ResultsProps> = ({
                     year={rek.year}
                     short={rek.short}
                     long={rek.long}
+                    titleHref={isMedia ? titleInfoUrl(rek.title) : undefined}
                     detailsOpen={expandedTop === rek.id}
                     onToggleDetails={() => toggleTopExpand(rek.id)}
                     thumbSignal={
@@ -567,6 +570,7 @@ const ResultsV4: React.FC<ResultsProps> = ({
                 year={rek.year}
                 short={rek.short}
                 long={rek.long}
+                titleHref={isMedia ? titleInfoUrl(rek.title) : undefined}
                 detailsOpen={expandedTop === rek.id}
                 onToggleDetails={() => toggleTopExpand(rek.id)}
                 // Swipe grammar (touch only): a committed swipe in either

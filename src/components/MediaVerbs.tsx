@@ -11,6 +11,14 @@ import React from "react";
 // trailer and a neutral Google search for where-to-watch. No availability
 // lookup, no affiliate logic.
 
+// Title-tap handoff (media only, Brad's revert of Ledger #8 for media):
+// tapping a movie/TV title anywhere it renders opens the Google info page
+// for it in a new tab. Same neutral-Google-search pattern as Watch. The
+// name is used as stored — no cleanup here (known banked item: snap names
+// like "Home Alone DVD" ride into the query as-is).
+export const titleInfoUrl = (name: string): string =>
+  `https://www.google.com/search?q=${encodeURIComponent(name)}`;
+
 export const TrailerVerb: React.FC<{
   name: string;
   // Curated trailer link when the caller has one (search's rek.trailerUrl);
