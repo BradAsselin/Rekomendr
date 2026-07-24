@@ -32,7 +32,7 @@ function categoryFromQuery(query: string): Category {
 function loadingLabelFromQuery(query: string, cat: Category): string {
   const q = (query || "").trim();
 
-  if (!q) return "Finding fresh Reks for you...";
+  if (!q) return "Reks Ray™ is finding fresh reks for you…";
 
   const parts = q.includes("||") ? q.split("||") : q.split("|");
   const clarifier = (parts[1] || "").trim();
@@ -44,11 +44,12 @@ function loadingLabelFromQuery(query: string, cat: Category): string {
     ? rawVibe.slice(5).trim()
     : "";
 
-  if (text) return `Finding ${cat} Reks for "${text}"...`;
-  if (clarifier && vibe) return `Finding ${cat} Reks for ${clarifier} • ${vibe}...`;
-  if (clarifier) return `Finding ${cat} Reks for ${clarifier}...`;
+  if (text) return `Reks Ray™ is finding ${cat} reks for "${text}"…`;
+  if (clarifier && vibe)
+    return `Reks Ray™ is finding ${cat} reks for ${clarifier} • ${vibe}…`;
+  if (clarifier) return `Reks Ray™ is finding ${cat} reks for ${clarifier}…`;
 
-  return "Finding fresh Reks for you...";
+  return "Reks Ray™ is finding fresh reks for you…";
 }
 
 // Soft session limit on RekSnaps; count lives in sessionStorage so it
@@ -106,7 +107,9 @@ async function imageFileToDataUrl(file: File, maxDim = 1280): Promise<string> {
 export default function Page() {
   const [reks, setReks] = useState<Rek[]>([]);
   const [loading, setLoading] = useState(false);
-  const [loadingLabel, setLoadingLabel] = useState("Finding fresh Reks for you...");
+  const [loadingLabel, setLoadingLabel] = useState(
+    "Reks Ray™ is finding fresh reks for you…"
+  );
   const [category, setCategory] = useState<Category>("Movies");
   const [persistedLikedTitles, setPersistedLikedTitles] = useState<string[]>([]);
   const [persistedDislikedTitles, setPersistedDislikedTitles] = useState<string[]>([]);
@@ -190,7 +193,8 @@ export default function Page() {
     } catch (err) {
       console.error("RekSnap failed:", err);
       if (snapId !== snapIdRef.current) return;
-      setSnapError("Reks Ray™ couldn't read that photo. Give it another snap.");
+      // Voice rule: ™ rides labels/branding; prose uses the bare name.
+      setSnapError("Reks Ray couldn’t read that photo. Give it another snap.");
     } finally {
       if (snapId === snapIdRef.current) setSnapLoading(false);
     }
@@ -247,7 +251,7 @@ export default function Page() {
     snapIdRef.current++; // discard in-flight snap responses
     setReks([]);
     setLoading(false);
-    setLoadingLabel("Finding fresh Reks for you...");
+    setLoadingLabel("Reks Ray™ is finding fresh reks for you…");
     setHasSearched(false);
     setSearchError(null);
     setSnapLoading(false);

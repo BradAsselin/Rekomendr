@@ -63,6 +63,7 @@ interface ResultsProps {
 
 const ResultsV4: React.FC<ResultsProps> = ({
   loading,
+  loadingLabel,
   reks: incomingReks,
   category,
   onPlayVibe,
@@ -229,6 +230,11 @@ const ResultsV4: React.FC<ResultsProps> = ({
 
       if (!next) {
         if (exhausted) {
+          // Voice rule (handler owns the voice): pool exhaustion is the
+          // app's machinery — plain voice. The AI running-dry notice
+          // below speaks as Reks Ray, because there the AI itself is the
+          // handler that came up empty. The two strings differing is
+          // deliberate, not drift.
           setExhaustedMessage(
             `You’ve seen all our quick picks — type a ${nounForCategory(
               category
@@ -251,7 +257,7 @@ const ResultsV4: React.FC<ResultsProps> = ({
           );
           if (reksRef.current.length === 0) {
             setExhaustedMessage(
-              `Running dry on this line — type a ${nounForCategory(
+              `Reks Ray is running dry on this line — type a ${nounForCategory(
                 category
               )} you liked to point it somewhere fresh.`
             );
@@ -545,7 +551,10 @@ const ResultsV4: React.FC<ResultsProps> = ({
           and pulses beneath them instead (see below). */}
       {loading ? (
         <div className="w-full max-w-xl">
-          <RekSkeleton label="Reks Ray™ is finding your reks…" count={5} />
+          <RekSkeleton
+            label={loadingLabel || "Reks Ray™ is finding your reks…"}
+            count={5}
+          />
         </div>
       ) : (
         <div className="w-full max-w-xl space-y-3">
