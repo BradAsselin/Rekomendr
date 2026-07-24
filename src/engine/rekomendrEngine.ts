@@ -623,12 +623,12 @@ function buildAIPrompt(args: {
   - Sentence 1: the world and the concrete situation the setup drops you into — specifics only this title has.
   - Sentence 2: the texture — pace, tone, and one vivid element (a performance, a setting, a running device) named concretely.
   - Sentence 3: the viewing situation it wins, and it MUST be phrased as a situation, not a suitability claim — start it with 'One for...', 'Save it for...', or 'Best on...' ('One for a solo weeknight', 'Save it for a slow Sunday'). NEVER 'perfect/ideal/great/made for', never a type of person ('fans of...', 'those who enjoy...'). This closing formula belongs to long ALONE — short's last line NEVER uses it.
-  - Optional sentence 4: what to expect going in — honest texture (slow burn, talky, violent), the friend-warning a trailer won't give.
+  - Optional sentence 4: what to expect going in — honest texture (slow burn, talky, violent), the friend-warning a trailer won't give — and never a restatement of short's last line.
 - long must DEEPEN the angle short established — never paraphrase or re-say short in different words.
 ${
   hasSeed
     ? "- long never repeats short's placement: long's sentence 3 is the viewing situation ('One for...', 'Save it for...'), a different job than short's comparative — one comparison per card, in short."
-    : "- long never repeats short's dare: long's sentence 3 is the viewing situation ('One for...', 'Save it for...') — long's formula, never short's; the dare already did its job in short."
+    : "- long never repeats short's expect line: the split is clean — short's last line says what the night FEELS like; long's sentence 3 says WHEN to watch it ('One for...', 'Save it for...'); long's optional sentence 4 adds NEW texture only."
 }
 - NO SPOILERS in long: setup only, never a twist, a turn, or an ending.
 - RIGHT (fictional title, for shape only): 'A night-shift tollbooth operator starts finding handwritten confessions taped inside returned toll baskets and becomes obsessed with identifying the writers. It moves slowly and quietly, most of it shot inside the booth, carried by one wary, wordless lead performance. One for a solo weeknight when you want something small that sticks. Expect long silences — it trusts you to sit in them.'
@@ -689,7 +689,7 @@ ${backfill ? `{ "results": [` : "["}
     "short": "${
       hasSeed
         ? `Three sentences: the setup (characterized role + premise only this title has), the complication (setup only, never a twist), then the placement — tone, pace, or temperature against ${seedTitle}, named or as a bare comparative.`
-        : "Three sentences: the setup (characterized role + premise only this title has), the complication (setup only, never a twist), then the dare — shaped like: 'Ninety minutes, one elevator, and the wrong floor button.'"
+        : "Three sentences: the setup (characterized role + premise only this title has), the complication (setup only, never a twist), then the expect line — shaped like: 'A unique blend of absurdity and melancholy throughout — featuring a love story like no other.'"
     }",
     "long": "${longFormat}",
     "genre": "Comedy • Drama",
@@ -715,18 +715,14 @@ ${
 - Sentences 1 and 2 each end on a concrete noun or stake; sentence 3 ends on the difference, stated concretely.
 - RIGHT (fictional title, full blurb): 'A courtroom sketch artist realizes her drawings keep showing details no testimony mentioned. When a defense attorney subpoenas her sketchbook, eleven closed verdicts land back on the docket. Slower and quieter — the dread builds in pencil strokes, not chases.'
 - WRONG (same shape of title): 'A talented artist gets caught up in a legal drama, leading to unexpected revelations amidst the chaos of the courtroom. A gripping story that keeps you on the edge of your seat. Similar to other legal thrillers.' (a summary about the story, not the story; three banned constructions; sentence 3 rates instead of placing)`
-    : `- Sentence 3 — THE DARE: re-fire the premise's sharpest specific as a flat dare or promise, and STOP — ten to fifteen words, ending hard on the premise's most concrete detail, with NO clause after the dash explaining what kind of night it's for. Sentences 1 and 2 keep their own specifics. Never a rating, never a person-type.
-- HABITAT: 'One for...', 'Save it for...', 'Best on...' is the LONG tier's closing formula — BANNED in short. Any second clause of the form 'where/when you want to [verb] [abstraction]' is the named failure — the abstract register's last hiding spot.
-- The dare shape: a concrete stake or image + the dare or payoff. Three constructions — vary between them, never template one:
-  - stakes-dare: 'She has 45 days to fall in love — she's already picked her animal.'
-  - image-turn: 'Every apartment in the building has the same painting. Hers is watching.'
-  - promise: 'Ninety minutes, one elevator, and the wrong floor button.'
-- WRONG: 'One for a night when you want something strange, where the stakes are both absurd and deeply human.' → RIGHT (same premise): 'Forty-five days to fall in love — he's already chosen his animal.'
-- WRONG: 'One for an evening when you want to ponder the nature of relationships in a technology-driven world.' → RIGHT (same premise): 'He falls for his operating system — and she's dating six hundred other people.'
-- FINAL GATE for sentence 3, before you return: reread it — if it contains no noun you could photograph, it FAILS; rewrite it from the premise's most concrete detail.
-- Sentences 1 and 2 each end on a concrete noun or stake; sentence 3 ends on a concrete noun.
-- RIGHT (fictional title, full blurb): 'A hotel night auditor finds the same guest checked into three rooms under three different names — every registration card in the guest's own handwriting. When she pulls the security tape, all three check-ins happen at the same minute. One desk, one night shift, and a guest ledger that can't be right.'
-- WRONG (same shape of title): 'A hotel employee uncovers a mysterious situation, resulting in a tense investigation. A gripping thriller that keeps you guessing until the end. A must-watch for mystery lovers.' (two banned constructions; the dare slot filled with the rating register and a person-type; nothing only this title owns)`
+    : `- Sentence 3 — THE EXPECT LINE: what the night with this title FEELS like — the texture promise, in words only this title earns. Shape: 'Expect...' or the bare texture phrase; it ends hard, with no trailing qualifier clause. Texture in a friend's words — never 'a [something] vibe', never 'invites you to...'. It may sharpen one of the premise's specifics — sentences 1 and 2 keep their own. Never a rating, never a person-type.
+- HABITAT: the viewing-situation framing — 'One for...', 'Save it for...', 'Best on...', 'when you're ready for...', 'when you want to...' — is the LONG tier's job, BANNED in short. The split: short's last line = what it FEELS like; long's sentence 3 = WHEN to watch it.
+- RIGHT (the register, promoted from the model's own long tier and edited by hand): 'A unique blend of absurdity and melancholy throughout — featuring a love story like no other.'
+- WRONG (today's live failure) → RIGHT (same title, expect shape): 'One for a night when you're ready for something both bizarre and thought-provoking.' → 'Expect deadpan absurdity with melancholy underneath — romance played by alien rules.'
+- FINAL GATE for sentence 3, before you return: reread it — if its texture could hang on half the category's titles, it FAILS; rewrite it from what only this title feels like.
+- Sentences 1 and 2 each end on a concrete noun or stake; sentence 3 ends hard — no trailing clause.
+- RIGHT (fictional title, full blurb): 'A hotel night auditor finds the same guest checked into three rooms under three different names — every registration card in the guest's own handwriting. When she pulls the security tape, all three check-ins happen at the same minute. Expect small-hours dread told in timestamps and hallway carpet.'
+- WRONG (same shape of title): 'A hotel employee uncovers a mysterious situation, resulting in a tense investigation. A gripping thriller that keeps you guessing until the end. A must-watch for mystery lovers.' (two banned constructions; the expect slot filled with the rating register and a person-type; nothing only this title owns)`
 }
 - For Wine, short is exactly two sentences. Sentence 1 MUST open by placing the wine on dry vs. sweet, then signature notes in concrete decision words (grapefruit, grassy, oaky, buttery). Sentence 2: a concrete moment or contrast — when it shines and when it doesn't. End on a concrete noun. Never a mood, never an 'experience', never a recommendation.
 - RIGHT: 'Dry and citrus-led — grapefruit and lime over a subtle grassy edge. Built for a hot afternoon more than a rich dinner.'
