@@ -60,8 +60,10 @@ type Intent = {
 const MAX_AI_ITEMS = 6;
 // Backfill keeps only the first unseen item. The old narrow ask (2) starved
 // tight lanes ("crime"): the seen-filter routinely ate the whole batch and
-// the slot silently stayed empty (RC-3). Request 5 and take what survives —
-// still one slot filled, but the filter can't zero out the batch as easily.
+// the slot silently stayed empty (RC-3). This is the KEEP count, not the
+// ask — under exclusion pressure the actual request is sized up by
+// sizedAsk in generateAIReks (the marked cull zeroed out a raw 5-ask the
+// same way RC-3's narrow ask starved on the seen-filter).
 const MAX_AI_BACKFILL_OPTIONS = 5;
 
 /* ------------------------------------------------------------------
@@ -643,6 +645,7 @@ Core behavior:
 - If a seed title is provided, recommend things that feel like a smart "more like this."
 - If likes/dislikes are provided, use them to refine the taste lane only after the explicit text input has been satisfied. Liked and disliked titles are DIRECTION ONLY — never candidates.
 - Never return a title already shown this session or already on the user's liked/disliked record. A liked title is a taste signal, not a recommendation slot.
+- Treat the never-return list as covered ground: this user has already seen the obvious picks for this line. Your job is the next shelf down — adjacent, less-obvious titles of the same quality, not the canon re-served.
 - Prefer real titles/items. Do not invent fake media.
 - Return ONLY a valid JSON ${backfill ? `object of the form {"results": [ ...items ]}` : "array"}. No commentary. No markdown.
 
@@ -733,6 +736,23 @@ async function generateAIReks(args: {
     )
   );
 
+  // Over-ask sizing at the single site — EVERY path inherits (fresh, RC-2
+  // top-up, MLT, and backfill, whose 5-ask was culled to zero by the same
+  // mechanism). The marked cull eats candidates AFTER generation, so the
+  // ask is sized for the growth curve, not today's snapshot. Field receipt
+  // (2026-07-24): fresh ask 6 → produced 8, marked drops 4, shipped 4 —
+  // cull ~50% of produced on canon-heavy lanes, and it grows with every
+  // like. needed + markedCount rides that curve; the floor of 10 nets ~5
+  // survivors at the observed 50% cull; the ceiling of 12 is where
+  // 4o-mini list quality and completion-token latency stop paying — the
+  // backfill abort ceiling is sized against a 12-ask completion band, so
+  // re-run that math before ever raising 12. Extras beyond the needed
+  // count are discarded by the fold loop, never shown.
+  const sizedAsk = (needed: number): number =>
+    marked.size === 0 && seen.size === 0
+      ? needed
+      : Math.max(10, Math.min(needed + marked.size, 12));
+
   const out: Rek[] = [];
   const dedupe = new Set<string>();
   // Tripwire counters (RC-4): when a set ships short, the log below names
@@ -761,18 +781,22 @@ async function generateAIReks(args: {
 
     // Only the backfill path runs under a hard timeout, and the timeout's
     // job is HANG PROTECTION, not a latency SLA — it must sit above the
-    // p99 of LEGITIMATE completions. The 5-item, two-tier ask generates
-    // ~1,200-1,500 completion tokens on non-streamed gpt-4o-mini, which
-    // lands ~10-25s; the previous 10s sat inside that healthy band and
-    // aborted essentially every real generation (AbortError, 100% backfill
-    // failure in production — the field receipt). 30s clears the worst
-    // estimate with margin while still bounding a true network hang; the
-    // UX is covered either way (inline skeleton while waiting, honest
-    // running-dry notice on real failure). Non-backfill generations
-    // (fresh search, MLT, the top-up) still run untimed, as before.
+    // p99 of LEGITIMATE completions (the 10s-inside-the-band outage, then
+    // 30s-inside-the-band again when the over-ask landed). Sizing math at
+    // the current 12-item ask ceiling, from the measured 5-item band
+    // (~1,200-1,500 completion tokens → 10-25s ⇒ ~240-300 tokens/item,
+    // slow-tail throughput ~60 tok/s): the model over-delivers ~1.33x
+    // (field receipt: ask 6 → produced 8), so a 12-ask can legitimately
+    // complete ~16 items ≈ 3,900-4,800 tokens ≈ 65-80s at the slow tail.
+    // 90s clears that worst estimate with margin while still bounding a
+    // true hang; the UX is covered either way (inline skeleton while
+    // waiting, honest running-dry notice on real failure). Re-measure
+    // from the field before trusting this band — and re-run this math if
+    // the 12-item ask ceiling in sizedAsk ever moves. Non-backfill
+    // generations (fresh search, MLT, the top-up) still run untimed.
     const controller = args.backfill ? new AbortController() : null;
     const timeoutId = controller
-      ? setTimeout(() => controller.abort(), 30000)
+      ? setTimeout(() => controller.abort(), 90000)
       : null;
     let res: Response;
     try {
@@ -826,15 +850,16 @@ async function generateAIReks(args: {
   };
 
   try {
-    await runPass(args.count, args.currentTitles ?? []);
+    await runPass(sizedAsk(args.count), args.currentTitles ?? []);
 
     // RC-2 floor: ONE top-up when a non-backfill set ships short of five —
-    // re-ask for exactly the shortfall, with the first pass's survivors
-    // added to the avoid list (currentTitles) on top of everything seen.
-    // One retry only, then ship what exists: honest-short over canned-full
-    // — never pad, never loop. Backfill keeps its own economics (RC-3).
+    // sized through the same over-ask (asking exactly the shortfall under
+    // cull pressure was RC-3's narrow-ask disease resurfacing here), with
+    // the first pass's survivors added to the avoid list (currentTitles)
+    // on top of everything seen. One retry only, then ship what exists:
+    // honest-short over canned-full — never pad, never loop.
     if (!args.backfill && out.length < 5) {
-      await runPass(5 - out.length, [
+      await runPass(sizedAsk(5 - out.length), [
         ...(args.currentTitles ?? []),
         ...out.map((r) => r.title),
       ]);
