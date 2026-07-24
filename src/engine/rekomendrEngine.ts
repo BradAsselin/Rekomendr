@@ -576,14 +576,23 @@ function buildAIPrompt(args: {
     backfill = false,
   } = args;
 
-  // Only the most recent window is serialized into the prompt to stop it
-  // ballooning over a long session. The full seen set is still used for
-  // dedup in generateAIReks, so older titles won't be re-suggested.
+  // The prompt's never-return list, tiered by how badly truncation hurts:
+  // visible cards, then session seen, then marked titles (disliked, then
+  // liked; newest first within each) — when the 100-slot cap bites,
+  // cross-session likes fall off before anything the user can see on
+  // screen. The cap only limits prompt PRESSURE: generateAIReks drops
+  // seen AND marked titles from responses uncapped, so a truncated entry
+  // still can never ship (frontier shows only unmarked titles).
   const avoidTitles = Array.from(
-  new Set([...(currentTitles ?? []), ...(seenTitles ?? [])])
-)
-  .filter(Boolean)
-  .slice(-100);
+    new Set(
+      [
+        ...currentTitles,
+        ...seenTitles,
+        ...[...dislikedTitles].reverse(),
+        ...[...likedTitles].reverse(),
+      ].filter(Boolean)
+    )
+  ).slice(0, 100);
 
   // Long-tier spec, split by category: Movies/TV/Books earn a 3-4 sentence
   // payoff (the expanded card is the read moment — what it is, who it's
@@ -632,8 +641,8 @@ Core behavior:
 - The user's explicit text input is the PRIMARY signal — build recommendations around it first, then apply taste preferences as a secondary filter.
 - Follow the user's path and mood, not just the literal words.
 - If a seed title is provided, recommend things that feel like a smart "more like this."
-- If likes/dislikes are provided, use them to refine the taste lane only after the explicit text input has been satisfied.
-- Avoid repeating or returning titles already shown in this session.
+- If likes/dislikes are provided, use them to refine the taste lane only after the explicit text input has been satisfied. Liked and disliked titles are DIRECTION ONLY — never candidates.
+- Never return a title already shown this session or already on the user's liked/disliked record. A liked title is a taste signal, not a recommendation slot.
 - Prefer real titles/items. Do not invent fake media.
 - Return ONLY a valid JSON ${backfill ? `object of the form {"results": [ ...items ]}` : "array"}. No commentary. No markdown.
 
@@ -672,7 +681,7 @@ Rules:
 - Use plain strings only.
 - year must be numeric.
 - Keep the set coherent but not repetitive.
-- Do not include any title from the avoid list.
+- Do not include any title from the never-return list below.
 - ${backfill ? "This is a single replacement/backfill moment after a thumbs action. Give the next best discoveries." : "This is a fresh recommendation set."}
 
 Category guidance:
@@ -693,7 +702,7 @@ ${dislikedTitles.length ? dislikedTitles.slice(-10).join(", ") : "(none)"}
 Current visible titles:
 ${currentTitles.length ? currentTitles.slice(-15).join(", ") : "(none)"}
 
-Avoid these already-used titles:
+Never return these titles (already shown, or already marked by the user):
 ${avoidTitles.length ? avoidTitles.join(", ") : "(none)"}
 `.trim();
 }
@@ -712,13 +721,24 @@ async function generateAIReks(args: {
   const seen = new Set<string>(
     Array.from(args.seenTitles ?? []).map((t) => t.toLowerCase())
   );
+  // Marked titles (liked AND disliked, permanently) are excluded UNCAPPED —
+  // this drop-set is the hard guarantee behind the invariant that the
+  // frontier only ever shows unmarked titles. The prompt's capped avoid
+  // list is merely pressure; a forgotten like resurfacing is the history
+  // panel's job, never the frontier's. Separate set from `seen` so the
+  // tripwire names marked-exclusion drops distinctly.
+  const marked = new Set<string>(
+    [...(args.likedTitles ?? []), ...(args.dislikedTitles ?? [])].map((t) =>
+      t.trim().toLowerCase()
+    )
+  );
 
   const out: Rek[] = [];
   const dedupe = new Set<string>();
   // Tripwire counters (RC-4): when a set ships short, the log below names
   // what filtered it — silent failures get named.
   let produced = 0;
-  const drops = { sanitize: 0, dupe: 0, seen: 0 };
+  const drops = { sanitize: 0, dupe: 0, seen: 0, marked: 0 };
 
   // One generation round-trip: build the prompt, fetch, fold survivors into
   // `out`. Two passes share `out`/`dedupe`/`seen`, so a top-up can never
@@ -792,6 +812,10 @@ async function generateAIReks(args: {
       }
       if (seen.has(titleKey)) {
         drops.seen++;
+        continue;
+      }
+      if (marked.has(titleKey)) {
+        drops.marked++;
         continue;
       }
 
@@ -937,6 +961,9 @@ export async function getTop5FromEngine({
   });
 
   if (fallback.length < 5) {
+    // BANKED (title-recycling trace, layer 2 edge): this clears the whole
+    // category's seen set, which the AI lane shares — a drained Play pool
+    // wipes AI never-repeat memory too. Session-lifecycle work owns it.
     sessionSeen.clear();
 
     const usedAfterReset = new Set<string>();

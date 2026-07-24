@@ -72,8 +72,10 @@ const ResultsV4: React.FC<ResultsProps> = ({
   const [reks, setReks] = useState<Rek[]>([]);
   // Mark state (graduation model, same as the snap lane): thumbs-up marks
   // a contender, Save marks a keeper — both toggle off on second tap.
-  // Kept as full Reks so their titles still feed the engine's
-  // liked-exclusion list even after their cards leave the view.
+  // Kept as full Reks so their titles keep flowing into likedTitles even
+  // after their cards leave the view — the engine steers by marked titles
+  // but excludes them from candidates (prompt avoid list + uncapped
+  // response drop-set in generateAIReks).
   const [contenders, setContenders] = useState<Rek[]>([]);
   const [saved, setSaved] = useState<Rek[]>([]);
   // The decided trail: marked cards graduate up here in compact form and
@@ -165,8 +167,9 @@ const ResultsV4: React.FC<ResultsProps> = ({
   useEffect(() => {
     // A new search replaces the whole result view — the old trail leaves
     // with it, same as marked cards always vanished on a new search. The
-    // marks persist in contenders/saved, so their titles keep feeding the
-    // engine's exclusion lists (unchanged).
+    // marks persist in contenders/saved, so their titles keep feeding
+    // likedTitles — steer in the prompt, excluded from candidates by the
+    // engine's avoid list and response drop-set.
     frontierEpochRef.current++; // in-flight backfills belong to the old view
     setTrail([]);
     setMigrating(null);

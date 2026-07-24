@@ -107,10 +107,15 @@ export async function POST(req: Request): Promise<Response> {
     }
   }
 
+  // Rows arrive newest-first (created_at DESC keeps the query on the
+  // newest 100); reverse so both arrays read oldest→newest. Consumers
+  // index recency from the TAIL — the prompt's "Recent likes" slice(-10),
+  // the avoid-list tiering's newest-first reversal, ResultsV4 appending
+  // session marks last — so the tail must be the newest.
   return Response.json(
     {
-      likedTitles: Array.from(liked),
-      dislikedTitles: Array.from(disliked),
+      likedTitles: Array.from(liked).reverse(),
+      dislikedTitles: Array.from(disliked).reverse(),
     },
     { status: 200 }
   );
