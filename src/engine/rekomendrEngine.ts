@@ -619,9 +619,9 @@ function buildAIPrompt(args: {
     : `- long is EXACTLY 3 sentences, one job each:
   - Sentence 1: deepen the short's dry-vs-sweet placement with finer CONCRETE decision words (grapefruit pith, toasted oak, clover honey) — never re-characterize on a different axis, never contradict the short.
   - Sentence 2: what the wine DOES, as behavior, never an inventory of notes — where the fruit sits, when the oak arrives, what the finish does ('The fruit rides up front and the oak stays out of the way until the finish.'). A bag of descriptors that could hang on half the category is the named failure.
-  - Sentence 3: the verdict beat — where this lands relative to the comparative referent (the seed bottle or the newest kept wine): keeps it with a difference, trades it for something else, or doubles down ('Doubles down on the crispness this lane is chasing'; 'Trades the plushness for structure — leaner, but longer'). An honest not-for-this-search steer is a SUCCESS. When NO referent exists, the verdict beat is THE SELL — the concrete, bottle-specific reason to open it tonight, obeying the banned-register block and the deletion test ('Bone-dry enough to make oysters taste sweeter — the bottle empties before the bread.'). Never a rating, never an occasion, never a person-type.
+  - Sentence 3: the verdict beat — where this lands relative to the comparative referent (the seed bottle or the newest kept wine): keeps it with a difference, trades it for something else, or doubles down ('Doubles down on the crispness'; 'Trades the plushness for structure — leaner, but longer'), naming the referent by TITLE or using a bare comparative — mechanism words never appear in prose. An honest not-for-this-search steer is a SUCCESS. When NO referent exists, the verdict beat is THE SELL — the concrete, bottle-specific reason to open it tonight, obeying the banned-register block and the deletion test ('Bone-dry enough to make oysters taste sweeter — the bottle empties before the bread.'). Never a rating, never an occasion, never a person-type.
   - The FINAL WORD is a concrete noun — a food, a moment, a place. Never end on a mood.
-- RIGHT: 'The dryness runs bone-deep — lime pith and crushed stone with no fruit-sweetness padding it. The acidity hits first and the body stays out of the way, so it finishes fast and clean. Doubles down on the crispness this lane is chasing — if you wanted roundness, this is the wrong door, but with oysters it sings.'
+- RIGHT: 'The dryness runs bone-deep — lime pith and crushed stone with no fruit-sweetness padding it. The acidity hits first and the body stays out of the way, so it finishes fast and clean. Doubles down on the crispness — if you wanted roundness, this is the wrong door, but with oysters it sings.'
 - WRONG: 'A well-balanced and elegant wine with notes of citrus and minerality, perfect for those who enjoy crisp whites.' (descriptor inventory; rating register; person-type; never places the verdict against the search's line)`;
   const longFitRule = mediaLong
     ? "- long, sentence 1 or 2, should tilt its specifics toward the searcher's line where it's natural — the same premise reads differently after a 'funny feel-good' search than after a 'dark thriller' search. Never announce the fit ('since you searched...', 'if you're looking for...'); let the chosen specifics carry it."
@@ -670,10 +670,12 @@ Rules:
 - For Movies, TV Shows, and Books: short is exactly three sentences, one job each.
 - Sentence 1 — THE SETUP: a CHARACTERIZED role — a vivid description that sets the tone ('an insurance lawyer who has never lost', 'a wedding DJ who hates music', 'a couple eager to buy their first home'), NEVER a proper name (names mean nothing to someone who hasn't seen it), never a bare 'a man'/'a woman' — then the concrete premise only this title has. A topic is not a premise: the 'Explores/Delves into/Capturing [topic]' register is banned in any form.
 - Sentence 2 — THE COMPLICATION: what goes wrong, what's at stake, the turn that makes the setup a story — drawn from the SETUP only, never the twist or the ending. If the hook needs the twist, you chose the wrong sentence; hook from the premise instead.
-- Sentence 3 — THE PLACEMENT: place this title against the comparative referent, bare comparative shape — tone, pace, or temperature, naming the DIRECTION of the difference ('Slower and colder than the seed — ...'). Never a rating, never 'similar to' filler, never a person-type.
-- Sentence 3, NO-REFERENT CASE: when no referent title exists, sentence 3 is THE HOOK — the concrete, title-specific reason to watch it TONIGHT ('Ninety minutes, one apartment, and a note that shouldn't exist.'). The hook obeys the banned-register block and the deletion test: something only this title earns, NEVER the rating register ('a must-watch', 'gripping').
+- Sentence 3 — THE PLACEMENT: place this title against the comparative referent, bare comparative shape — tone, pace, or temperature, naming the DIRECTION of the difference. Name the referent by TITLE, or use a bare comparative with no referent phrase at all. Never a rating, never 'similar to' filler, never a person-type.
+- RIGHT (placement, fictional referent): 'Quieter and stranger than Midnight Ledger — the menace stays under the surface.' (names the referent title) — equally right: 'Quieter and stranger — the menace stays under the surface.' (bare comparative)
+- WRONG: 'Quieter and stranger than the seed.' ('the seed' is a prompt word, not prose — the plumbing leaked into the blurb)
+- Sentence 3, NO-REFERENT CASE: when no referent title exists, sentence 3 is THE HOOK — a CONCRETE image or stake, the title-specific reason to watch it TONIGHT: objects, numbers, places ('Ninety minutes, one apartment, and a note that shouldn't exist.'). If sentence 3 contains no noun you could photograph, rewrite it. The abstract-verdict shape is the named failure IN ANY WORDING — 'challenges the very idea of connection', 'dives deep into the human experience', 'challenges traditional notions of romance', 'examines love through the lens of loss': examines/challenges/explores/celebrates + an abstraction is the review register rebuilt from unbanned words. The hook obeys the banned-register block and the deletion test: something only this title earns, NEVER the rating register ('a must-watch', 'gripping').
 - Sentences 1 and 2 each end on a concrete noun or stake; sentence 3 ends on the difference, stated concretely — or, in the hook case, on a concrete noun.
-- RIGHT (fictional title, for shape only): 'A courtroom sketch artist realizes her drawings keep showing details no testimony mentioned. When a defense attorney subpoenas her sketchbook, every case she ever drew comes back into question. Slower and quieter than the seed — the dread builds in pencil strokes, not chases.'
+- RIGHT (fictional title, for shape only): 'A courtroom sketch artist realizes her drawings keep showing details no testimony mentioned. When a defense attorney subpoenas her sketchbook, every case she ever drew comes back into question. Slower and quieter — the dread builds in pencil strokes, not chases.'
 - WRONG (same shape of title): 'A talented artist gets caught up in a legal drama, leading to unexpected revelations amidst the chaos of the courtroom. A gripping story that keeps you on the edge of your seat. Similar to other legal thrillers.' (nothing only this title owns; three banned constructions; sentence 3 rates instead of placing)
 - RIGHT (fictional title, HOOK shape — no referent): 'A hotel night auditor finds the same guest checked into three rooms under three different names — every registration card in the guest's own handwriting. When she pulls the security tape, all three check-ins happen at the same minute. One desk, one night shift, and a guest ledger that can't be right.'
 - WRONG (same shape of title): 'A hotel employee uncovers a mysterious situation, resulting in a tense investigation. A gripping thriller that keeps you guessing until the end. A must-watch for mystery lovers.' (two banned constructions; the hook slot filled with the rating register and a person-type; nothing only this title owns)
@@ -684,6 +686,7 @@ Rules:
 BANNED REGISTER — applies to every sentence of short and long:
 - Trailing endings: 'leading to...' in any form ('leading to unexpected notoriety', 'leading to humorous and poignant situations'), 'resulting in...' in any form ('resulting in a tense hostage situation'), '[anything] ensues' ('hilarity ensues', 'chaos ensues'), 'amidst the chaos', 'nothing will ever be the same', 'a journey of self-discovery'.
 - Review-speak and person-types: 'heartwarming', 'a journey of', 'refreshing take', 'must-watch', 'a rollercoaster', 'keeps you on the edge of your seat', 'perfect for', 'fans of', 'those who enjoy', 'explores themes of', 'a testament to', 'resonates', 'ideal for', 'great for', 'lingers long after', 'stays with you', opening with 'The story of...'.
+- Mechanism words: 'the seed', 'the referent', 'this lane', 'the shelf', 'your search' — prompt vocabulary, never prose. Name the referent title or use a bare comparative; the reader must never see the plumbing.
 - DELETION TEST, applied before you return: if a phrase could describe half the titles in this category, delete it and write something only this title earns. If nothing survives, you chose the wrong sentence.
 
 ${longRules}
@@ -713,13 +716,16 @@ ${seedTitle ? seedTitle : "(none)"}
 
 Comparative referent (every placement sentence compares against this):
 ${
+  // The referent is the SEED ONLY — always session-relevant by
+  // construction (MLT seed = the tapped card; backfill seed = the newest
+  // trail keep of the line being walked now). Cross-session likes were
+  // removed from this slot (field regression on 23a1c6c): prefs are
+  // category-scoped with no lane/genre data, so a kept crime movie became
+  // the "referent" for a romance search. If user_likes ever grows
+  // lane/genre columns, the tier can return WITH a relevance filter.
   seedTitle
-    ? `the seed title, ${seedTitle} — place each rek against it.`
-    : likedTitles.length
-    ? `the user's newest kept title, ${
-        likedTitles[likedTitles.length - 1]
-      } — place each rek against it.`
-    : `no referent title — sentence 3 is THE HOOK: the concrete, title-specific reason to watch, read, or drink it tonight. Something only this title earns; the banned-register block and the deletion test apply in full.`
+    ? `the seed title, ${seedTitle} — place each rek against it, naming it by TITLE or with a bare comparative. NEVER write the words 'the seed' or 'the referent' in a description.`
+    : `none — sentence 3 is THE HOOK: the concrete, title-specific reason to watch, read, or drink it tonight. Something only this title earns; the banned-register block and the deletion test apply in full.`
 }
 
 Recent likes:
