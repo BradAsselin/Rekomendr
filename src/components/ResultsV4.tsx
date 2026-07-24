@@ -292,20 +292,39 @@ const ResultsV4: React.FC<ResultsProps> = ({
   const handleMoreLikeThis = async (rek: Rek) => {
     recordLike({ category, title: rek.title, year: rek.year, action: 'more_like_this' });
 
+    // Chain-parity: the tapped card is a PURSUED KEEP — it marks as a
+    // like locally and graduates to the trail with the wipe's flush
+    // below, not dying as collateral. Deliberately NOT handleLike: that
+    // would write a second row, and the more_like_this row above already
+    // subsumes the like (the snap lane's chain-subsumes-like pattern;
+    // /api/prefs counts more_like_this as liked).
+    setContenders((p) =>
+      p.some((c) => c.id === rek.id) || saved.some((s) => s.id === rek.id)
+        ? p
+        : [...p, rek]
+    );
+
     // Keepers live in the trail now, so the wipe is total. A marked card
     // still mid-migration flushes straight to the trail (no animation)
     // instead of dying with the frontier; the skeletons pulse beneath the
-    // trail, and the fresh five land there.
-    const stillMarked = reks.filter(
-      (r) =>
-        contenders.some((c) => c.id === r.id) ||
-        saved.some((s) => s.id === r.id)
-    );
+    // trail, and the fresh five land there. The pursued keep flushes
+    // LAST — it is the newest keep, the tail the trail-steer weighs
+    // heaviest.
+    const stillMarked = [
+      ...reks.filter(
+        (r) =>
+          r.id !== rek.id &&
+          (contenders.some((c) => c.id === r.id) ||
+            saved.some((s) => s.id === r.id))
+      ),
+      ...(reks.some((r) => r.id === rek.id) ? [rek] : []),
+    ];
     setExiting(null);
     setMigrating(null);
     setMltLoading(true);
     frontierEpochRef.current++; // the wipe kills the old generation —
     // any in-flight backfill response landing after this must decline
+    const epochAtStart = frontierEpochRef.current;
     setTrail((prev) => [
       ...prev,
       ...stillMarked.filter((m) => !prev.some((t) => t.id === m.id)),
@@ -318,9 +337,22 @@ const ResultsV4: React.FC<ResultsProps> = ({
       const nextFive = await getMoreLikeThisSet({
         seed: rek,
         category,
-        likedTitles: allLikedTitlesRef.current,
+        // The seed's title rides likedTitles explicitly: the ref lags one
+        // commit behind the setContenders above, so for THIS call its
+        // presence would be timing-dependent (future calls get it from
+        // the ref for free). The seen tier already blocks the seed; this
+        // makes the marked tier deterministic too.
+        likedTitles: [...allLikedTitlesRef.current, rek.title],
         dislikedTitles: allDislikedTitlesRef.current,
       });
+
+      // Epoch guard BEFORE any response handling — the race this
+      // sequence hid: MLT was the one wipe-adjacent landing site without
+      // one. A new search bumps the epoch and replaces the view while
+      // this generation is in flight; a stale response must not append
+      // dead cards onto the new frontier or raise a stale failure
+      // notice. Same guard class as backfill's (R2/R5).
+      if (epochAtStart !== frontierEpochRef.current) return;
 
       if (!nextFive || nextFive.length === 0) {
         // MLT is always AI now, so an empty set is an AI failure — never
