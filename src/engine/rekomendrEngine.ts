@@ -604,7 +604,7 @@ function buildAIPrompt(args: {
     category === "Movies" || category === "TV Shows" || category === "Books";
   const longFormat = mediaLong
     ? "3-4 sentences: the setup's concrete situation, the texture, the viewing moment it wins — deepening short's angle, setup only."
-    : "One sentence explaining why it is worth watching (Rotten Tomatoes style).";
+    : "EXACTLY 3 sentences: the axis deepened, what the wine DOES, then the verdict beat — see the wine long rules.";
   const longRules = mediaLong
     ? `- long is EXACTLY 3-4 sentences, one job each:
   - Sentence 1: the world and the concrete situation the setup drops you into — specifics only this title has.
@@ -612,15 +612,20 @@ function buildAIPrompt(args: {
   - Sentence 3: the viewing situation it wins, and it MUST be phrased as a situation, not a suitability claim — start it with 'One for...', 'Save it for...', or 'Best on...' ('One for a solo weeknight', 'Save it for a slow Sunday'). NEVER 'perfect/ideal/great/made for', never a type of person ('fans of...', 'those who enjoy...').
   - Optional sentence 4: what to expect going in — honest texture (slow burn, talky, violent), the friend-warning a trailer won't give.
 - long must DEEPEN the angle short established — never paraphrase or re-say short in different words.
+- long never repeats short's placement: long's sentence 3 is the viewing situation ('One for...', 'Save it for...'), a different job than short's comparative — one comparison per card, in short.
 - NO SPOILERS in long: setup only, never a twist, a turn, or an ending.
-- Decision rule: if a phrase could describe half of all movies, delete it and say something only this title earns.
-- BAN in any construction: 'heartwarming', 'a journey of', 'refreshing take', 'must-watch', 'a rollercoaster', 'keeps you on the edge of your seat', 'perfect for', 'fans of', 'those who enjoy', 'explores themes of', 'a testament to', 'resonates', 'ideal for', 'great for', 'lingers long after', 'stays with you'.
 - RIGHT (fictional title, for shape only): 'A night-shift tollbooth operator starts finding handwritten confessions taped inside returned toll baskets and becomes obsessed with identifying the writers. It moves slowly and quietly, most of it shot inside the booth, carried by one wary, wordless lead performance. One for a solo weeknight when you want something small that sticks. Expect long silences — it trusts you to sit in them.'
 - WRONG (same shape of title): 'A heartwarming journey of connection that explores themes of loneliness. A refreshing take on the mystery genre, perfect for fans of slow cinema. A must-watch that resonates long after.' (could describe five hundred films; three banned constructions; names nothing this title owns)`
-    : "- long must be ONE sentence explaining why it is worth watching.";
+    : `- long is EXACTLY 3 sentences, one job each:
+  - Sentence 1: deepen the short's dry-vs-sweet placement with finer CONCRETE decision words (grapefruit pith, toasted oak, clover honey) — never re-characterize on a different axis, never contradict the short.
+  - Sentence 2: what the wine DOES, as behavior, never an inventory of notes — where the fruit sits, when the oak arrives, what the finish does ('The fruit rides up front and the oak stays out of the way until the finish.'). A bag of descriptors that could hang on half the category is the named failure.
+  - Sentence 3: the verdict beat — where this lands relative to the comparative referent (the seed bottle, the newest kept wine, or the shelf this search names): keeps it with a difference, trades it for something else, or doubles down ('Doubles down on the crispness this lane is chasing'; 'Trades the plushness for structure — leaner, but longer'). An honest not-for-this-search steer is a SUCCESS. Never a rating, never an occasion, never a person-type.
+  - The FINAL WORD is a concrete noun — a food, a moment, a place. Never end on a mood.
+- RIGHT: 'The dryness runs bone-deep — lime pith and crushed stone with no fruit-sweetness padding it. The acidity hits first and the body stays out of the way, so it finishes fast and clean. Doubles down on the crispness this lane is chasing — if you wanted roundness, this is the wrong door, but with oysters it sings.'
+- WRONG: 'A well-balanced and elegant wine with notes of citrus and minerality, perfect for those who enjoy crisp whites.' (descriptor inventory; rating register; person-type; never places the verdict against the search's line)`;
   const longFitRule = mediaLong
     ? "- long, sentence 1 or 2, should tilt its specifics toward the searcher's line where it's natural — the same premise reads differently after a 'funny feel-good' search than after a 'dark thriller' search. Never announce the fit ('since you searched...', 'if you're looking for...'); let the chosen specifics carry it."
-    : "- long = why it fits.";
+    : "- long, sentence 3, carries the fit: the verdict is stated AGAINST the comparative referent — never announce it ('since you searched...'); let the relationship carry it.";
 
   const categoryInstructions: Record<Category, string> = {
     Movies:
@@ -654,7 +659,7 @@ ${backfill ? `{ "results": [` : "["}
   {
     "title": "Example Title",
     "year": 2014,
-    "short": "Two sentences: a characterized role + their wildly specific premise, then the complication — from the SETUP only, never a twist.",
+    "short": "Three sentences: the setup (characterized role + premise only this title has), the complication (setup only, never a twist), the placement against the comparative referent.",
     "long": "${longFormat}",
     "genre": "Comedy • Drama",
     "vibeTags": ["Witty", "Heartfelt"],
@@ -662,18 +667,25 @@ ${backfill ? `{ "results": [` : "["}
   }
 ${backfill ? `] }` : "]"}
 Rules:
-- For Movies, TV Shows, and Books: short is exactly two sentences. Sentence 1 opens with a CHARACTERIZED role — a vivid description that sets the tone ('a sneering TV weatherman', 'a couple eager to buy their first home', 'an insurance lawyer who has never lost'), NOT a proper name (names mean nothing to someone who hasn't seen it) — then the concrete premise only this movie has. Sentence 2: the complication or collision that makes it a story.
-- NO SPOILERS in short: draw only from the setup — never a twist, a turn, or an ending. If the hook needs the twist, you have chosen the wrong sentence; hook from the premise instead.
-- short must end on a concrete noun or stake. BANNED endings: 'leading to...' in any form ('leading to humorous and poignant situations', 'leading to unexpected romance', 'leading to a series of comedic events'), 'hilarity ensues', 'nothing will ever be the same', 'a journey of self-discovery'.
-- RIGHT: 'A sneering TV weatherman is stuck living the same small-town February 2nd over and over. No consequences carry forward — except what it does to him.'
-- WRONG: 'A cynical weatherman relives the same day, leading to humorous and poignant situations.' (vague premise and a banned 'leading to...' ending — says nothing this movie doesn't share with a hundred comedies)
+- For Movies, TV Shows, and Books: short is exactly three sentences, one job each.
+- Sentence 1 — THE SETUP: a CHARACTERIZED role — a vivid description that sets the tone ('an insurance lawyer who has never lost', 'a wedding DJ who hates music', 'a couple eager to buy their first home'), NEVER a proper name (names mean nothing to someone who hasn't seen it), never a bare 'a man'/'a woman' — then the concrete premise only this title has. A topic is not a premise: the 'Explores/Delves into/Capturing [topic]' register is banned in any form.
+- Sentence 2 — THE COMPLICATION: what goes wrong, what's at stake, the turn that makes the setup a story — drawn from the SETUP only, never the twist or the ending. If the hook needs the twist, you chose the wrong sentence; hook from the premise instead.
+- Sentence 3 — THE PLACEMENT: place this title against the comparative referent, bare comparative shape — tone, pace, or temperature, naming the DIRECTION of the difference ('Slower and colder than the seed — ...'), or its position on the shelf when no referent title exists ('The talkiest of the smart-witty crime shelf'). Never a rating, never 'similar to' filler, never a person-type.
+- Sentences 1 and 2 each end on a concrete noun or stake; sentence 3 ends on the difference, stated concretely.
+- RIGHT (fictional title, for shape only): 'A courtroom sketch artist realizes her drawings keep showing details no testimony mentioned. When a defense attorney subpoenas her sketchbook, every case she ever drew comes back into question. Slower and quieter than the seed — the dread builds in pencil strokes, not chases.'
+- WRONG (same shape of title): 'A talented artist gets caught up in a legal drama, leading to unexpected revelations amidst the chaos of the courtroom. A gripping story that keeps you on the edge of your seat. Similar to other legal thrillers.' (nothing only this title owns; three banned constructions; sentence 3 rates instead of placing)
 - For Wine, short is exactly two sentences. Sentence 1 MUST open by placing the wine on dry vs. sweet, then signature notes in concrete decision words (grapefruit, grassy, oaky, buttery). Sentence 2: a concrete moment or contrast — when it shines and when it doesn't. End on a concrete noun. Never a mood, never an 'experience', never a recommendation.
 - RIGHT: 'Dry and citrus-led — grapefruit and lime over a subtle grassy edge. Built for a hot afternoon more than a rich dinner.'
 - WRONG: 'A crisp, refreshing white perfect for those who enjoy lighter wines.' (never places it on dry vs. sweet; perfect-for filler)
+
+BANNED REGISTER — applies to every sentence of short and long:
+- Trailing endings: 'leading to...' in any form ('leading to unexpected notoriety', 'leading to humorous and poignant situations'), 'resulting in...' in any form ('resulting in a tense hostage situation'), '[anything] ensues' ('hilarity ensues', 'chaos ensues'), 'amidst the chaos', 'nothing will ever be the same', 'a journey of self-discovery'.
+- Review-speak and person-types: 'heartwarming', 'a journey of', 'refreshing take', 'must-watch', 'a rollercoaster', 'keeps you on the edge of your seat', 'perfect for', 'fans of', 'those who enjoy', 'explores themes of', 'a testament to', 'resonates', 'ideal for', 'great for', 'lingers long after', 'stays with you', opening with 'The story of...'.
+- DELETION TEST, applied before you return: if a phrase could describe half the titles in this category, delete it and write something only this title earns. If nothing survives, you chose the wrong sentence.
+
 ${longRules}
 - write in plain English, like a smart human curator.
 - avoid critic language, film-school jargon, and review-speak.
-- avoid starting descriptions with "The story of..."
 - prefer strong but less obvious titles over the most famous mainstream picks when possible.
 ${longFitRule}
 - avoid repeating the same very famous titles across different searches.
@@ -695,6 +707,17 @@ ${context}
 
 Seed title:
 ${seedTitle ? seedTitle : "(none)"}
+
+Comparative referent (every placement sentence compares against this):
+${
+  seedTitle
+    ? `the seed title, ${seedTitle} — place each rek against it.`
+    : likedTitles.length
+    ? `the user's newest kept title, ${
+        likedTitles[likedTitles.length - 1]
+      } — place each rek against it.`
+    : `no referent title — place each rek against the shelf this search names, lane and tone: 'The talkiest of the smart-witty crime shelf.'`
+}
 
 Recent likes:
 ${likedTitles.length ? likedTitles.slice(-10).join(", ") : "(none)"}
