@@ -596,36 +596,64 @@ function buildAIPrompt(args: {
     )
   ).slice(0, 100);
 
+  // Whether a session-relevant referent exists (MLT seed / backfill trail
+  // keep). ROUND-4 STRUCTURAL RULE — conditional prompt assembly: the
+  // model dodges INTO whatever comparison vocabulary the prompt contains
+  // (genre-average referents survived an explicit ban), so the S3 rules,
+  // the template line, AND the examples all branch on this. The no-seed
+  // prompt contains ONLY pitch instruction space — comparison vocabulary
+  // appears nowhere in it, not as a ban, not as a mention. The S1-S2
+  // rules (prime rule, setup, complication, garage pair) are identical
+  // in both branches — Brad-confirmed working; never touch them here.
+  const hasSeed = Boolean(seedTitle);
+
   // Long-tier spec, split by category: Movies/TV/Books earn a 3-4 sentence
   // payoff (the expanded card is the read moment — what it is, who it's
   // for, why this searcher's line points at it), under the same no-spoiler
-  // rule as short. Wine keeps its original one-sentence blurb, verbatim.
+  // rule as short. Wine's long is the 3-sentence verdict/sell grammar.
   const mediaLong =
     category === "Movies" || category === "TV Shows" || category === "Books";
   const longFormat = mediaLong
     ? "3-4 sentences: the setup's concrete situation, the texture, the viewing moment it wins — deepening short's angle, setup only."
-    : "EXACTLY 3 sentences: the axis deepened, what the wine DOES, then the verdict beat — see the wine long rules.";
+    : hasSeed
+    ? "EXACTLY 3 sentences: the axis deepened, what the wine DOES, then the verdict beat — see the wine long rules."
+    : "EXACTLY 3 sentences: the axis deepened, what the wine DOES, then the sell — see the wine long rules.";
   const longRules = mediaLong
     ? `- long is EXACTLY 3-4 sentences, one job each:
   - Sentence 1: the world and the concrete situation the setup drops you into — specifics only this title has.
   - Sentence 2: the texture — pace, tone, and one vivid element (a performance, a setting, a running device) named concretely.
-  - Sentence 3: the viewing situation it wins, and it MUST be phrased as a situation, not a suitability claim — start it with 'One for...', 'Save it for...', or 'Best on...' ('One for a solo weeknight', 'Save it for a slow Sunday'). NEVER 'perfect/ideal/great/made for', never a type of person ('fans of...', 'those who enjoy...').
+  - Sentence 3: the viewing situation it wins, and it MUST be phrased as a situation, not a suitability claim — start it with 'One for...', 'Save it for...', or 'Best on...' ('One for a solo weeknight', 'Save it for a slow Sunday'). NEVER 'perfect/ideal/great/made for', never a type of person ('fans of...', 'those who enjoy...'). This closing formula belongs to long ALONE — short's last line NEVER uses it.
   - Optional sentence 4: what to expect going in — honest texture (slow burn, talky, violent), the friend-warning a trailer won't give.
 - long must DEEPEN the angle short established — never paraphrase or re-say short in different words.
-- long never repeats short's placement: long's sentence 3 is the viewing situation ('One for...', 'Save it for...'), a different job than short's comparative — one comparison per card, in short.
+${
+  hasSeed
+    ? "- long never repeats short's placement: long's sentence 3 is the viewing situation ('One for...', 'Save it for...'), a different job than short's comparative — one comparison per card, in short."
+    : "- long never repeats short's dare: long's sentence 3 is the viewing situation ('One for...', 'Save it for...') — long's formula, never short's; the dare already did its job in short."
+}
 - NO SPOILERS in long: setup only, never a twist, a turn, or an ending.
 - RIGHT (fictional title, for shape only): 'A night-shift tollbooth operator starts finding handwritten confessions taped inside returned toll baskets and becomes obsessed with identifying the writers. It moves slowly and quietly, most of it shot inside the booth, carried by one wary, wordless lead performance. One for a solo weeknight when you want something small that sticks. Expect long silences — it trusts you to sit in them.'
 - WRONG (same shape of title): 'A heartwarming journey of connection that explores themes of loneliness. A refreshing take on the mystery genre, perfect for fans of slow cinema. A must-watch that resonates long after.' (could describe five hundred films; three banned constructions; names nothing this title owns)`
     : `- long is EXACTLY 3 sentences, one job each:
   - Sentence 1: deepen the short's dry-vs-sweet placement with finer CONCRETE decision words (grapefruit pith, toasted oak, clover honey) — never re-characterize on a different axis, never contradict the short.
   - Sentence 2: what the wine DOES, as behavior, never an inventory of notes — where the fruit sits, when the oak arrives, what the finish does ('The fruit rides up front and the oak stays out of the way until the finish.'). A bag of descriptors that could hang on half the category is the named failure.
-  - Sentence 3: the verdict beat — where this lands relative to the comparative referent (the seed bottle or the newest kept wine): keeps it with a difference, trades it for something else, or doubles down ('Doubles down on the crispness'; 'Trades the plushness for structure — leaner, but longer'), naming the referent by TITLE or using a bare comparative — mechanism words never appear in prose. An honest not-for-this-search steer is a SUCCESS. When NO referent exists, the verdict beat is THE SELL, and the comparative form is banned — no 'than', no varietal-average referent ('most Chardonnays', 'typical Cabernets'): the concrete, bottle-specific reason to open it tonight, standing on the bottle alone, obeying the banned-register block and the deletion test ('Bone-dry enough to make oysters taste sweeter — the bottle empties before the bread.'). Never a rating, never an occasion, never a person-type.
+${
+  hasSeed
+    ? `  - Sentence 3: the verdict beat — where this lands relative to the seed bottle: keeps it with a difference, trades it for something else, or doubles down ('Doubles down on the crispness'; 'Trades the plushness for structure — leaner, but longer'), naming it by TITLE or using a bare comparative — mechanism words never appear in prose, and the comparison targets the seed bottle ONLY, never an invented varietal average ('most Chardonnays', 'typical Cabernets'). An honest not-for-this-search steer is a SUCCESS. Never a rating, never an occasion, never a person-type.`
+    : `  - Sentence 3: THE SELL — the concrete, bottle-specific reason to open it tonight, standing on the bottle alone ('Bone-dry enough to make oysters taste sweeter — the bottle empties before the bread.'). Never a rating, never an occasion, never a person-type.`
+}
   - The FINAL WORD is a concrete noun — a food, a moment, a place. Never end on a mood.
-- RIGHT: 'The dryness runs bone-deep — lime pith and crushed stone with no fruit-sweetness padding it. The acidity hits first and the body stays out of the way, so it finishes fast and clean. Doubles down on the crispness — if you wanted roundness, this is the wrong door, but with oysters it sings.'
-- WRONG: 'A well-balanced and elegant wine with notes of citrus and minerality, perfect for those who enjoy crisp whites.' (descriptor inventory; rating register; person-type; never places the verdict against the search's line)`;
+${
+  hasSeed
+    ? `- RIGHT: 'The dryness runs bone-deep — lime pith and crushed stone with no fruit-sweetness padding it. The acidity hits first and the body stays out of the way, so it finishes fast and clean. Doubles down on the crispness — if you wanted roundness, this is the wrong door, but with oysters it sings.'
+- WRONG: 'A well-balanced and elegant wine with notes of citrus and minerality, perfect for those who enjoy crisp whites.' (descriptor inventory; rating register; person-type; never places the verdict against the seed)`
+    : `- RIGHT: 'The dryness runs bone-deep — lime pith and crushed stone with no fruit-sweetness padding it. The acidity hits first and the body stays out of the way, so it finishes fast and clean. Bone-dry enough to make the oysters taste sweeter — the bottle empties before the bread.'
+- WRONG: 'A well-balanced and elegant wine with notes of citrus and minerality, perfect for those who enjoy crisp whites.' (descriptor inventory; rating register; person-type; sells nothing this bottle owns)`
+}`;
   const longFitRule = mediaLong
     ? "- long, sentence 1 or 2, should tilt its specifics toward the searcher's line where it's natural — the same premise reads differently after a 'funny feel-good' search than after a 'dark thriller' search. Never announce the fit ('since you searched...', 'if you're looking for...'); let the chosen specifics carry it."
-    : "- long, sentence 3, carries the fit: the verdict is stated AGAINST the comparative referent — never announce it ('since you searched...'); let the relationship carry it.";
+    : hasSeed
+    ? "- long, sentence 3, carries the fit: the verdict is stated AGAINST the seed bottle — never announce it ('since you searched...'); let the relationship carry it."
+    : "- long, sentence 3, carries the sell — never announce the fit ('since you searched...'); let the bottle carry it.";
 
   const categoryInstructions: Record<Category, string> = {
     Movies:
@@ -647,8 +675,7 @@ Generate ${count} ${category} recommendations as fresh discovery picks.
 Core behavior:
 - The user's explicit text input is the PRIMARY signal — build recommendations around it first, then apply taste preferences as a secondary filter.
 - Follow the user's path and mood, not just the literal words.
-- If a seed title is provided, recommend things that feel like a smart "more like this."
-- If likes/dislikes are provided, use them to refine the taste lane only after the explicit text input has been satisfied. Liked and disliked titles are DIRECTION ONLY — never candidates.
+${hasSeed ? '- A seed title is provided below: recommend things that feel like a smart "more like this."\n' : ""}- If likes/dislikes are provided, use them to refine the taste lane only after the explicit text input has been satisfied. Liked and disliked titles are DIRECTION ONLY — never candidates.
 - Never return a title already shown this session or already on the user's liked/disliked record. A liked title is a taste signal, not a recommendation slot.
 - Treat the never-return list as covered ground: this user has already seen the obvious picks for this line. Your job is the next shelf down — adjacent, less-obvious titles of the same quality, not the canon re-served.
 - Prefer real titles/items. Do not invent fake media.
@@ -659,7 +686,11 @@ ${backfill ? `{ "results": [` : "["}
   {
     "title": "Example Title",
     "year": 2014,
-    "short": "Three sentences: the setup (characterized role + premise only this title has), the complication (setup only, never a twist), then sentence 3 per the comparative-referent line — placement against the seed when one exists, THE PITCH when none does.",
+    "short": "${
+      hasSeed
+        ? `Three sentences: the setup (characterized role + premise only this title has), the complication (setup only, never a twist), then the placement — tone, pace, or temperature against ${seedTitle}, named or as a bare comparative.`
+        : "Three sentences: the setup (characterized role + premise only this title has), the complication (setup only, never a twist), then the dare — shaped like: 'Ninety minutes, one elevator, and the wrong floor button.'"
+    }",
     "long": "${longFormat}",
     "genre": "Comedy • Drama",
     "vibeTags": ["Witty", "Heartfelt"],
@@ -674,22 +705,29 @@ Rules:
   - WRONG: 'An attendant grapples with a mysterious vehicle and navigates the strange rules of his garage.' (summary verbs; the stub, the ten years, and the 72 hours — the story's own specifics — all gone)
 - Sentence 1 — THE SETUP: a CHARACTERIZED role — a vivid description that sets the tone ('an insurance lawyer who has never lost', 'a wedding DJ who hates music', 'a couple eager to buy their first home'), NEVER a proper name (names mean nothing to someone who hasn't seen it), never a bare 'a man'/'a woman' — then the concrete premise only this title has. A topic is not a premise: the 'Explores/Delves into/Capturing [topic]' register is banned in any form.
 - Sentence 2 — THE COMPLICATION: what goes wrong, what's at stake, the turn that makes the setup a story — drawn from the SETUP only, never the twist or the ending. If the hook needs the twist, you chose the wrong sentence; hook from the premise instead.
-- Sentence 3 has TWO CASES, decided by the comparative-referent line below. Comparison is NOT sentence 3's default job — it exists ONLY when a seed title exists.
-- SEED CASE — THE PLACEMENT: place this title against the referent, bare comparative shape — tone, pace, or temperature, naming the DIRECTION of the difference. Name the referent by TITLE, or use a bare comparative with no referent phrase at all. Never a rating, never 'similar to' filler, never a person-type.
+${
+  hasSeed
+    ? `- Sentence 3 — THE PLACEMENT: place this title against the seed title, bare comparative shape — tone, pace, or temperature, naming the DIRECTION of the difference. Name it by TITLE, or use a bare comparative with no referent phrase at all. The comparison targets the seed title ONLY — never an invented genre average ('most romantic comedies', 'typical thrillers', banned in any wording). Never a rating, never 'similar to' filler, never a person-type.
 - RIGHT (placement, fictional referent): 'Quieter and stranger than Midnight Ledger — the menace stays under the surface.' (names the referent title) — equally right: 'Quieter and stranger — the menace stays under the surface.' (bare comparative)
 - WRONG: 'Quieter and stranger than the seed.' ('the seed' is a prompt word, not prose — the plumbing leaked into the blurb)
-- NO-SEED CASE — THE PITCH: the comparative FORM is BANNED outright — no 'than', no 'more/less X than', and NO invented genre-average referent ('most romantic comedies', 'typical thrillers', 'traditional romances' — banned in any wording). Sentence 3 RE-FIRES one of the premise's specifics as a reason to press play tonight — it never STRIPS sentences 1 and 2 of their specifics to save one. Make me want to watch it with that last sentence.
-- The pitch shape: a concrete stake or image + the dare or payoff. Three constructions — vary between them, never template one:
+- WRONG: 'Stranger and funnier than most romantic comedies — the concept bends the norms of love.' (an invented genre-average referent where the seed title belongs; a summary-verb abstraction in the second clause; not one noun you could photograph)
+- FINAL GATE for sentence 3, before you return: reread it — if it contains no noun you could photograph, it FAILS; rewrite it from the premise's most concrete detail.
+- Sentences 1 and 2 each end on a concrete noun or stake; sentence 3 ends on the difference, stated concretely.
+- RIGHT (fictional title, full blurb): 'A courtroom sketch artist realizes her drawings keep showing details no testimony mentioned. When a defense attorney subpoenas her sketchbook, eleven closed verdicts land back on the docket. Slower and quieter — the dread builds in pencil strokes, not chases.'
+- WRONG (same shape of title): 'A talented artist gets caught up in a legal drama, leading to unexpected revelations amidst the chaos of the courtroom. A gripping story that keeps you on the edge of your seat. Similar to other legal thrillers.' (a summary about the story, not the story; three banned constructions; sentence 3 rates instead of placing)`
+    : `- Sentence 3 — THE DARE: re-fire the premise's sharpest specific as a flat dare or promise, and STOP — ten to fifteen words, ending hard on the premise's most concrete detail, with NO clause after the dash explaining what kind of night it's for. Sentences 1 and 2 keep their own specifics. Never a rating, never a person-type.
+- HABITAT: 'One for...', 'Save it for...', 'Best on...' is the LONG tier's closing formula — BANNED in short. Any second clause of the form 'where/when you want to [verb] [abstraction]' is the named failure — the abstract register's last hiding spot.
+- The dare shape: a concrete stake or image + the dare or payoff. Three constructions — vary between them, never template one:
   - stakes-dare: 'She has 45 days to fall in love — she's already picked her animal.'
   - image-turn: 'Every apartment in the building has the same painting. Hers is watching.'
   - promise: 'Ninety minutes, one elevator, and the wrong floor button.'
-- WRONG (the observed failure — this exact shape in any wording): 'Stranger and funnier than most romantic comedies — the concept bends the norms of love.' (comparative form with an invented genre-average referent; a summary-verb abstraction — banned register — hiding in the second clause; not one noun you could photograph)
+- WRONG: 'One for a night when you want something strange, where the stakes are both absurd and deeply human.' → RIGHT (same premise): 'Forty-five days to fall in love — he's already chosen his animal.'
+- WRONG: 'One for an evening when you want to ponder the nature of relationships in a technology-driven world.' → RIGHT (same premise): 'He falls for his operating system — and she's dating six hundred other people.'
 - FINAL GATE for sentence 3, before you return: reread it — if it contains no noun you could photograph, it FAILS; rewrite it from the premise's most concrete detail.
-- Sentences 1 and 2 each end on a concrete noun or stake; sentence 3 ends on the difference (seed case) or on a concrete noun (pitch case).
-- RIGHT (fictional title, full blurb — SEED case): 'A courtroom sketch artist realizes her drawings keep showing details no testimony mentioned. When a defense attorney subpoenas her sketchbook, eleven closed verdicts land back on the docket. Slower and quieter — the dread builds in pencil strokes, not chases.'
-- WRONG (same shape of title): 'A talented artist gets caught up in a legal drama, leading to unexpected revelations amidst the chaos of the courtroom. A gripping story that keeps you on the edge of your seat. Similar to other legal thrillers.' (a summary about the story, not the story; three banned constructions; sentence 3 rates instead of placing)
-- RIGHT (fictional title, full blurb — PITCH case, no seed): 'A hotel night auditor finds the same guest checked into three rooms under three different names — every registration card in the guest's own handwriting. When she pulls the security tape, all three check-ins happen at the same minute. One desk, one night shift, and a guest ledger that can't be right.'
-- WRONG (same shape of title): 'A hotel employee uncovers a mysterious situation, resulting in a tense investigation. A gripping thriller that keeps you guessing until the end. A must-watch for mystery lovers.' (two banned constructions; the pitch slot filled with the rating register and a person-type; nothing only this title owns)
+- Sentences 1 and 2 each end on a concrete noun or stake; sentence 3 ends on a concrete noun.
+- RIGHT (fictional title, full blurb): 'A hotel night auditor finds the same guest checked into three rooms under three different names — every registration card in the guest's own handwriting. When she pulls the security tape, all three check-ins happen at the same minute. One desk, one night shift, and a guest ledger that can't be right.'
+- WRONG (same shape of title): 'A hotel employee uncovers a mysterious situation, resulting in a tense investigation. A gripping thriller that keeps you guessing until the end. A must-watch for mystery lovers.' (two banned constructions; the dare slot filled with the rating register and a person-type; nothing only this title owns)`
+}
 - For Wine, short is exactly two sentences. Sentence 1 MUST open by placing the wine on dry vs. sweet, then signature notes in concrete decision words (grapefruit, grassy, oaky, buttery). Sentence 2: a concrete moment or contrast — when it shines and when it doesn't. End on a concrete noun. Never a mood, never an 'experience', never a recommendation.
 - RIGHT: 'Dry and citrus-led — grapefruit and lime over a subtle grassy edge. Built for a hot afternoon more than a rich dinner.'
 - WRONG: 'A crisp, refreshing white perfect for those who enjoy lighter wines.' (never places it on dry vs. sweet; perfect-for filler)
@@ -698,7 +736,11 @@ BANNED REGISTER — applies to every sentence of short and long:
 - Trailing endings: 'leading to...' in any form ('leading to unexpected notoriety', 'leading to humorous and poignant situations'), 'resulting in...' in any form ('resulting in a tense hostage situation'), '[anything] ensues' ('hilarity ensues', 'chaos ensues'), 'amidst the chaos', 'nothing will ever be the same', 'a journey of self-discovery'.
 - Review-speak and person-types: 'heartwarming', 'a journey of', 'refreshing take', 'must-watch', 'a rollercoaster', 'keeps you on the edge of your seat', 'perfect for', 'fans of', 'those who enjoy', 'explores themes of', 'a testament to', 'resonates', 'ideal for', 'great for', 'lingers long after', 'stays with you', opening with 'The story of...'.
 - Summary verbs, ANY sentence: 'grapples with', 'navigates', 'faces', 'struggles with', 'deals with', 'comes to terms with' — and the abstract-verdict cousins 'examines/challenges/explores/celebrates/bends/probes/embraces' + any abstraction ('challenges the very idea of connection', 'probes the nature of intimacy', 'embraces wildness and danger'). A summary verb + an abstraction is a book report about the story, never the story.
-- Mechanism words: 'the seed', 'the referent', 'this lane', 'the shelf', 'your search' — prompt vocabulary, never prose. Name the referent title or use a bare comparative; the reader must never see the plumbing.
+${
+  hasSeed
+    ? "- Mechanism words: 'the seed', 'the referent', 'this lane', 'the shelf', 'your search' — prompt vocabulary, never prose. Name the referent title or use a bare comparative; the reader must never see the plumbing."
+    : "- Mechanism words: 'this lane', 'the shelf', 'your search' — prompt vocabulary, never prose; the reader must never see the plumbing."
+}
 - DELETION TEST, applied before you return: if a phrase could describe half the titles in this category, delete it and write something only this title earns. If nothing survives, you chose the wrong sentence.
 
 ${longRules}
@@ -723,24 +765,26 @@ ${categoryInstructions[category]}
 User path context:
 ${context}
 
-Seed title:
-${seedTitle ? seedTitle : "(none)"}
-
-Comparative referent (every placement sentence compares against this):
 ${
-  // The referent is the SEED ONLY — always session-relevant by
-  // construction (MLT seed = the tapped card; backfill seed = the newest
-  // trail keep of the line being walked now). Cross-session likes were
-  // removed from this slot (field regression on 23a1c6c): prefs are
-  // category-scoped with no lane/genre data, so a kept crime movie became
-  // the "referent" for a romance search. If user_likes ever grows
-  // lane/genre columns, the tier can return WITH a relevance filter.
-  seedTitle
-    ? `the seed title, ${seedTitle} — place each rek against it, naming it by TITLE or with a bare comparative. NEVER write the words 'the seed' or 'the referent' in a description.`
-    : `none — sentence 3 is THE PITCH, and the comparative form is banned: no 'than', no genre-average referents. Re-fire one of the premise's specifics as the reason to press play tonight — sentences 1 and 2 keep their own specifics. The pitch constructions and the photographable-noun gate apply in full.`
-}
+  // The referent data section exists ONLY when a seed exists — in the
+  // no-seed assembly, referent/seed vocabulary appears nowhere (round-4
+  // structural rule). The referent stays the SEED ONLY — session-relevant
+  // by construction (MLT seed = the tapped card; backfill seed = the
+  // newest trail keep). Cross-session likes stay out of this slot
+  // (26f4ae1 field regression: prefs are category-scoped with no
+  // lane/genre data, so a kept crime movie became the "referent" for a
+  // romance search); if user_likes ever grows lane/genre columns, a
+  // like-based referent can return WITH a relevance filter.
+  hasSeed
+    ? `Seed title:
+${seedTitle}
 
-Recent likes:
+Comparative referent (sentence 3 places each rek against this):
+the seed title, ${seedTitle} — place each rek against it, naming it by TITLE or with a bare comparative. NEVER write the words 'the seed' or 'the referent' in a description.
+
+`
+    : ""
+}Recent likes:
 ${likedTitles.length ? likedTitles.slice(-10).join(", ") : "(none)"}
 
 Recent dislikes:
