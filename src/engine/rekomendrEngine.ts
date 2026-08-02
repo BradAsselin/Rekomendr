@@ -623,15 +623,15 @@ function buildAIPrompt(args: {
   - Sentence 1: the world and the concrete situation the setup drops you into — specifics only this title has.
   - Sentence 2: the texture — pace, tone, and one vivid element (a performance, a setting, a running device) named concretely.
   - Sentence 3: the viewing situation it wins, and it MUST be phrased as a situation, not a suitability claim — start it with 'One for...', 'Save it for...', or 'Best on...' ('One for a solo weeknight', 'Save it for a slow Sunday'). NEVER 'perfect/ideal/great/made for', never a type of person ('fans of...', 'those who enjoy...'). This closing formula belongs to long ALONE — short's last line NEVER uses it.
-  - Optional sentence 4: what to expect going in — honest texture (slow burn, talky, violent), the friend-warning a trailer won't give — and never a restatement of short's last line.
+  - Optional sentence 4: the honest going-in warning — texture a trailer won't admit (slow burn, talky, violent) — and never a restatement of short's last line.
 - long must DEEPEN the angle short established — never paraphrase or re-say short in different words.
 ${
   hasSeed
     ? "- long never repeats short's placement: long's sentence 3 is the viewing situation ('One for...', 'Save it for...'), a different job than short's comparative — one comparison per card, in short."
-    : "- long never repeats short's expect line: the split is clean — short's last line says what the night FEELS like; long's sentence 3 says WHEN to watch it ('One for...', 'Save it for...'); long's optional sentence 4 adds NEW texture only."
+    : "- long never repeats short's close: the split is clean — short's last line puts you inside the night (what watching it feels like, what it leaves behind); long's sentence 3 says WHEN to watch it ('One for...', 'Save it for...'); long's optional sentence 4 is the going-in warning only."
 }
 - NO SPOILERS in long: setup only, never a twist, a turn, or an ending.
-- RIGHT (fictional title, for shape only): 'A night-shift tollbooth operator starts finding handwritten confessions taped inside returned toll baskets and becomes obsessed with identifying the writers. It moves slowly and quietly, most of it shot inside the booth, carried by one wary, wordless lead performance. One for a solo weeknight when you want something small that sticks. Expect long silences — it trusts you to sit in them.'
+- RIGHT (fictional title, for shape only): 'A night-shift tollbooth operator starts finding handwritten confessions taped inside returned toll baskets and becomes obsessed with identifying the writers. It moves slowly and quietly, most of it shot inside the booth, carried by one wary, wordless lead performance. One for a solo weeknight when you want something small that sticks. It goes long stretches with no dialogue at all — and trusts you to sit in them.'
 - WRONG (same shape of title): 'A heartwarming journey of connection that explores themes of loneliness. A refreshing take on the mystery genre, perfect for fans of slow cinema. A must-watch that resonates long after.' (could describe five hundred films; three banned constructions; names nothing this title owns)`
     : `- long is EXACTLY 3 sentences, one job each:
   - Sentence 1: deepen the short's dry-vs-sweet placement with finer CONCRETE decision words (grapefruit pith, toasted oak, clover honey) — never re-characterize on a different axis, never contradict the short.
@@ -689,7 +689,7 @@ ${backfill ? `{ "results": [` : "["}
     "short": "${
       hasSeed
         ? `Three sentences: the setup (characterized role + premise only this title has), the complication (setup only, never a twist), then the placement — tone, pace, or temperature against ${seedTitle}, named or as a bare comparative.`
-        : "Three sentences: the setup (characterized role + premise only this title has), the complication (setup only, never a twist), then the expect line — shaped like: 'A unique blend of absurdity and melancholy throughout — featuring a love story like no other.'"
+        : "Three sentences: the setup (characterized role + premise only this title has), the complication (setup only, never a twist), then the simulation close — the night from inside it, e.g. 'Halfway in you stop checking your phone without noticing.' or 'The one you'll be explaining to a coworker tomorrow, badly.'"
     }",
     "long": "${longFormat}",
     "genre": "Comedy • Drama",
@@ -715,14 +715,16 @@ ${
 - Sentences 1 and 2 each end on a concrete noun or stake; sentence 3 ends on the difference, stated concretely.
 - RIGHT (fictional title, full blurb): 'A courtroom sketch artist realizes her drawings keep showing details no testimony mentioned. When a defense attorney subpoenas her sketchbook, eleven closed verdicts land back on the docket. Slower and quieter — the dread builds in pencil strokes, not chases.'
 - WRONG (same shape of title): 'A talented artist gets caught up in a legal drama, leading to unexpected revelations amidst the chaos of the courtroom. A gripping story that keeps you on the edge of your seat. Similar to other legal thrillers.' (a summary about the story, not the story; three banned constructions; sentence 3 rates instead of placing)`
-    : `- Sentence 3 — THE EXPECT LINE: what the night with this title FEELS like — the texture promise, in words only this title earns. Shape: 'Expect...' or the bare texture phrase; it ends hard, with no trailing qualifier clause. Texture in a friend's words — never 'a [something] vibe', never 'invites you to...'. It may sharpen one of the premise's specifics — sentences 1 and 2 keep their own. Never a rating, never a person-type.
-- HABITAT: the viewing-situation framing — 'One for...', 'Save it for...', 'Best on...', 'when you're ready for...', 'when you want to...' — is the LONG tier's job, BANNED in short. The split: short's last line = what it FEELS like; long's sentence 3 = WHEN to watch it.
-- RIGHT (the register, promoted from the model's own long tier and edited by hand): 'A unique blend of absurdity and melancholy throughout — featuring a love story like no other.'
-- WRONG (today's live failure) → RIGHT (same title, expect shape): 'One for a night when you're ready for something both bizarre and thought-provoking.' → 'Expect deadpan absurdity with melancholy underneath — romance played by alien rules.'
-- FINAL GATE for sentence 3, before you return: reread it — if its texture could hang on half the category's titles, it FAILS; rewrite it from what only this title feels like.
+    : `- Sentence 3 — THE SIMULATION CLOSE: put the reader inside the night — what watching this actually feels like, the state it leaves you in, or what you'll catch yourself doing after. Concrete and title-specific: it names something a viewer of THIS title does, feels, or argues about — never the film's qualities in the abstract. An honest steer is a SUCCESS. Never a rating, never a person-type, never a mood-word inventory.
+- VARY THE ENTRY: within a set, no two closes open the same way — different first words, different shapes. Three shapes, equally right (fictional titles, close only):
+  - the state it puts you in: 'By the third check-in you're watching the corners of the frame, not the middle.'
+  - the aftermath: 'The kind you're still arguing about at breakfast — starting with whether the mother knew.'
+  - the honest steer: 'Slow on purpose — the good slow; if you need a chase by minute twenty, this isn't that night.'
+- HABITAT: the scheduling formulas — 'One for...', 'Save it for...', 'Best on...', 'when you're ready for...', 'when you want to...' — are the LONG tier's job, BANNED in short. The split: short's last line = the night from INSIDE it (what watching feels like, what it leaves behind); long's sentence 3 = WHEN to put it on the calendar. The close names the viewer's state, never the occasion.
+- FINAL GATE for sentence 3, before you return: reread it — if the same sentence could close half the category's titles, it FAILS; rewrite it from what only THIS title does to the person watching.
 - Sentences 1 and 2 each end on a concrete noun or stake; sentence 3 ends hard — no trailing clause.
-- RIGHT (fictional title, full blurb): 'A hotel night auditor finds the same guest checked into three rooms under three different names — every registration card in the guest's own handwriting. When she pulls the security tape, all three check-ins happen at the same minute. Expect small-hours dread told in timestamps and hallway carpet.'
-- WRONG (same shape of title): 'A hotel employee uncovers a mysterious situation, resulting in a tense investigation. A gripping thriller that keeps you guessing until the end. A must-watch for mystery lovers.' (two banned constructions; the expect slot filled with the rating register and a person-type; nothing only this title owns)`
+- RIGHT (fictional title, full blurb): 'A hotel night auditor finds the same guest checked into three rooms under three different names — every registration card in the guest's own handwriting. When she pulls the security tape, all three check-ins happen at the same minute. You'll catch yourself pausing on the timestamps, checking the auditor's math against your own.'
+- WRONG (same shape of title): 'A hotel employee uncovers a mysterious situation, resulting in a tense investigation. A gripping thriller that keeps you guessing until the end. A must-watch for mystery lovers.' (two banned constructions; the close slot filled with the rating register and a person-type; nothing only this title owns)`
 }
 - For Wine, short is exactly two sentences. Sentence 1 MUST open by placing the wine on dry vs. sweet, then signature notes in concrete decision words (grapefruit, grassy, oaky, buttery). Sentence 2: a concrete moment or contrast — when it shines and when it doesn't. End on a concrete noun. Never a mood, never an 'experience', never a recommendation.
 - RIGHT: 'Dry and citrus-led — grapefruit and lime over a subtle grassy edge. Built for a hot afternoon more than a rich dinner.'
