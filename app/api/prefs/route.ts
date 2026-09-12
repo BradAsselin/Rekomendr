@@ -6,6 +6,7 @@
 // client-side; writes (recordLike) are untouched.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { runEnvCheck } from "../../../src/lib/envCheck";
 
 export const runtime = "nodejs";
 
@@ -13,30 +14,9 @@ export const runtime = "nodejs";
 // tokens): likes are WRITTEN by the browser to NEXT_PUBLIC_SUPABASE_URL's
 // project, but this route READS via SUPABASE_URL. If those name different
 // projects, prefs come back empty from the wrong project's table — the
-// same silent split that hid dislike shading until 2026-07-19.
-const safeHost = (u: string): string => {
-  try {
-    return new URL(u).host;
-  } catch {
-    return "(unparseable URL)";
-  }
-};
-{
-  const serverUrl = process.env.SUPABASE_URL;
-  const publicUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  if (
-    serverUrl &&
-    publicUrl &&
-    serverUrl.replace(/\/+$/, "") !== publicUrl.replace(/\/+$/, "")
-  ) {
-    console.warn(
-      "[prefs] SUPABASE_URL and NEXT_PUBLIC_SUPABASE_URL differ — reads will hit the wrong project:",
-      safeHost(serverUrl),
-      "vs",
-      safeHost(publicUrl)
-    );
-  }
-}
+// same silent split that hid dislike shading until 2026-07-19. The check
+// itself now lives in src/lib/envCheck.ts and covers every pair.
+runEnvCheck();
 
 // Same guarded dynamic import as the merge route (supabaseServer throws
 // at import time on missing env, so it is never imported statically): a

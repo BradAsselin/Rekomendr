@@ -10,6 +10,7 @@
 // response never reveals whether an id was already claimed.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { runEnvCheck } from "../../../../src/lib/envCheck";
 
 export const runtime = "nodejs";
 
@@ -17,30 +18,9 @@ export const runtime = "nodejs";
 // tokens): the browser's session tokens are minted by the project at
 // NEXT_PUBLIC_SUPABASE_URL, but this route verifies them against
 // SUPABASE_URL. If those name different projects, every getUser call fails
-// signature verification and this route 401s uniformly.
-const safeHost = (u: string): string => {
-  try {
-    return new URL(u).host;
-  } catch {
-    return "(unparseable URL)";
-  }
-};
-{
-  const serverUrl = process.env.SUPABASE_URL;
-  const publicUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  if (
-    serverUrl &&
-    publicUrl &&
-    serverUrl.replace(/\/+$/, "") !== publicUrl.replace(/\/+$/, "")
-  ) {
-    console.warn(
-      "[merge] SUPABASE_URL and NEXT_PUBLIC_SUPABASE_URL differ — token verification will fail:",
-      safeHost(serverUrl),
-      "vs",
-      safeHost(publicUrl)
-    );
-  }
-}
+// signature verification and this route 401s uniformly. The check itself
+// now lives in src/lib/envCheck.ts and covers every pair.
+runEnvCheck();
 
 // Same guarded dynamic import as the shading reader (supabaseServer throws
 // at import time on missing env, so it is never imported statically): a
