@@ -15,6 +15,7 @@ import { compensatedCommit } from "../lib/scrollCompensation";
 
 // Engine helpers
 import { getBackfillRek, getMoreLikeThisSet } from "../engine/rekomendrEngine";
+import { isAIServiceError } from "../lib/aiServiceError";
 import type { Rek } from "../engine/rekomendrEngine";
 import { recordLike } from "../lib/userPrefs";
 
@@ -281,6 +282,11 @@ const ResultsV4: React.FC<ResultsProps> = ({
       });
     } catch (err) {
       console.error("Backfill via engine failed:", err);
+      // A named service failure (out of credit, key refused, …) is an
+      // outage, not a single-slot miss: it gets the banner whatever the
+      // frontier holds — behind the same epoch guard as every notice here.
+      if (epochAtStart !== frontierEpochRef.current) return;
+      if (isAIServiceError(err)) setExhaustedMessage(err.message);
     } finally {
       setPendingBackfills((p) => Math.max(0, p - 1));
     }
@@ -381,6 +387,10 @@ const ResultsV4: React.FC<ResultsProps> = ({
       });
     } catch (err) {
       console.error("More Like This via engine failed:", err);
+      // Named service failure → honest plain-voice copy, same epoch guard
+      // as the empty-set notice above.
+      if (epochAtStart !== frontierEpochRef.current) return;
+      if (isAIServiceError(err)) setExhaustedMessage(err.message);
     } finally {
       setMltLoading(false);
     }

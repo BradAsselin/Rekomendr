@@ -1,8 +1,33 @@
 import OpenAI from "openai";
+import { runEnvCheck, isProductionRuntime } from "../../../src/lib/envCheck";
+import {
+  maybeSimulateOpenAIFailure,
+  openAIFailureResponse,
+} from "../../../src/lib/openaiFailure";
 
 export const runtime = "nodejs";
 
+// Boot-time env-pair check (logs once per process, hostnames only).
+runEnvCheck();
+
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+// Permanent dev/preview-only prompt fingerprint. buildAIPrompt runs
+// CLIENT-side, so the prompt that arrives here is the one the user's bundle
+// built — these markers say which era of prompt that bundle carries.
+// hasExpectLine is the RETIRED heading (d68cb6d): true means a stale bundle.
+// Never logs prompt text, only markers and length. Silent on production.
+function logPromptDiag(prompt: string, extra: Record<string, unknown>): void {
+  if (isProductionRuntime()) return;
+  console.log("[prompt-diag]", {
+    hasSimulationClose: prompt.includes("THE SIMULATION CLOSE"),
+    hasBannedRegister: prompt.includes("BANNED REGISTER"),
+    hasExpectLine: prompt.includes("THE EXPECT LINE"),
+    hasPrimeRule: prompt.includes("THE PRIME RULE"),
+    promptChars: prompt.length,
+    ...extra,
+  });
+}
 
 type Candidate = {
   id: number;
@@ -16,6 +41,10 @@ type Candidate = {
 
 export async function POST(req: Request) {
   try {
+    // Dev/preview-only: REKOMENDR_SIMULATE_OPENAI_FAILURE throws the
+    // matching OpenAI-shaped error so the honest copy can be seen.
+    maybeSimulateOpenAIFailure();
+
     const body = await req.json();
 
     /* ------------------------------
@@ -27,6 +56,8 @@ export async function POST(req: Request) {
       const temperature =
         typeof body?.temperature === "number" ? body.temperature : 0.85;
       const useJson = body?.jsonResponse === true;
+
+      logPromptDiag(body.prompt, { temperature, jsonResponse: useJson });
 
       const completion = await openai.chat.completions.create({
         model: "gpt-4o-mini",
@@ -136,6 +167,11 @@ ${JSON.stringify(candidates)}
 
     return new Response("Invalid request", { status: 400 });
   } catch (err) {
+    // Named service failures (out of credit, key refused, rate-limited,
+    // unreachable) answer with honest copy + reason; the log line names
+    // them. Everything else keeps the bare 500 it always had.
+    const failure = openAIFailureResponse("openai", err);
+    if (failure) return failure;
     console.error("OpenAI route error:", err);
     return new Response("Server error", { status: 500 });
   }

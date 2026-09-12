@@ -2,10 +2,18 @@ import OpenAI from "openai";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { HEALTH_MEDICAL_CATEGORIES } from "../../../src/lib/categoryGates";
+import { runEnvCheck } from "../../../src/lib/envCheck";
+import {
+  maybeSimulateOpenAIFailure,
+  openAIFailureResponse,
+} from "../../../src/lib/openaiFailure";
 
 export const runtime = "nodejs";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+// Boot-time env-pair check (logs once per process, hostnames only).
+runEnvCheck();
 
 const SYSTEM_PROMPT =
   "You are a taste-aware recommendation engine reading a single photo.\n" +
@@ -876,6 +884,12 @@ async function handleChain(chain: any): Promise<Response> {
 
 export async function POST(req: Request) {
   try {
+    // Dev/preview-only: REKOMENDR_SIMULATE_OPENAI_FAILURE throws the
+    // matching OpenAI-shaped error so the honest copy can be seen. Sits
+    // above the dispatch so every branch (vision, backfill, detail, chain)
+    // simulates alike.
+    maybeSimulateOpenAIFailure();
+
     const body = await req.json().catch(() => ({}));
 
     // Backfill requests are text-only and carry no image.
@@ -1044,6 +1058,12 @@ export async function POST(req: Request) {
       { status: 200 }
     );
   } catch (err) {
+    // Named service failures (out of credit, key refused, rate-limited,
+    // unreachable) answer with honest copy + reason; the log line names
+    // them. Every branch above throws into here, so a quota outage no
+    // longer reads as "Could not read that photo."
+    const failure = openAIFailureResponse("reksnap", err);
+    if (failure) return failure;
     console.error("RekSnap route error:", err);
     return Response.json({ error: "Server error" }, { status: 500 });
   }

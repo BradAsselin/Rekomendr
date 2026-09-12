@@ -1,8 +1,16 @@
 import OpenAI from "openai";
+import { runEnvCheck } from "../../../src/lib/envCheck";
+import {
+  maybeSimulateOpenAIFailure,
+  openAIFailureResponse,
+} from "../../../src/lib/openaiFailure";
 
 export const runtime = "nodejs";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+// Boot-time env-pair check (logs once per process, hostnames only).
+runEnvCheck();
 
 const SYSTEM_PROMPT =
   "You are a knowledgeable friend walking someone through how to make a dish they're holding or thinking about. You write recipes in a warm, conversational voice — never a clinical recipe-card tone.\n" +
@@ -46,6 +54,10 @@ type RecipeOut = {
 
 export async function POST(req: Request) {
   try {
+    // Dev/preview-only: REKOMENDR_SIMULATE_OPENAI_FAILURE throws the
+    // matching OpenAI-shaped error so the honest copy can be seen.
+    maybeSimulateOpenAIFailure();
+
     const body = await req.json().catch(() => ({}));
     const dish = typeof body?.dish === "string" ? body.dish.trim() : "";
     const detectedItem =
@@ -110,6 +122,10 @@ export async function POST(req: Request) {
 
     return Response.json(recipe, { status: 200 });
   } catch (err) {
+    // Named service failures answer with honest copy + reason; the log
+    // line names them. Everything else keeps the bare 500 it always had.
+    const failure = openAIFailureResponse("recipe", err);
+    if (failure) return failure;
     console.error("Recipe route error:", err);
     return Response.json({ error: "Server error" }, { status: 500 });
   }
