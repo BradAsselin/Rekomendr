@@ -40,28 +40,119 @@ export async function recordLike(params: {
   });
 }
 
-export async function loadPrefsForCategory(category: string): Promise<{
+// One Shortlist entry: a liked-but-not-watched title, plus the timestamp
+// of the like the resurfacing marker quotes.
+export type ShortlistEntry = {
+  title: string;
+  year: number | null;
+  likedAt: string | null;
+};
+
+export type CategoryPrefs = {
   likedTitles: string[];
   dislikedTitles: string[];
-}> {
+  // The 'watched' signal (S1). Permanent frontier exclusion — and, unlike
+  // likedTitles, NOT exempted by the freshness slot. Empty until the
+  // migration in docs/sql/s1-watched-signal.sql runs.
+  watchedTitles: string[];
+  // Newest first — a render order for the strip, not an avoid list.
+  shortlist: ShortlistEntry[];
+};
+
+const EMPTY_PREFS: CategoryPrefs = {
+  likedTitles: [],
+  dislikedTitles: [],
+  watchedTitles: [],
+  shortlist: [],
+};
+
+const asStringArray = (v: unknown): string[] =>
+  Array.isArray(v) ? v.filter((t): t is string => typeof t === 'string') : [];
+
+const asShortlist = (v: unknown): ShortlistEntry[] =>
+  Array.isArray(v)
+    ? v
+        .filter(
+          (e): e is ShortlistEntry =>
+            !!e && typeof (e as ShortlistEntry).title === 'string'
+        )
+        .map((e) => ({
+          title: e.title,
+          year: typeof e.year === 'number' ? e.year : null,
+          likedAt: typeof e.likedAt === 'string' ? e.likedAt : null,
+        }))
+    : [];
+
+export async function loadPrefsForCategory(
+  category: string
+): Promise<CategoryPrefs> {
   const clientId = getAnonymousClientId();
-  if (!clientId) return { likedTitles: [], dislikedTitles: [] };
+  if (!clientId) return EMPTY_PREFS;
 
   // Fail-soft on any failure (network, non-200, bad JSON): empty prefs,
-  // never a throw into the search flow.
+  // never a throw into the search flow. A route that predates S1 (or a
+  // cached bundle talking to one) simply omits the two new fields, and
+  // the readers below default them to empty — the strip stays hidden and
+  // search behaves exactly as it does today.
   try {
     const res = await fetch('/api/prefs', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ clientId, category }),
     });
-    if (!res.ok) return { likedTitles: [], dislikedTitles: [] };
+    if (!res.ok) return EMPTY_PREFS;
     const data = await res.json();
     return {
-      likedTitles: Array.isArray(data?.likedTitles) ? data.likedTitles : [],
-      dislikedTitles: Array.isArray(data?.dislikedTitles) ? data.dislikedTitles : [],
+      likedTitles: asStringArray(data?.likedTitles),
+      dislikedTitles: asStringArray(data?.dislikedTitles),
+      watchedTitles: asStringArray(data?.watchedTitles),
+      shortlist: asShortlist(data?.shortlist),
     };
   } catch {
-    return { likedTitles: [], dislikedTitles: [] };
+    return EMPTY_PREFS;
+  }
+}
+
+// THE 'WATCHED' WRITE (S1).
+//
+// Deliberately NOT recordLike: this one write goes through a server route
+// instead of the browser's anon insert, because it is this session's one
+// new fail-soft path and charter §2.4 requires a SERVER-SIDE tripwire that
+// names the failure. Until the migration runs, user_likes.action's CHECK
+// constraint rejects 'watched' — the route recognises exactly that case
+// and logs it as `migration_pending`, so the reason for an unpersisted tap
+// is a named line in the log, not a shrug.
+//
+// Returns whether the row actually landed, so the caller can put the chip
+// back rather than pretend it saved.
+export async function recordWatched(params: {
+  category: string;
+  title: string;
+  year?: number;
+}): Promise<{ ok: boolean; reason?: string }> {
+  const clientId = getAnonymousClientId();
+  if (!clientId) return { ok: false, reason: 'no_client_id' };
+
+  try {
+    const res = await fetch('/api/signals/watched', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        clientId,
+        category: params.category,
+        title: params.title,
+        year: params.year ?? null,
+      }),
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok || !data?.ok) {
+      return {
+        ok: false,
+        reason: typeof data?.reason === 'string' ? data.reason : 'request_failed',
+      };
+    }
+    return { ok: true };
+  } catch {
+    return { ok: false, reason: 'network' };
   }
 }
