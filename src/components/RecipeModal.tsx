@@ -6,6 +6,12 @@ import { X } from "lucide-react";
 import RekSkeleton from "./RekSkeleton";
 import SignalButtons from "./SignalButtons";
 import { recordSnapSignal, type SnapSignalAction } from "../lib/reksnapSignals";
+import { isAIServiceError, readServiceFailure } from "../lib/aiServiceError";
+
+// Plain voice: the modal's machinery failed, not the recipe's author. A
+// named service failure (out of credit, key refused, …) replaces this with
+// the route's honest copy.
+const RECIPE_FAILED_MSG = "Couldn’t load that recipe.";
 
 // Shape returned by /api/recipe. safety_note is null for benign dishes.
 type Recipe = {
@@ -25,7 +31,7 @@ type Props = {
 const RecipeModal: React.FC<Props> = ({ dish, detectedItem, onClose }) => {
   const [loading, setLoading] = useState(true);
   const [recipe, setRecipe] = useState<Recipe | null>(null);
-  const [error, setError] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   // Drives the bottom-sheet slide-up; flips true after first paint.
   const [shown, setShown] = useState(false);
   // Active taste signal for this recipe — same one-active-per-item model
@@ -42,7 +48,7 @@ const RecipeModal: React.FC<Props> = ({ dish, detectedItem, onClose }) => {
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    setError(false);
+    setError(null);
     setRecipe(null);
     setSignal(undefined);
 
@@ -53,11 +59,13 @@ const RecipeModal: React.FC<Props> = ({ dish, detectedItem, onClose }) => {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ dish, detectedItem }),
         });
-        if (!res.ok) throw new Error(`recipe ${res.status}`);
+        if (!res.ok)
+          throw (await readServiceFailure(res)) ?? new Error(`recipe ${res.status}`);
         const data = (await res.json()) as Recipe;
         if (!cancelled) setRecipe(data);
-      } catch {
-        if (!cancelled) setError(true);
+      } catch (err) {
+        if (!cancelled)
+          setError(isAIServiceError(err) ? err.message : RECIPE_FAILED_MSG);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -127,7 +135,7 @@ const RecipeModal: React.FC<Props> = ({ dish, detectedItem, onClose }) => {
           ) : error ? (
             <div className="pt-4">
               <p className="text-[15px] text-gray-800 font-medium">
-                Couldn’t load that recipe.
+                {error}
               </p>
               <p className="text-sm text-gray-500 mt-1 mb-4">
                 You can still watch how it’s made.
