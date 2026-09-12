@@ -15,7 +15,12 @@
 ------------------------------------------------------------------- */
 
 import { getTop5FromDeck } from "./deckSelector";
+// movieProfileScorer is LIVE, not an orphan: rankMovieCandidates orders
+// every fresh AI set (getTop5FromEngine) and the pool backfill's candidate
+// slice (getBackfillRek) against the household profile. Its former twin,
+// buildMoviePrompt.ts, had zero importers and was retired in Session 0.
 import { rankMovieCandidates } from "./movieProfileScorer";
+import { readServiceFailure, isAIServiceError } from "../lib/aiServiceError";
 
 /**
  * Feature flag
@@ -899,7 +904,14 @@ async function generateAIReks(args: {
       if (timeoutId) clearTimeout(timeoutId);
     }
 
-    if (!res.ok) return false;
+    if (!res.ok) {
+      // A NAMED service failure (out of credit, key refused, rate-limited,
+      // unreachable) carries honest copy from the route; it travels to the
+      // page as a throw. Any other non-OK stays a quiet miss.
+      const failure = await readServiceFailure(res);
+      if (failure) throw failure;
+      return false;
+    }
 
     const raw = await res.text();
     const arr = extractJsonArray(raw);
@@ -965,6 +977,16 @@ async function generateAIReks(args: {
 
     return out.length >= 1 ? normalize(out.slice(0, args.count)) : null;
   } catch (err) {
+    // A named service failure is rethrown so the surface can show the
+    // honest copy — the ONLY error class that escapes this function.
+    if (isAIServiceError(err)) {
+      console.warn("[short-sets] AI service failure", {
+        path: args.backfill ? "backfill" : "fresh/MLT",
+        category: args.category,
+        reason: err.reason,
+      });
+      throw err;
+    }
     // Named, not silent (RC-4): transport throws and the backfill's 10s
     // abort both land here.
     console.warn("[short-sets] AI generation threw", {

@@ -9,8 +9,14 @@ import RecipeModal from "../src/components/RecipeModal";
 import AuthControl from "../src/components/AuthControl";
 import { getTop5FromEngine, type Rek } from "../src/engine/rekomendrEngine";
 import { getAnonymousClientId, loadPrefsForCategory } from "../src/lib/userPrefs";
+import { AIServiceError, isAIServiceError } from "../src/lib/aiServiceError";
 
 export type Category = "Movies" | "TV Shows" | "Books" | "Wine";
+
+// Stale-session guard (S3.1a): an installed-PWA resume re-presents frozen
+// state as a fresh load (docs/typed-lane-trace.md A.2). Anything older than
+// this window comes home instead of resurrecting a months-old screen.
+const STALE_SESSION_MS = 6 * 60 * 60 * 1000;
 
 function normalizeCategoryFromString(raw: string): Category {
   const c = (raw || "Movies").toLowerCase().trim();
@@ -150,6 +156,30 @@ export default function Page() {
   const snapIdRef = useRef(0);
   const snapInputRef = useRef<HTMLInputElement | null>(null);
 
+  // Stale-session guard: stamped by every search, snap, and reset; read on
+  // resume. resetToHome is reached through a ref so the mount-once effect
+  // never closes over a stale render's instance.
+  const lastActivityRef = useRef(Date.now());
+  const resetToHomeRef = useRef<() => void>(() => {});
+  useEffect(() => {
+    const maybeReset = () => {
+      const ageMs = Date.now() - lastActivityRef.current;
+      if (ageMs > STALE_SESSION_MS) {
+        console.info("[stale-session] resumed after", Math.round(ageMs / 60000), "min — coming home");
+        resetToHomeRef.current();
+      }
+    };
+    const onVisible = () => {
+      if (document.visibilityState === "visible") maybeReset();
+    };
+    window.addEventListener("pageshow", maybeReset);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.removeEventListener("pageshow", maybeReset);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, []);
+
   const openSnapPicker = () => {
     if (ENFORCE_SNAP_LIMIT && getSnapCount() >= SNAP_LIMIT) {
       setSnapLimitReached(true);
@@ -164,6 +194,7 @@ export default function Page() {
     if (!file) return;
 
     const snapId = ++snapIdRef.current;
+    lastActivityRef.current = Date.now();
     setSnapError(null);
     setSnapResult(null);
     setSnapLoading(true);
@@ -178,6 +209,11 @@ export default function Page() {
         body: JSON.stringify({ image, clientId: getAnonymousClientId() }),
       });
       const data = await res.json().catch(() => null);
+      // A NAMED service failure (out of credit, key refused, rate-limited,
+      // unreachable) carries honest plain-voice copy from the route.
+      if (!res.ok && typeof data?.reason === "string" && typeof data?.error === "string") {
+        throw new AIServiceError(data.error, data.reason);
+      }
       if (
         !res.ok ||
         !data?.detected_item ||
@@ -194,7 +230,13 @@ export default function Page() {
       console.error("RekSnap failed:", err);
       if (snapId !== snapIdRef.current) return;
       // Voice rule: ™ rides labels/branding; prose uses the bare name.
-      setSnapError("Reks Ray couldn’t read that photo. Give it another snap.");
+      // A service failure speaks plainly (machinery, not Reks Ray); only a
+      // genuine read miss is the persona's to own.
+      setSnapError(
+        isAIServiceError(err)
+          ? err.message
+          : "Reks Ray couldn’t read that photo. Give it another snap."
+      );
     } finally {
       if (snapId === snapIdRef.current) setSnapLoading(false);
     }
@@ -202,6 +244,7 @@ export default function Page() {
 
   const handleSearch = async (query: string, _cat: string) => {
     const searchId = ++searchIdRef.current;
+    lastActivityRef.current = Date.now();
 
     // A new search dismisses any RekSnap results and clears a stale notice.
     snapIdRef.current++;
@@ -234,7 +277,9 @@ export default function Page() {
       if (searchId !== searchIdRef.current) return;
       console.error("Search failed:", err);
       setReks([]);
-      setSearchError(AI_SEARCH_FAILED_MSG);
+      // A named service failure shows its honest plain-voice copy; every
+      // other miss keeps the one Reks Ray failure voice.
+      setSearchError(isAIServiceError(err) ? err.message : AI_SEARCH_FAILED_MSG);
     } finally {
       if (searchId === searchIdRef.current) {
         setLoading(false);
@@ -247,6 +292,7 @@ export default function Page() {
   // dismissal grammar as starting a new search. The session snap count
   // (and its cap) is untouched — only the UI comes home.
   const resetToHome = () => {
+    lastActivityRef.current = Date.now();
     searchIdRef.current++; // discard in-flight search responses
     snapIdRef.current++; // discard in-flight snap responses
     setReks([]);
@@ -265,6 +311,7 @@ export default function Page() {
     setPersistedDislikedTitles([]);
     setSearchBarKey((k) => k + 1); // remount SearchBar → pristine bar + lane
   };
+  resetToHomeRef.current = resetToHome;
 
   return (
     <main className="min-h-screen w-full flex justify-center px-4 py-6">

@@ -11,6 +11,7 @@ import {
 import { recordSnapSignal, type SnapMode } from "../lib/reksnapSignals";
 import { compensatedCommit } from "../lib/scrollCompensation";
 import { getAnonymousClientId } from "../lib/userPrefs";
+import { isAIServiceError, readServiceFailure } from "../lib/aiServiceError";
 import { TrailerVerb, WhereToWatchVerb, titleInfoUrl } from "./MediaVerbs";
 import RekCard from "./RekCard";
 import RekSkeleton, { RekSkeletonCard } from "./RekSkeleton";
@@ -524,7 +525,10 @@ const RekSnapResults: React.FC<Props> = ({
           },
         }),
       });
-      if (!res.ok) throw new Error(`backfill ${res.status}`);
+      // A named service failure throws with its reason so the log line
+      // below names it; the slot still just stays empty (list runs short).
+      if (!res.ok)
+        throw (await readServiceFailure(res)) ?? new Error(`backfill ${res.status}`);
       const data = await res.json();
       const rek = data?.rek;
       if (!rek || typeof rek.name !== "string" || !rek.name.trim()) return;
@@ -723,7 +727,11 @@ const RekSnapResults: React.FC<Props> = ({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ chain: payload }),
       });
-      if (!res.ok) throw new Error(`chain ${res.status}`);
+      // A named service failure (out of credit, key refused, …) carries
+      // honest plain-voice copy from the route; it replaces the Reks Ray
+      // failure voice below.
+      if (!res.ok)
+        throw (await readServiceFailure(res)) ?? new Error(`chain ${res.status}`);
       const data = await res.json();
       const raw = Array.isArray(data?.reks) ? data.reks : [];
       const cleaned: SnapRek[] = raw
@@ -755,7 +763,7 @@ const RekSnapResults: React.FC<Props> = ({
       console.error("RekSnap chain failed:", err);
       if (resultRef.current !== forResult) return;
       setLists((prev) => (prev ? { ...prev, [mode]: restoreList } : prev));
-      setChainError(CHAIN_FAILED_MSG);
+      setChainError(isAIServiceError(err) ? err.message : CHAIN_FAILED_MSG);
     } finally {
       chainBusyRef.current = false;
       if (resultRef.current === forResult) setChainingMode(null);
