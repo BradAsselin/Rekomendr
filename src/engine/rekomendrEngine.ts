@@ -43,6 +43,12 @@ export interface Rek {
   isFavorite?: boolean;
   vibeTags?: string[];
   tier?: "T1" | "T2" | "T3";
+  // S1 — the freshness slot's quiet marker. Set ONLY when the slot landed
+  // on a title the user actually liked before ("You liked this in July.").
+  // A canon or merely-familiar freshness pick carries no marker: the
+  // marker is a memory receipt, not a badge for the slot.
+  // Charter §7 call #2, marked: DEFAULT — a quiet grey line.
+  resurfacedNote?: string;
 }
 
 export type Category = "Movies" | "TV Shows" | "Books" | "Wine";
@@ -70,6 +76,24 @@ const MAX_AI_ITEMS = 6;
 // sizedAsk in generateAIReks (the marked cull zeroed out a raw 5-ask the
 // same way RC-3's narrow ask starved on the seen-filter).
 const MAX_AI_BACKFILL_OPTIONS = 5;
+
+// S1 — "next shelf down" pressure gate. Below this many marked titles
+// (likes + dislikes, this category) a search is COLD and the prompt asks
+// for the app's best picks; at or above it the user has genuinely covered
+// the obvious ground for this line and the down-shelf instruction comes
+// back. 12 is roughly two or three worked sessions in one category — a
+// judgement call, not a measurement, and deliberately one named constant
+// so Brad can re-mark it from the log without a code read.
+const SHELF_PRESSURE_THRESHOLD = 12;
+
+// S1 — the freshness slot's position in the five, 1-based.
+// Charter §7 call #1, marked: DEFAULT — position 3 of 5.
+const FRESHNESS_SLOT_POSITION = 3;
+
+// How many candidates the freshness generation asks for. It needs only
+// one, but the winner can collide with a title the main set already
+// shipped, so it asks for a small spread and takes the first survivor.
+const FRESHNESS_ASK = 3;
 
 /* ------------------------------------------------------------------
    SESSION-LEVEL MEMORY
@@ -567,9 +591,12 @@ function buildAIPrompt(args: {
   seedTitle?: string;
   likedTitles?: string[];
   dislikedTitles?: string[];
+  watchedTitles?: string[];
   currentTitles?: string[];
   seenTitles?: string[];
   backfill?: boolean;
+  freshness?: boolean;
+  shortlistTitles?: string[];
 }): string {
   const {
     category,
@@ -578,28 +605,63 @@ function buildAIPrompt(args: {
     seedTitle,
     likedTitles = [],
     dislikedTitles = [],
+    watchedTitles = [],
     currentTitles = [],
     seenTitles = [],
     backfill = false,
+    freshness = false,
+    shortlistTitles = [],
   } = args;
 
-  // The prompt's never-return list, tiered by how badly truncation hurts:
-  // visible cards, then session seen, then marked titles (disliked, then
-  // liked; newest first within each) — when the 100-slot cap bites,
-  // cross-session likes fall off before anything the user can see on
-  // screen. The cap only limits prompt PRESSURE: generateAIReks drops
-  // seen AND marked titles from responses uncapped, so a truncated entry
-  // still can never ship (frontier shows only unmarked titles).
-  const avoidTitles = Array.from(
-    new Set(
-      [
+  // THE FRESHNESS SLOT (S1, charter §6 Session 1 + §7 call #1 — position
+  // 3 of 5). One generation, one slot, and the ONLY place in the engine
+  // where a liked title may come back. Everything about the card's VOICE
+  // is identical to a normal card — the S1-S2 sentence rules, the banned
+  // register and the long tier all assemble below exactly as they always
+  // do. Only the SELECTION instructions differ, which is the whole point:
+  // the frontier's other four stay on the discovery diet, and this one is
+  // allowed to be something the user already loves.
+  //
+  // The liked-exemption is the slot's reason to exist. The DISLIKED and
+  // WATCHED exclusions are never exempted: a thumbed-down title is a
+  // reversal, a watched title is finished, and neither is "excitement the
+  // app forgot".
+  const avoidSources = freshness
+    ? [
         ...currentTitles,
         ...seenTitles,
         ...[...dislikedTitles].reverse(),
+        ...[...watchedTitles].reverse(),
+      ]
+    : [
+        ...currentTitles,
+        ...seenTitles,
+        ...[...dislikedTitles].reverse(),
+        ...[...watchedTitles].reverse(),
         ...[...likedTitles].reverse(),
-      ].filter(Boolean)
-    )
-  ).slice(0, 100);
+      ];
+
+  // The prompt's never-return list, tiered by how badly truncation hurts:
+  // visible cards, then session seen, then marked titles (disliked and
+  // watched, then liked; newest first within each) — when the 100-slot
+  // cap bites, cross-session likes fall off before anything the user can
+  // see on screen. The cap only limits prompt PRESSURE: generateAIReks
+  // drops seen AND marked titles from responses uncapped, so a truncated
+  // entry still can never ship (frontier shows only unmarked titles).
+  const avoidTitles = Array.from(new Set(avoidSources.filter(Boolean))).slice(
+    0,
+    100
+  );
+
+  // EXCLUSION PRESSURE (S1). The "next shelf down" instruction below was
+  // unconditional, and on a cold Friday search — short avoid-list, nothing
+  // to dodge — it pushed the model past its own best answers and into its
+  // deepest cuts. That is the staleness the charter names: obscure, flat,
+  // "trying too hard to get to know me". The instruction earns its keep
+  // only once the user really HAS seen the obvious picks for this line, so
+  // it is now gated on how much has actually been marked.
+  const markedCount = likedTitles.length + dislikedTitles.length;
+  const underExclusionPressure = markedCount >= SHELF_PRESSURE_THRESHOLD;
 
   // Whether a session-relevant referent exists (MLT seed / backfill trail
   // keep). ROUND-4 STRUCTURAL RULE — conditional prompt assembly: the
@@ -680,9 +742,25 @@ Generate ${count} ${category} recommendations as fresh discovery picks.
 Core behavior:
 - The user's explicit text input is the PRIMARY signal — build recommendations around it first, then apply taste preferences as a secondary filter.
 - Follow the user's path and mood, not just the literal words.
-${hasSeed ? '- A seed title is provided below: recommend things that feel like a smart "more like this."\n' : ""}- If likes/dislikes are provided, use them to refine the taste lane only after the explicit text input has been satisfied. Liked and disliked titles are DIRECTION ONLY — never candidates.
+${hasSeed ? '- A seed title is provided below: recommend things that feel like a smart "more like this."\n' : ""}${
+  freshness
+    ? `- THIS IS THE RECALL SLOT. Return the ${category === "Wine" ? "bottle" : "title"} this user would be most glad to be reminded of tonight — the one that makes them say "oh, THAT — yes." Canon is welcome. Famous is welcome. Beloved is welcome. Do NOT reach for the obscure, and do NOT look for the next shelf down; that job belongs to the other cards in this set, not to you.
+- The user's liked titles are CANDIDATES here, not exclusions — the opposite of every other request. A title they liked and never got to is the single best answer you can give.${
+        shortlistTitles.length
+          ? `\n- Strongly prefer one of these — things this user liked and has not marked as finished. Pick the one that best fits the search line below; if none of them fits it, pick something canon or familiar that does:\n  ${shortlistTitles
+              .slice(0, 12)
+              .join(", ")}`
+          : ""
+      }
+- Never return a title already shown this session, on the never-return list below, or already finished by the user.`
+    : `- If likes/dislikes are provided, use them to refine the taste lane only after the explicit text input has been satisfied. Liked and disliked titles are DIRECTION ONLY — never candidates.
 - Never return a title already shown this session or already on the user's liked/disliked record. A liked title is a taste signal, not a recommendation slot.
-- Treat the never-return list as covered ground: this user has already seen the obvious picks for this line. Your job is the next shelf down — adjacent, less-obvious titles of the same quality, not the canon re-served.
+${
+  underExclusionPressure
+    ? "- Treat the never-return list as covered ground: this user has already seen the obvious picks for this line. Your job is the next shelf down — adjacent, less-obvious titles of the same quality, not the canon re-served."
+    : "- Treat the never-return list as nothing more than a do-not-repeat list: it says what NOT to return, and nothing about how deep to dig. This user has NOT worked this line over — give them your strongest, most enjoyable answers for it, the picks you would lead with. Obvious is fine when it is right; do not reach past a great answer for a more obscure one."
+}`
+}
 - Prefer real titles/items. Do not invent fake media.
 - Return ONLY a valid JSON ${backfill ? `object of the form {"results": [ ...items ]}` : "array"}. No commentary. No markdown.
 
@@ -749,9 +827,20 @@ ${
 ${longRules}
 - write in plain English, like a smart human curator.
 - avoid critic language, film-school jargon, and review-speak.
-- prefer strong but less obvious titles over the most famous mainstream picks when possible.
-${longFitRule}
-- avoid repeating the same very famous titles across different searches.
+${
+  // These two lines are the down-shelf instinct stated a second time. In
+  // the recall slot they would flatly contradict the job above (a famous
+  // beloved title is the RIGHT answer there), so the freshness assembly
+  // swaps them rather than shipping a prompt that argues with itself. The
+  // normal assembly keeps them verbatim — they sit outside this session's
+  // fence (see the PR's "Found, not fixed").
+  freshness
+    ? "- fame is not a disqualifier here: pick the best answer for this user and this line, however well known it is.\n" +
+      longFitRule
+    : "- prefer strong but less obvious titles over the most famous mainstream picks when possible.\n" +
+      longFitRule +
+      "\n- avoid repeating the same very famous titles across different searches."
+}
 
 Rules:
 - Aim for exactly ${count} items.
@@ -808,9 +897,12 @@ async function generateAIReks(args: {
   seedTitle?: string;
   likedTitles?: string[];
   dislikedTitles?: string[];
+  watchedTitles?: string[];
   currentTitles?: string[];
   seenTitles?: Set<string>;
   backfill?: boolean;
+  freshness?: boolean;
+  shortlistTitles?: string[];
 }): Promise<Rek[] | null> {
   const seen = new Set<string>(
     Array.from(args.seenTitles ?? []).map((t) => t.toLowerCase())
@@ -818,13 +910,22 @@ async function generateAIReks(args: {
   // Marked titles (liked AND disliked, permanently) are excluded UNCAPPED —
   // this drop-set is the hard guarantee behind the invariant that the
   // frontier only ever shows unmarked titles. The prompt's capped avoid
-  // list is merely pressure; a forgotten like resurfacing is the history
-  // panel's job, never the frontier's. Separate set from `seen` so the
-  // tripwire names marked-exclusion drops distinctly.
+  // list is merely pressure. Separate set from `seen` so the tripwire
+  // names marked-exclusion drops distinctly.
+  //
+  // S1 changes exactly two things here:
+  //   - 'watched' titles join the drop-set unconditionally. A finished
+  //     title is the one exclusion with no exemption anywhere.
+  //   - in the FRESHNESS generation the liked tier is lifted, because
+  //     resurfacing a like IS that slot's job. Disliked and watched stay.
+  //     The prompt is told the same thing (buildAIPrompt's avoidSources),
+  //     so pressure and guarantee never disagree.
   const marked = new Set<string>(
-    [...(args.likedTitles ?? []), ...(args.dislikedTitles ?? [])].map((t) =>
-      t.trim().toLowerCase()
-    )
+    [
+      ...(args.freshness ? [] : args.likedTitles ?? []),
+      ...(args.dislikedTitles ?? []),
+      ...(args.watchedTitles ?? []),
+    ].map((t) => t.trim().toLowerCase())
   );
 
   // Over-ask sizing at the single site — EVERY path inherits (fresh, RC-2
@@ -842,6 +943,12 @@ async function generateAIReks(args: {
   const sizedAsk = (needed: number): number =>
     marked.size === 0 && seen.size === 0
       ? needed
+      : args.freshness
+      ? // The freshness pass needs ONE survivor and runs under a much
+        // lighter cull (the liked tier is lifted for it), so the 10-12
+        // band above would buy latency and tokens for nothing. A small
+        // over-ask covers a collision with the main set and stops there.
+        Math.max(needed, Math.min(needed + marked.size, 6))
       : Math.max(10, Math.min(needed + marked.size, 12));
 
   const out: Rek[] = [];
@@ -865,9 +972,12 @@ async function generateAIReks(args: {
       seedTitle: args.seedTitle,
       likedTitles: args.likedTitles,
       dislikedTitles: args.dislikedTitles,
+      watchedTitles: args.watchedTitles,
       currentTitles,
       seenTitles: Array.from(args.seenTitles ?? []),
       backfill: args.backfill,
+      freshness: args.freshness,
+      shortlistTitles: args.shortlistTitles,
     });
 
     // Only the backfill path runs under a hard timeout, and the timeout's
@@ -956,7 +1066,11 @@ async function generateAIReks(args: {
     // the first pass's survivors added to the avoid list (currentTitles)
     // on top of everything seen. One retry only, then ship what exists:
     // honest-short over canned-full — never pad, never loop.
-    if (!args.backfill && out.length < 5) {
+    // The freshness generation is excluded: it asks for a small spread and
+    // only ever needs ONE survivor, so "short of five" is its normal,
+    // correct outcome — a top-up there would be a second round-trip for a
+    // shortfall that does not exist.
+    if (!args.backfill && !args.freshness && out.length < 5) {
       await runPass(sizedAsk(5 - out.length), [
         ...(args.currentTitles ?? []),
         ...out.map((r) => r.title),
@@ -964,9 +1078,16 @@ async function generateAIReks(args: {
     }
 
     // Tripwire (RC-4): name the short set — which path, what filtered it.
-    if (out.length < Math.min(args.count, 5)) {
+    // Freshness needs one survivor, not five; below that it is genuinely
+    // empty and the caller ships the plain five (and logs it there).
+    const floor = args.freshness ? 1 : Math.min(args.count, 5);
+    if (out.length < floor) {
       console.warn("[short-sets] AI generation shipped short", {
-        path: args.backfill ? "backfill" : "fresh/MLT",
+        path: args.backfill
+          ? "backfill"
+          : args.freshness
+          ? "freshness"
+          : "fresh/MLT",
         category: args.category,
         requested: args.count,
         shipped: out.length,
@@ -981,7 +1102,11 @@ async function generateAIReks(args: {
     // honest copy — the ONLY error class that escapes this function.
     if (isAIServiceError(err)) {
       console.warn("[short-sets] AI service failure", {
-        path: args.backfill ? "backfill" : "fresh/MLT",
+        path: args.backfill
+          ? "backfill"
+          : args.freshness
+          ? "freshness"
+          : "fresh/MLT",
         category: args.category,
         reason: err.reason,
       });
@@ -990,7 +1115,11 @@ async function generateAIReks(args: {
     // Named, not silent (RC-4): transport throws and the backfill's 10s
     // abort both land here.
     console.warn("[short-sets] AI generation threw", {
-      path: args.backfill ? "backfill" : "fresh/MLT",
+      path: args.backfill
+        ? "backfill"
+        : args.freshness
+        ? "freshness"
+        : "fresh/MLT",
       category: args.category,
       // name identifies the class at a glance — an abort is "AbortError",
       // which the message text alone left ambiguous in the field.
@@ -1001,6 +1130,92 @@ async function generateAIReks(args: {
   }
 }
 /* ------------------------------------------------------------------
+   THE FRESHNESS SLOT (S1)
+   One of the five is exempt from the discovery diet so the set can hold
+   something the user already loves. Charter §7 call #1 (marked, default):
+   position 3 of 5. Charter §7 call #2 (marked, default): a quiet grey
+   line, "You liked this in July."
+------------------------------------------------------------------- */
+
+// What the slot needs to know about a liked-but-unwatched title: enough
+// to recognise it in a generated response, and to date the marker.
+export type ShortlistSeed = { title: string; likedAt: string | null };
+
+const MONTHS = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+];
+
+// "You liked this in July." — and "…in July 2025." once the year stops
+// being obvious, because a bare month a year later reads as a lie. Null
+// whenever the date is missing or unparseable: a marker that cannot name
+// WHEN is not quiet, it is vague, and the card is better without it.
+export function resurfacedMarker(
+  likedAt: string | null,
+  now: Date = new Date()
+): string | null {
+  if (!likedAt) return null;
+  const d = new Date(likedAt);
+  if (Number.isNaN(d.getTime())) return null;
+  const month = MONTHS[d.getMonth()];
+  if (!month) return null;
+  return d.getFullYear() === now.getFullYear()
+    ? `You liked this in ${month}.`
+    : `You liked this in ${month} ${d.getFullYear()}.`;
+}
+
+// Place the recall card into the five. Never grows the set past five and
+// never drops a card without putting one in its place: the slot REPLACES
+// the occupant at FRESHNESS_SLOT_POSITION, it does not add a sixth.
+function applyFreshnessSlot(
+  five: Rek[],
+  freshCandidates: Rek[] | null,
+  shortlist: ShortlistSeed[],
+  category: Category
+): Rek[] {
+  if (!freshCandidates || freshCandidates.length === 0 || five.length === 0) {
+    // Not an error: a cold user with nothing liked and a model that
+    // declined to repeat itself both land here, and the plain five is the
+    // correct answer. Named anyway — a slot that silently never appears
+    // is exactly the class of failure charter §2.4 is about.
+    console.info("[freshness-slot] no recall card this search", { category });
+    return five;
+  }
+
+  // The main set was generated in parallel and knows nothing about the
+  // recall candidates, so a collision is expected, not exceptional. Take
+  // the first candidate the set does not already hold.
+  const inSet = new Set(five.map((r) => seenKey(r.title)));
+  const pick = freshCandidates.find((c) => !inSet.has(seenKey(c.title)));
+  if (!pick) {
+    console.info("[freshness-slot] every recall candidate was already in the set", {
+      category,
+    });
+    return five;
+  }
+
+  const shortlistHit = shortlist.find(
+    (s) => seenKey(s.title) === seenKey(pick.title)
+  );
+  const note = shortlistHit ? resurfacedMarker(shortlistHit.likedAt) : null;
+
+  // Position is 1-based in the charter; clamp so a short set still gets
+  // the card rather than dropping it on the floor.
+  const index = Math.min(FRESHNESS_SLOT_POSITION - 1, five.length - 1);
+  const next = [...five];
+  next[index] = note ? { ...pick, resurfacedNote: note } : pick;
+
+  console.info("[freshness-slot] placed", {
+    category,
+    position: index + 1,
+    resurfacedLike: Boolean(shortlistHit),
+    marker: Boolean(note),
+  });
+
+  return next;
+}
+
+/* ------------------------------------------------------------------
    PRIMARY ENTRY
 ------------------------------------------------------------------- */
 export async function getTop5FromEngine({
@@ -1008,11 +1223,17 @@ export async function getTop5FromEngine({
   starterDeckId = "comfort-core",
   likedTitles = [],
   dislikedTitles = [],
+  watchedTitles = [],
+  shortlist = [],
 }: {
   rawQuery: string;
   starterDeckId?: string;
   likedTitles?: string[];
   dislikedTitles?: string[];
+  watchedTitles?: string[];
+  // Liked-but-not-watched, newest first — the freshness slot's preferred
+  // candidates, and the source of the resurfacing marker's date.
+  shortlist?: ShortlistSeed[];
 }): Promise<Rek[]> {
   const { category, clarifier, text, vibe, context, mode } =
     parseRawQuery(rawQuery);
@@ -1022,12 +1243,41 @@ export async function getTop5FromEngine({
 
   /* ------------------ FULL AI DISCOVERY MODE ------------------ */
   if (mode === "ai") {
+    // The freshness slot rides ALONGSIDE the main generation, not after
+    // it: two independent round-trips started together cost the slower
+    // one, not the sum. It is a small ask (FRESHNESS_ASK) against a much
+    // shorter avoid list, so it is virtually never the slower one.
+    //
+    // It is deliberately fire-and-forget in the failure direction: the
+    // promise below can never reject into the search (generateAIReks
+    // rethrows AIServiceError, so that one is caught here and swallowed —
+    // the MAIN generation owns the outage voice, and a dead recall slot
+    // must not turn a working set of five into an error screen).
+    const freshnessPromise = generateAIReks({
+      category,
+      count: FRESHNESS_ASK,
+      context,
+      likedTitles,
+      dislikedTitles,
+      watchedTitles,
+      seenTitles: sessionSeen,
+      freshness: true,
+      shortlistTitles: shortlist.map((s) => s.title),
+    }).catch((err) => {
+      console.warn("[freshness-slot] generation failed — shipping the plain five", {
+        category,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return null;
+    });
+
     const aiGenerated = await generateAIReks({
       category,
       count: MAX_AI_ITEMS,
       context,
       likedTitles,
       dislikedTitles,
+      watchedTitles,
       seenTitles: sessionSeen,
     });
 
@@ -1039,12 +1289,22 @@ export async function getTop5FromEngine({
         moreLikeThisTitle: null,
       }) as Rek[];
 
-      const result = ranked.slice(0, 5);
+      const result = applyFreshnessSlot(
+        ranked.slice(0, 5),
+        await freshnessPromise,
+        shortlist,
+        category
+      );
 
       result.forEach((r) => sessionSeen.add(seenKey(r.title)));
 
       return normalize(result);
     }
+
+    // The main generation came up empty, so there is no set to place a
+    // recall card into. Await the sibling only to keep it from settling
+    // unobserved; its result is discarded.
+    void freshnessPromise;
 
     // No silent fallback: a failed deliberate path reports empty and the
     // UI shows an honest failure notice. Pool is Play-only.
@@ -1140,6 +1400,9 @@ export async function getBackfillRek(args: {
   rawCategory?: string;
   likedTitles?: string[];
   dislikedTitles?: string[];
+  // S1 — finished titles. Excluded on EVERY frontier route, not just the
+  // fresh search, because "never returns" has to mean never.
+  watchedTitles?: string[];
   // The session trail (kept cards, marking order oldest→newest). Present,
   // it anchors AI backfill the way a chain steer anchors the snap lane:
   // newest keep = seed, the rest = the line. Absent/empty = the old
@@ -1196,6 +1459,7 @@ export async function getBackfillRek(args: {
       seedTitle,
       likedTitles: args.likedTitles,
       dislikedTitles: args.dislikedTitles,
+      watchedTitles: args.watchedTitles,
       currentTitles: current.map((r) => r.title),
       seenTitles: sessionSeen,
       backfill: true,
@@ -1267,6 +1531,8 @@ export async function getMoreLikeThisSet(args: {
   category?: string;
   likedTitles?: string[];
   dislikedTitles?: string[];
+  // S1 — finished titles; see getBackfillRek.
+  watchedTitles?: string[];
   [key: string]: any;
 }): Promise<Rek[]> {
   const seed = args.seed;
@@ -1304,6 +1570,7 @@ export async function getMoreLikeThisSet(args: {
     seedTitle: seed?.title,
     likedTitles: args.likedTitles,
     dislikedTitles: args.dislikedTitles,
+    watchedTitles: args.watchedTitles,
     seenTitles: sessionSeen,
   });
 
