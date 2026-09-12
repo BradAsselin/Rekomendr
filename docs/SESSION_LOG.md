@@ -64,7 +64,7 @@ VALIDATION (verbatim from the PR's "Brad's twenty minutes"):
 
 ---
 
-## Session 1 — staleness — 2026-09-12 — branch auto/s1-staleness — PR #2
+## Session 1 — staleness — 2026-09-12 — branch auto/s1-staleness — PR #3
 
 SHIPPED:
 - **Liked-but-unwatched titles have a home.** The Shortlist strip: a compact horizontal band of chips above the results on the search lane, newest first, for the active category. Tap a chip = expand-in-place (like date, the title→Google handoff for media, and "Watched it"); it renders OUTSIDE ResultsV4's loading branch so it stays put while the next set generates, and it lives in `app/page.tsx` state, not `ResultsV4`'s, which wipes its view on every incoming set. No new schema — it reads through `/api/prefs` (`src/components/ShortlistStrip.tsx`).
@@ -87,7 +87,7 @@ FOUND, NOT FIXED:
 
 BRAD MUST:
 1. **Run `docs/sql/s1-watched-signal.sql`** in the Supabase SQL editor, one block at a time, BEFORE validating "Watched it". Block 1 is read-only and tells you the constraint's real name; Block 2 is the migration; Block 4 is the self-test and rolls itself back. Until this runs, "Watched it" will correctly refuse to pretend: the chip comes back and the log says `migration_pending`. Everything else in this PR works without it.
-2. Merge PR #2 after the twenty minutes pass.
+2. Merge PR #3 after the twenty minutes pass.
 3. **Charter §7 margin, before Session 5:** mark call #3 (quality floor tiers + the 500 minimum vote count). Session 5 stops with `BLOCKED:` at it.
 4. Optional, after a week of use: if the cold searches still read too deep, re-mark `SHELF_PRESSURE_THRESHOLD` (currently 12) — it is one constant in `src/engine/rekomendrEngine.ts`. If they read too shallow, raise it.
 
@@ -101,7 +101,7 @@ NEXT SESSION SHOULD KNOW:
 - S3 (Session 2) mints `anchor_snapshots` at save-tap. When it lands, the Shortlist and Saved are two different things reading two different tables — the panel (S4) is where they finally sit together.
 
 VALIDATION (verbatim from the PR's "Brad's twenty minutes"):
-- Preview URL: the Vercel bot's comment on PR #2.
+- Preview URL: the Vercel bot’s comment on PR #3.
 - What to do: (1) **Run the SQL first** — `docs/sql/s1-watched-signal.sql`, Block 1, then 2, then 3, then 4. (2) On your phone, open the preview. Movies → type **"something clever"** → GO. Read all five. (3) Do that on five separate nights across the week, on at least three different lanes, and each time count: is there a card you can't wait to watch? (4) Look above the five for **Your shortlist** — chips of things you liked and never got to. Tap one. (5) Tap **"Watched it"** on that chip. (6) Search again in the same visit — the strip is still there, that title is gone from it. (7) Watch for a card with a grey line under the title: *"You liked this in July."*
 - What it should feel like: [ ] at least one card in the five you can't wait to watch, **four nights out of five**; [ ] a cold search reads like the app's best picks, not its deepest cuts; [ ] the shortlist chips are YOUR real liked titles, in the right order; [ ] exactly one new tap target — the chip; nothing else on a card grew; [ ] "Watched it" removes the title and it never comes back; [ ] the resurfacing line reads as a quiet memory, not a badge.
 - What to screenshot if it's wrong: the whole phone screen with the strip and all five cards; any card that reads as a deep cut on a cold search; the strip if a title you've watched is still in it.
