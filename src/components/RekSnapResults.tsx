@@ -31,6 +31,10 @@ export type SnapResult = {
   detected_item: { name: string; description: string; category: string };
   mode: SnapMode;
   results: Record<SnapMode, SnapRek[]>;
+  // S1.5 — plain-voice honest-short, present only when the real-title
+  // guard dropped every rek the model offered. The anchor still ships;
+  // this stands where the five cards would have been.
+  notice?: string;
 };
 
 // Graduation upward: a marked card (thumbed-up or saved) LEAVES the five
@@ -754,7 +758,21 @@ const RekSnapResults: React.FC<Props> = ({
           rank: i + 1,
         }));
       if (resultRef.current !== forResult) return; // new snap mid-flight
-      if (cleaned.length === 0) throw new Error("chain returned no reks");
+      if (cleaned.length === 0) {
+        // S1.5 — the chain succeeded and the guard emptied it: every
+        // title offered was fiction. That is not a chain FAILURE, so it
+        // does not get the Reks Ray failure voice; the route's plain-voice
+        // notice says what actually happened. The previous list is
+        // restored so the user is not left staring at nothing.
+        const notice =
+          typeof data?.notice === "string" && data.notice ? data.notice : null;
+        if (notice) {
+          setLists((prev) => (prev ? { ...prev, [mode]: restoreList } : prev));
+          setChainError(notice);
+          return;
+        }
+        throw new Error("chain returned no reks");
+      }
 
       cleaned.forEach((r) => everShownRef.current.add(r.name));
       setLists((prev) => (prev ? { ...prev, [mode]: cleaned } : prev));
@@ -1261,6 +1279,17 @@ const RekSnapResults: React.FC<Props> = ({
         </div>
 
         <div className="space-y-3">
+          {/* S1.5 — honest-short. The photo was read, the anchor is right
+              above, and every neighbour the model offered turned out not
+              to exist. Plain voice (machinery, not Reks Ray) standing
+              exactly where the five cards would have been — the charter's
+              honest-short over canned-full, made visible. */}
+          {result.notice && (lists?.[activeMode] ?? []).length === 0 && (
+            <div className="bg-white border border-amber-300 rounded-2xl p-4 shadow-sm">
+              <div className="text-sm text-gray-800">{result.notice}</div>
+            </div>
+          )}
+
           {/* The frontier — five full, unmarked candidates still being
               judged. The plain wrapper div carries the DOM handle the
               scroll-compensated migration commit measures against; all

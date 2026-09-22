@@ -40,13 +40,18 @@ export async function GET() {
   const at = new Date().toISOString();
   const env = envProblems.length ? "warn" : "ok";
   const started = Date.now();
+  // S1.5 — the real-title guard's state, on the surface Brad's keep-warm
+  // cron already pings every 12 hours. "disabled" here means fabricated
+  // movie/TV titles can ship; it is deliberately visible from outside the
+  // log so the failure has somewhere to show up on its own.
+  const tmdb = process.env.TMDB_API_KEY?.trim() ? "ok" : "disabled";
 
   const client = await getServerClient();
   if (!client) {
     console.error(
       "[health] db unconfigured — SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY missing or client failed to load"
     );
-    return json({ ok: false, db: "unconfigured", env, envProblems, at }, 503);
+    return json({ ok: false, db: "unconfigured", tmdb, env, envProblems, at }, 503);
   }
 
   const { error } = await client
@@ -67,6 +72,7 @@ export async function GET() {
         db: "error",
         error: error.message,
         latencyMs,
+        tmdb,
         env,
         envProblems,
         at,
@@ -75,5 +81,5 @@ export async function GET() {
     );
   }
 
-  return json({ ok: true, db: "ok", latencyMs, env, envProblems, at }, 200);
+  return json({ ok: true, db: "ok", latencyMs, tmdb, env, envProblems, at }, 200);
 }

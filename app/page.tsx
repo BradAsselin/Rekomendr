@@ -271,8 +271,14 @@ export default function Page() {
       const next = await getTop5FromEngine({ rawQuery: query, ...prefs });
       if (searchId !== searchIdRef.current) return;
 
-      setReks(next);
-      if (next.length === 0) setSearchError(AI_SEARCH_FAILED_MSG);
+      setReks(next.reks);
+      // S1.5 — two different empties, two different voices. A set the
+      // real-title guard emptied carries its own plain-voice notice (the
+      // model invented every title; a retry will invent again). Anything
+      // else keeps the one Reks Ray failure voice.
+      if (next.reks.length === 0) {
+        setSearchError(next.notice ?? AI_SEARCH_FAILED_MSG);
+      }
     } catch (err) {
       if (searchId !== searchIdRef.current) return;
       console.error("Search failed:", err);

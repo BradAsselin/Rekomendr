@@ -1,7 +1,19 @@
 import OpenAI from "openai";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { HEALTH_MEDICAL_CATEGORIES } from "../../../src/lib/categoryGates";
+import {
+  HEALTH_MEDICAL_CATEGORIES,
+  MEDIA_CATEGORIES,
+} from "../../../src/lib/categoryGates";
+// S1.5 — the real-title guard. This route is already server code, so it
+// calls the verifier directly instead of going through
+// /api/verify/titles (that door exists for the browser-side engine).
+import {
+  verifyTitles,
+  logFakeTitles,
+  normalizeTitle as tmdbKey,
+  type TitleKind,
+} from "../../../src/lib/tmdbVerify";
 import { runEnvCheck } from "../../../src/lib/envCheck";
 import {
   maybeSimulateOpenAIFailure,
@@ -186,6 +198,92 @@ const buildBackfillPrompt = (mode: string) => {
   );
 };
 
+/* ---------------------------------------------------------------------
+   S1.5 — THE REAL-TITLE GUARD, SNAP SIDE
+   Shared by the vision response, the snap backfill and the chain, so the
+   three can never drift. The ANCHOR is never verified: a brand-new
+   release the model cannot place is precisely the case this guard exists
+   to answer honestly, and dropping it would delete the user's question.
+--------------------------------------------------------------------- */
+
+// Honest-short, plain voice — machinery, not Reks Ray (charter §6 S0:
+// "the persona owns AI moments, plain voice owns failures"). Shown when
+// verification emptied a list: the app knows the anchor, it just will not
+// invent neighbours for it.
+export const NEW_TO_ME_NOTICE =
+  "This one's new to me. Here's what I know about the lane — I'd rather tell you that than make up titles.";
+
+// Which rek categories get checked. The model labels every rek with its
+// OWN short lowercase category, so a cocktail under a vodka anchor is
+// "cocktails" and is left alone, while a film under a film anchor is
+// "movies" and is checked.
+function mediaKindFor(category: string | undefined): TitleKind | null {
+  const c = (category ?? "").trim().toLowerCase();
+  if (!c || !MEDIA_CATEGORIES.has(c)) return null;
+  if (c === "movie" || c === "movies" || c === "film" || c === "films") return "movie";
+  if (
+    c === "tv" ||
+    c === "television" ||
+    c === "tv show" ||
+    c === "tv shows" ||
+    c === "show" ||
+    c === "shows"
+  ) {
+    return "tv";
+  }
+  // "streaming" and anything else media-ish: could be either.
+  return "any";
+}
+
+type GuardedRek = { name: string; category?: string };
+
+// Returns the survivors, in order. Snap-lane reks carry no year, so the
+// match is title-only there — which is the right strictness: an invented
+// title returns nothing from TMDb whatever year you pair it with.
+async function dropUnresolvedMediaReks<T extends GuardedRek>(
+  reks: T[],
+  ctx: {
+    path: "snap" | "snap-backfill" | "chain";
+    anchor: string;
+    anchorCategory?: string;
+  }
+): Promise<T[]> {
+  const checkable = reks.filter((r) => mediaKindFor(r.category) !== null);
+  if (checkable.length === 0) return reks;
+
+  const { enabled, verdicts } = await verifyTitles(
+    checkable.map((r) => ({
+      title: r.name,
+      year: null,
+      kind: mediaKindFor(r.category) ?? "any",
+    }))
+  );
+
+  const resolved = new Map<string, boolean>();
+  for (const v of verdicts) resolved.set(tmdbKey(v.title), v.resolved);
+
+  const survivors = enabled
+    ? reks.filter(
+        (r) =>
+          mediaKindFor(r.category) === null ||
+          resolved.get(tmdbKey(r.name)) === true
+      )
+    : reks;
+
+  logFakeTitles({
+    path: ctx.path,
+    anchor: ctx.anchor,
+    category: ctx.anchorCategory,
+    dropped: verdicts
+      .filter((v) => !v.resolved)
+      .map((v) => ({ title: v.title, reason: v.reason })),
+    kept: survivors.length,
+    enabled,
+  });
+
+  return survivors;
+}
+
 async function handleBackfill(backfill: any): Promise<Response> {
   const item = backfill?.detectedItem;
   const mode = backfill?.mode;
@@ -281,17 +379,28 @@ async function handleBackfill(backfill: any): Promise<Response> {
     (typeof rek.category === "string" ? normalize(rek.category) : "") ||
     (typeof item.category === "string" ? normalize(item.category) : "");
 
-  return Response.json(
-    {
-      rek: {
-        name: rek.name,
-        description:
-          typeof rek.description === "string" ? rek.description : "",
-        category: rekCategory || undefined,
-      },
-    },
-    { status: 200 }
-  );
+  const candidate = {
+    name: rek.name,
+    description: typeof rek.description === "string" ? rek.description : "",
+    category: rekCategory || undefined,
+  };
+
+  // S1.5 — a backfill that invented its one title is worse than an empty
+  // slot: the slot is honest. The client already handles `rek: null` by
+  // leaving the slot alone and logging it, so an unresolved title takes
+  // that path rather than a new one.
+  const [survivor] = await dropUnresolvedMediaReks([candidate], {
+    path: "snap-backfill",
+    anchor: item.name,
+    anchorCategory:
+      typeof item.category === "string" ? item.category : undefined,
+  });
+
+  if (!survivor) {
+    return Response.json({ rek: null, reason: "unresolved_title" }, { status: 200 });
+  }
+
+  return Response.json({ rek: survivor }, { status: 200 });
 }
 
 // ---------------------------------------------------------------------------
@@ -873,13 +982,37 @@ async function handleChain(chain: any): Promise<Response> {
   if (reks.length === 0) {
     return Response.json({ error: "Chain failed" }, { status: 502 });
   }
-  if (reks.length < 5) {
+
+  // S1.5 — the guard runs AFTER the exclusion filter and BEFORE the
+  // short-set warning, so the count in the log is the count that ships.
+  const beforeGuard = reks.length;
+  const verified = await dropUnresolvedMediaReks(reks, {
+    path: "chain",
+    anchor: item.name,
+    anchorCategory: typeof item.category === "string" ? item.category : undefined,
+  });
+
+  // Every candidate was fiction. Never a 502 here: the chain worked, the
+  // model simply could not name real neighbours, and saying so plainly is
+  // the honest answer (charter §2.4). 200 with an empty set + the notice
+  // lets the surface speak instead of reading as a transport failure.
+  if (verified.length === 0) {
     console.warn(
-      `RekSnap chain: only ${reks.length}/5 reks survived exclusion filtering (kind: ${kind})`
+      `RekSnap chain: all ${beforeGuard} reks dropped as unresolved titles (kind: ${kind})`
+    );
+    return Response.json(
+      { reks: [], notice: NEW_TO_ME_NOTICE },
+      { status: 200 }
     );
   }
 
-  return Response.json({ reks }, { status: 200 });
+  if (verified.length < 5) {
+    console.warn(
+      `RekSnap chain: only ${verified.length}/5 reks survived filtering + the real-title guard (kind: ${kind})`
+    );
+  }
+
+  return Response.json({ reks: verified }, { status: 200 });
 }
 
 export async function POST(req: Request) {
@@ -1014,23 +1147,71 @@ export async function POST(req: Request) {
       return ranked;
     };
 
-    const cleaned = {
+    const cleanedRaw = {
       similar: cleanList(results.similar, "similar"),
       uses: cleanList(results.uses, "uses"),
       alternatives: cleanList(results.alternatives, "alternatives"),
     };
 
     // Fail only if every list is empty — a partial result is still usable.
+    // This check runs BEFORE the real-title guard on purpose: an empty
+    // result here means the photo could not be read, which is a different
+    // (and honestly different-sounding) failure from "I read it fine and
+    // the neighbours it offered were invented".
     if (
-      cleaned.similar.length === 0 &&
-      cleaned.uses.length === 0 &&
-      cleaned.alternatives.length === 0
+      cleanedRaw.similar.length === 0 &&
+      cleanedRaw.uses.length === 0 &&
+      cleanedRaw.alternatives.length === 0
     ) {
       return Response.json(
         { error: "Could not read that photo." },
         { status: 502 }
       );
     }
+
+    // S1.5 — THE REAL-TITLE GUARD. This is the exact site of the field
+    // failure: a 2026 A24 release the model could not place, five
+    // fabricated titles, each wearing a Trailer and a Watch button. All
+    // three lists are guarded (a media rek can appear in any of them);
+    // the anchor is never touched.
+    const [similar, uses, alternatives] = await Promise.all([
+      dropUnresolvedMediaReks(cleanedRaw.similar, {
+        path: "snap",
+        anchor: detected.name,
+        anchorCategory: anchorCategory,
+      }),
+      dropUnresolvedMediaReks(cleanedRaw.uses, {
+        path: "snap",
+        anchor: detected.name,
+        anchorCategory: anchorCategory,
+      }),
+      dropUnresolvedMediaReks(cleanedRaw.alternatives, {
+        path: "snap",
+        anchor: detected.name,
+        anchorCategory: anchorCategory,
+      }),
+    ]);
+
+    // Ranks are 1..n by contract; re-rank after the guard so a dropped
+    // title never leaves a hole in the numbering.
+    const reRank = <T extends { rank: number }>(list: T[]): T[] =>
+      list.map((r, i) => ({ ...r, rank: i + 1 }));
+
+    const cleaned = {
+      similar: reRank(similar),
+      uses: reRank(uses),
+      alternatives: reRank(alternatives),
+    };
+
+    // The guard emptied everything. NOT a 502 and NOT "Could not read
+    // that photo" — the photo was read perfectly; the model just filled
+    // the slots with fiction. The anchor still ships, with plain-voice
+    // honesty in place of the invented five (charter §2.4: honest-short
+    // over canned-full).
+    const guardEmptiedAll =
+      cleaned.similar.length === 0 &&
+      cleaned.uses.length === 0 &&
+      cleaned.alternatives.length === 0;
 
     const allowedModes = ["similar", "uses", "alternatives"] as const;
     let mode: (typeof allowedModes)[number] = allowedModes.includes(parsed?.mode)
@@ -1054,6 +1235,9 @@ export async function POST(req: Request) {
         },
         mode,
         results: cleaned,
+        // Present ONLY when the guard left nothing to show. The client
+        // renders it in plain voice where the five cards would have been.
+        ...(guardEmptiedAll ? { notice: NEW_TO_ME_NOTICE } : {}),
       },
       { status: 200 }
     );
