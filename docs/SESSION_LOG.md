@@ -61,3 +61,30 @@ VALIDATION (verbatim from the PR's "Brad's twenty minutes"):
 - What it should feel like: [ ] search and snap behave exactly as production (same pace, same cards); [ ] no new tap target anywhere; [ ] health JSON reads `"ok":true`, `"db":"ok"`, `"env":"ok"`; [ ] `[env-check] ok` in the log; `[prompt-diag]` shows `hasSimulationClose: true`, `hasExpectLine: false`; [ ] the out-of-credit copy reads as plain honesty, not Reks Ray; [ ] after the long pause the app comes home — fresh bar, no old cards.
 - What to screenshot if it's wrong: the whole phone screen with the search bar and first card; the health JSON; any log line starting `[openai-failure]`, `[env-check]`, or `[health]`.
 - Paste-block: none required to validate. The keep-warm ping and SMTP steps are in BRAD MUST above.
+
+## Charter amendment §10 + chain run S2→S4 — 2026-09-22 — committed directly to main (charter-only, on Brad's instruction) — no PR
+
+SHIPPED:
+- Charter §10 "Multi-session runs and self-merge" appended verbatim to `docs/BUILD_CHARTER.md` (commit `10c362a`). Docs only, no code.
+- Chain Sessions 2 → 3 → 4 was launched under §10 and **HALTED BEFORE SESSION 2 STARTED**. Session 2 has no branch and no PR, and nothing was merged. The halt reasons follow; each one is enough to stop the chain on its own.
+
+CHAIN HALT — why, per §10.2 / §10.5 / §3.8:
+1. **§10.2 carry-forward cannot be verified. The predecessors are not on `main`.** The launch assumed Sessions 0, 1 and 1.5 had merged. Readback on 2026-09-22: `main` = `684fa2a` (Session 0 / PR #1 only). **PR #3 (Session 1, `auto/s1-staleness` @ `b5b94f1`) and PR #4 (Session 1.5, `auto/s1.5-real-title-guard` @ `0dd2c5b`) are both OPEN and unmerged.** This log on `main` has no Session 1 or 1.5 entry; those entries exist only on their branches. Session 2 would have to build on a `main` without its predecessors, which §10.2 forbids.
+2. **Session 2 is `BLOCKED:` on unmarked Q-list calls (charter §6 S2 "Blocked-by", §7 call 6).** `docs/s3-shareable-anchors-blueprint.md §6` has Q2, Q5 and Q8 DECIDED (Ledger #18/#19). **Q1, Q3, Q4, Q6, Q7 and Q9 are still proposals and are not marked** (Q1 anonymous shares; Q3 ship `revoked_at` now with UI deferred; Q4 anchor-only landing; Q6 no photo; Q7 UUID URL; Q9 shares don't count toward SNAP_LIMIT).
+3. **The pending-migration stop (§10.4 + §10.5) would halt the chain after Session 2 anyway.** Session 2 ships the `anchor_snapshots` migration, which Brad has not run, so its PR cannot self-merge (§10.4). Session 3's Saved tab and Session 4's picker both read `anchor_snapshots`, so their acceptance depends on that migration (§10.5). Session 3 also depends on Session 1's Shortlist strip and watched signal (PR #3, open, with its own unexecuted `docs/sql/s1-watched-signal.sql`).
+
+FOUND, NOT FIXED:
+- `docs/BUILD_CHARTER.md` §2.8 still says "Sessions never push to `release/v2` or `main` … Brad merges. No exceptions", while §10.3 now allows a bounded self-merge into `main`. §10.4 bars a session from changing §2, so this session did not touch §2. Brad should add one clause to §2.8 (for example "except as §10.3 allows") so the two sections agree.
+
+BRAD MUST (in this order to unblock the chain):
+1. **Merge PR #3 (Session 1), then PR #4 (Session 1.5).** That order is taken from the S1.5 log: the second merge has a textual conflict in `src/engine/rekomendrEngine.ts` and `app/page.tsx`. After merging, run `docs/sql/s1-watched-signal.sql` (S1) and add `TMDB_API_KEY` in Vercel (S1.5), as their log entries say.
+2. **Mark Q1, Q3, Q4, Q6, Q7 and Q9 in `docs/s3-shareable-anchors-blueprint.md §6`.** Accepting the proposals as written is a valid mark.
+3. **Choose how Session 2's migration fits the chain.** Either (a) launch Session 2 alone, run its `anchor_snapshots` SQL after its PR lands, then launch Sessions 3–4 as a chain; or (b) launch 2→3→4 knowing the chain will stop after Session 2 opens its PR (§10.5).
+4. Optional: the §2.8 / §10.3 wording fix above.
+
+NEXT SESSION SHOULD KNOW:
+- §7 calls 4 and 5 are confirmed at their defaults by Brad (2026-09-22). Call 4: the most recent Saved item in the category is the one-tap pin, and the picker shows the last five. Call 5: Recent is the landing tab. Neither has been struck in the §7 margin yet, so a session that reads only the charter should also read this entry.
+- Before starting, re-run the readback this run did: `git ls-remote origin` plus the PR list. PR #3 and PR #4 were open at 2026-09-22, and both branch from `684fa2a`.
+- No secrets were checked in this run because no build ran. Sessions 1 and 1.5 both reported an empty container (no OpenAI, Supabase or TMDb keys). Session 2 needs `MINT_SIGNING_SECRET` (per `docs/s3-build-plan.md` S3.2) and Supabase service-role access for any live check. Ask Brad for them up front.
+
+VALIDATION: none this run. No code changed, so there is nothing to tap on a preview. The combined §10.6 batch is deferred to the chain that actually runs.
