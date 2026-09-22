@@ -6,7 +6,7 @@ import { Camera, ChevronRight, Plus } from "lucide-react";
 import {
   HEALTH_MEDICAL_CATEGORIES,
   MEDIA_CATEGORIES,
-  NON_RECIPE_CATEGORIES,
+  categoryGetsRecipe,
 } from "../lib/categoryGates";
 import { recordSnapSignal, type SnapMode } from "../lib/reksnapSignals";
 import { compensatedCommit } from "../lib/scrollCompensation";
@@ -1032,14 +1032,14 @@ const RekSnapResults: React.FC<Props> = ({
   const anchorIsHealthMedical = HEALTH_MEDICAL_CATEGORIES.has(detectedCategory);
   const anchorIsMedia = MEDIA_CATEGORIES.has(detectedCategory);
 
-  // "uses"-mode cards push through to a recipe by DEFAULT (food, beverages,
-  // alcohol). We suppress only known non-recipe categories (health/medical/
-  // etc. + non-consumable references) — see NON_RECIPE_CATEGORIES in
-  // lib/categoryGates.ts. Exclusion list, not a food allow-list: the
-  // model's category is unstable, so we can't enumerate every food word —
-  // we enumerate what must NOT get a recipe. Trail cards keep the
+  // "uses"-mode cards push through to a recipe only when the anchor is
+  // actually something you eat or drink. S1.5 flipped this from a
+  // deny-list to an ALLOW-list (categoryGetsRecipe in lib/categoryGates.ts):
+  // a deny-list showed the button for everything nobody had thought to
+  // ban, which is how a snapped logo and a snapped advert both got
+  // "View recipe". Unknown now suppresses. Trail cards keep the
   // push-through of their ORIGIN mode.
-  const usesGetRecipes = !NON_RECIPE_CATEGORIES.has(detectedCategory);
+  const usesGetRecipes = categoryGetsRecipe(detectedCategory);
 
   /* Recipe open lives ONLY on this button (not the whole card) so it
      won't collide with the swipe-to-dismiss gesture (frontier) or the
