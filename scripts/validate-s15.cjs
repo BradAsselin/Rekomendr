@@ -214,9 +214,17 @@ const check = (label, actual, expected) => {
   const runSearch = async ({ produced, category = "Movies" }) => {
     installStubTmdb();
     const engine = fresh("engine/rekomendrEngine.js");
-    const realFetch = globalThis.fetch;
+    // The TMDb stub installed above IS the network for the verifier. The
+    // engine, being browser code, talks to two app routes instead, so the
+    // app-route stub wraps the TMDb one and hands control back to it for
+    // the duration of the verify call — which is exactly the real hop:
+    // browser -> /api/verify/titles -> TMDb.
+    const tmdbStub = globalThis.fetch;
+    const { verifyTitles } = fresh("lib/tmdbVerify.js");
+
     globalThis.fetch = async (url, init) => {
       const u = String(url);
+
       if (u.startsWith("/api/openai")) {
         return {
           ok: true,
@@ -232,31 +240,21 @@ const check = (label, actual, expected) => {
             ),
         };
       }
+
       if (u.startsWith("/api/verify/titles")) {
-        // The real route's logic, inlined: this is the browser->server hop.
-        const { verifyTitles } = fresh("lib/tmdbVerify.js");
-        globalThis.fetch = realFetch; // the verifier needs the TMDb stub
-        const body = JSON.parse(init.body);
-        const out = await verifyTitles(body.items);
-        globalThis.fetch = arguments.callee; // restore below
-        return { ok: true, json: async () => out };
+        const appStub = globalThis.fetch;
+        globalThis.fetch = tmdbStub; // the verifier's turn on the wire
+        try {
+          const out = await verifyTitles(JSON.parse(init.body).items);
+          return { ok: true, json: async () => out };
+        } finally {
+          globalThis.fetch = appStub;
+        }
       }
+
       return { ok: false, status: 404 };
     };
-    // The self-referencing restore above is fragile; use a stable wrapper.
-    const openaiOrVerify = globalThis.fetch;
-    globalThis.fetch = async (url, init) => {
-      const u = String(url);
-      if (u.startsWith("/api/verify/titles")) {
-        const { verifyTitles } = fresh("lib/tmdbVerify.js");
-        const saved = globalThis.fetch;
-        globalThis.fetch = realFetch;
-        const out = await verifyTitles(JSON.parse(init.body).items);
-        globalThis.fetch = saved;
-        return { ok: true, json: async () => out };
-      }
-      return openaiOrVerify(url, init);
-    };
+
     return engine.getTop5FromEngine({ rawQuery: `${category}||Romance||clever` });
   };
 
