@@ -181,3 +181,28 @@ NEXT SESSION SHOULD KNOW:
 - No secrets were checked in this run because no build ran. Sessions 1 and 1.5 both reported an empty container (no OpenAI, Supabase or TMDb keys). Session 2 needs `MINT_SIGNING_SECRET` (per `docs/s3-build-plan.md` S3.2) and Supabase service-role access for any live check. Ask Brad for them up front.
 
 VALIDATION: none this run. No code changed, so there is nothing to tap on a preview. The combined §10.6 batch is deferred to the chain that actually runs.
+
+---
+
+## Merges + Brad-authorized charter changes — 2026-09-23 — main — PR #3, PR #4
+
+SHIPPED:
+- **Session 1 is on `main`.** PR #3 was merged by this session on Brad's explicit authorization, after he validated it on preview: merge commit `326df32`. First `main` (the §10 docs) was merged into the branch at `0950325`; that was a SESSION_LOG-only conflict. The watched-signal migration (`docs/sql/s1-watched-signal.sql`) had already been run by Brad on 2026-09-13, and the constraint includes `'watched'`.
+- **Session 1.5 is on `main`, self-merged under §10.3.** PR #4 merge commit: **`4bf4f7c`**. Revert that commit on its own to back S1.5 out. Brad asked for a rebase; this session merged `main` into the branch instead (`77f1f98`), because §3.1 forbids rebase and force-push. The result is the same with no history rewritten. PR #4 had been closed without a merge at 14:43 UTC, with no comment. It was reopened to carry out Brad's merge instruction.
+  - Conflicts resolved in `src/engine/rekomendrEngine.ts`: `generateAIReks` takes both S1's freshness args and S1.5's `outcome`; `getTop5FromEngine` takes S1's watched/shortlist and returns S1.5's `{ reks, notice? }`. `app/page.tsx` merged cleanly and was checked by reading the call site.
+  - The freshness-slot generation now goes through the real-title guard like every other path, under its own tripwire path `search-freshness`. Changed files: `titleVerification.ts`, `tmdbVerify.ts`, and the engine.
+  - Harnesses fixed for the combined tree. `validate-s1.cjs` stubs `/api/verify/titles` (all titles resolve, guard ON) and reads `{ reks }`. `validate-s15.cjs` routes stub calls by URL; it used to swap `globalThis.fetch` mid-call, which raced S1's parallel freshness generation and failed with "Invalid URL".
+  - §10.3 gate: Vercel green on `77f1f98`; `tsc --noEmit` clean; `validate-s15` 54/54; §10.2 carry-forward `validate-s1` 50/50 on the combined tree, with the `[freshness-slot]`, `[watched-signal]`, `[fake-title]` and `[short-sets]` tripwires present; no `BLOCKED:`. §10.4 check: no prompt text changed, no migration, the charter change is in §6 (not §2), and no release/v2 involvement. `TMDB_API_KEY` was set in Vercel (Preview + Production) by Brad.
+- **BRAD-AUTHORIZED INVARIANT CHANGE (2026-09-23): §2.8** now reads "…Branch → PR → preview → Brad merges, except as §10.3 allows. No exceptions, including "tiny."" This is the only §2 change, and Brad authorized it explicitly. It reconciles §2.8 with §10.3; release/v2 stays Brad-only under §10.4.
+- **Marked:** §7 call 4 (benchmark picker) = default; call 5 (panel landing tab) = Recent, default; call 6 = the blueprint Q-list. In `docs/s3-shareable-anchors-blueprint.md §6`, Q1, Q3, Q4, Q6, Q7 and Q9 are DECIDED 2026-09-23 as proposed. Q2, Q5 and Q8 were already decided under Ledger #18/#19.
+
+FOUND, NOT FIXED:
+- §7 calls 1 and 2 were marked "default" per PR #3's body, but the charter text still shows them unmarked. That's cosmetic, and they weren't in this instruction.
+
+BRAD MUST: nothing for this entry.
+
+NEXT SESSION SHOULD KNOW:
+- `main` now carries S0 + S1 + S1.5. Session 2 branches from here.
+- Keyless local builds need placeholder env, because module-level clients construct at build time: `OPENAI_API_KEY`, `NEXT_PUBLIC_SUPABASE_URL`/`_ANON_KEY`, `SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY`. Use placeholders only, and never commit them. Run `npm ci` first: bare `npx tsc` pulls TypeScript 6, which rejects this tsconfig.
+
+VALIDATION: S1 and S1.5 validation blocks stand as written in their entries above. Their combined check is folded into Session 2's "Brad's twenty minutes".
