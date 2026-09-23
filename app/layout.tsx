@@ -4,6 +4,10 @@ import InstallButton from "../src/components/InstallButton";
 import ShareButton from "../src/components/ShareButton";
 
 export const metadata = {
+  // S2 — link scrapers reject relative og:image URLs; this resolves them.
+  // The shared-anchor page (/a/[id]) builds its own absolute URLs from the
+  // request host, so a preview deployment unfurls its own image.
+  metadataBase: new URL("https://rekomendr.ai"),
   title: "Rekomendr.AI",
   description: "Taste-first recommendations across movies, TV, books, and wine.",
   manifest: "/manifest.json",
