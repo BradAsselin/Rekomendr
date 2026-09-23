@@ -11,6 +11,12 @@ import {
   dropUnresolvedMediaReks,
 } from "../../../src/lib/snapTitleGuard";
 import { runEnvCheck } from "../../../src/lib/envCheck";
+import { ANCHOR_DETAIL_PROMPT } from "../../../src/lib/anchorDetailPrompt";
+import {
+  signAnchor,
+  tokensEnabled,
+  verifyAnchor,
+} from "../../../src/lib/mintToken";
 import {
   maybeSimulateOpenAIFailure,
   openAIFailureResponse,
@@ -194,6 +200,46 @@ const buildBackfillPrompt = (mode: string) => {
   );
 };
 
+// ---------------------------------------------------------------------------
+// S2 — ANCHOR ATTESTATION (Ledger #19, Catch 1: no side doors on the wall).
+// When MINT_SIGNING_SECRET is set, every text-only path that accepts a
+// detected-item payload (backfill, anchorDetail, chain) first verifies the
+// token the vision response signed. The health gates below each call then
+// run on a SERVER-attested category, never a client-asserted one. With no
+// secret this returns null for everyone and the paths are byte-identical
+// to before S2. A refusal is a 400 the client already handles with its
+// existing failure voice; a pre-deploy tab fails once and re-snaps
+// (accepted in #19).
+// ---------------------------------------------------------------------------
+function refuseUnattested(
+  path: "backfill" | "anchorDetail" | "chain",
+  item: { name?: unknown; category?: unknown; description?: unknown },
+  clientId: string | null,
+  token: unknown
+): Response | null {
+  if (!tokensEnabled()) return null;
+  const ok =
+    !!clientId &&
+    typeof item?.name === "string" &&
+    verifyAnchor(
+      {
+        name: item.name,
+        category: typeof item.category === "string" ? item.category : "",
+        short: typeof item.description === "string" ? item.description : "",
+        long: null,
+        clientId,
+      },
+      token
+    );
+  if (ok) return null;
+  console.warn(`[mintToken] ${path}: token missing/invalid — refused`, {
+    hasClientId: !!clientId,
+    hasToken: !!token,
+  });
+  const label = path === "anchorDetail" ? "anchor detail" : path;
+  return Response.json({ error: `Bad ${label} request` }, { status: 400 });
+}
+
 async function handleBackfill(backfill: any): Promise<Response> {
   const item = backfill?.detectedItem;
   const mode = backfill?.mode;
@@ -219,6 +265,8 @@ async function handleBackfill(backfill: any): Promise<Response> {
   // Cross-session shading (raced, fail-soft): category-scoped prior
   // dislikes, with everything the session already frames stripped out.
   const clientId = cleanClientId(backfill?.clientId);
+  const unattested = refuseUnattested("backfill", item, clientId, backfill?.token);
+  if (unattested) return unattested;
   const prior = clientId
     ? await racePriorDislikes({
         clientId,
@@ -324,23 +372,8 @@ async function handleBackfill(backfill: any): Promise<Response> {
 // vision prompt is never touched.
 // ---------------------------------------------------------------------------
 
-const ANCHOR_DETAIL_PROMPT =
-  "You are a taste-aware recommendation engine. The user snapped a photo of the item below and was shown its two-sentence profile. They tapped 'Show details' — write the longer detail that profile expands into.\n" +
-  "\n" +
-  "Write ONE sentence per job below — 3 sentences, or 4 only if the optional job earns it. Never more. One paragraph.\n" +
-  "- Sentence 1: extend the profile's primary-axis placement (wine = dry vs. sweet; whiskey = smoky vs. smooth; coffee = light vs. dark roast; tools = strength, speed, what it works on) with finer CONCRETE decision words (grapefruit pith, char, bond strength) — never re-characterize on a different axis, never contradict the profile. When the axis is a two-camp fork, NAME the side outright even if the profile only implied it — for whisky, say whether there is peat/smoke ('no peat here' / 'gently peated'); the reader may not know that 'smooth' means unpeated.\n" +
-  "- Sentence 2: place it against one or two NAMED close neighbors in its category — how it differs, in plain decision words.\n" +
-  "- Sentence 3: one concrete moment or pairing where it wins.\n" +
-  "- Optional sentence 4: where a neighbor wins instead.\n" +
-  "The FINAL WORD of the paragraph must be a concrete noun — a food, a moment, a place, a task. Never end on a verb phrase or a mood.\n" +
-  "NEVER repeat the item's name — the title sits directly above this text.\n" +
-  "NEVER restate the profile's sentences in other words — the user just read them.\n" +
-  "Decision rule: if a phrase could describe half the category, delete it and say something only this item earns. This is a friend talking across a table, not a magazine review.\n" +
-  "BAN these in any construction: 'perfect for', 'ideal for', 'great choice', 'a classic X', 'crowd-pleaser', 'known for', 'gentle caress', 'elegance', 'notes unfold', 'refreshing experience'.\n" +
-  "- RIGHT (profile said 'Off-dry and peach-led — ripe stone fruit...'): 'The sweetness stays just off-dry — a ripe-peach roundness rather than sugar, with the acidity tucked underneath it. Against the citrus-sharp styles that dominate the shelf it drinks softer and rounder, nearer a dry Riesling than a grassy Sauvignon Blanc. It earns its place next to spicy takeout — green curry, kung pao — where a sharper white would fight the chilies.' (extends off-dry + peach, adds neighbors and a concrete moment)\n" +
-  "- WRONG (profile said 'Smooth and slightly sweet, with notes of vanilla, honey, and a hint of fruitiness'): 'Its silky texture glides across the palate, enhanced by a subtle sweetness akin to clover honey. The vanilla notes are gentle yet persistent, rounding out the soft edges with a comforting warmth... its understated elegance complements without overwhelming.' (nearly double the allowed length; tasting-poetry that could describe fifty bottles; opens by repeating the item's name; never names a neighbor; ends on a mood, not a noun)\n" +
-  "\n" +
-  'Return JSON only, in this exact shape: { "long": string }';
+// ANCHOR_DETAIL_PROMPT lives in src/lib/anchorDetailPrompt.ts (moved
+// byte-identical in Session 2 so the snapshot completion can share it).
 
 async function handleAnchorDetail(anchorDetail: any): Promise<Response> {
   const name = anchorDetail?.name;
@@ -358,6 +391,15 @@ async function handleAnchorDetail(anchorDetail: any): Promise<Response> {
   ) {
     return Response.json({ error: "Bad anchor detail request" }, { status: 400 });
   }
+
+  const clientId = cleanClientId(anchorDetail?.clientId);
+  const unattested = refuseUnattested(
+    "anchorDetail",
+    { name, category, description: shortDescription },
+    clientId,
+    anchorDetail?.token
+  );
+  if (unattested) return unattested;
 
   // Belt-and-braces twin of the client gate: health/medical anchors stay
   // structurally thin — no request path may generate a rich profile for them.
@@ -398,7 +440,23 @@ async function handleAnchorDetail(anchorDetail: any): Promise<Response> {
     return Response.json({ error: "Detail failed" }, { status: 502 });
   }
 
-  return Response.json({ long: long.trim() }, { status: 200 });
+  // S2 — the EXTENDED token: it covers the long tier too, so the snapshot
+  // minted at save-tap can carry the long the user actually read. Null
+  // (omitted) when tokens are off or the request had no client id.
+  const extended = clientId
+    ? signAnchor({
+        name,
+        category,
+        short: shortDescription,
+        long: long.trim(),
+        clientId,
+      })
+    : null;
+
+  return Response.json(
+    { long: long.trim(), ...(extended ? { token: extended } : {}) },
+    { status: 200 }
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -715,6 +773,14 @@ async function handleChain(chain: any): Promise<Response> {
   ) {
     return Response.json({ error: "Bad chain request" }, { status: 400 });
   }
+
+  const unattested = refuseUnattested(
+    "chain",
+    item,
+    cleanClientId(chain?.clientId),
+    chain?.anchorToken
+  );
+  if (unattested) return unattested;
 
   // Belt-and-braces twin of the client gate (same as anchorDetail): no
   // chain may generate for a health/medical anchor.
@@ -1133,16 +1199,30 @@ export async function POST(req: Request) {
         allowedModes.find((m) => cleaned[m].length > 0) ?? "similar";
     }
 
+    // S2 — sign the anchor exactly as it ships (Ledger #19). The token is
+    // what later lets /api/save persist THIS text and nothing else, and
+    // what the text-only paths verify before they generate. Omitted when
+    // tokens are off or the snap carried no client id.
+    const shortText =
+      typeof detected.description === "string" ? detected.description : "";
+    const detectedItemToken = clientId
+      ? signAnchor({
+          name: detected.name,
+          category: anchorCategory,
+          short: shortText,
+          long: null,
+          clientId,
+        })
+      : null;
+
     return Response.json(
       {
         detected_item: {
           name: detected.name,
-          description:
-            typeof detected.description === "string"
-              ? detected.description
-              : "",
+          description: shortText,
           category: anchorCategory,
         },
+        ...(detectedItemToken ? { detected_item_token: detectedItemToken } : {}),
         mode,
         results: cleaned,
         // Present ONLY when the guard left nothing to show. The client
