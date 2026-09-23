@@ -114,6 +114,19 @@ function collectProblems(): string[] {
     );
   }
 
+  // S1.5 — the real-title guard's one new env dependency (charter §3.7).
+  // Without it the guard is DISABLED and fabricated movie/TV titles ship
+  // again, which is the exact field failure this session exists to close.
+  // It is a warning, not a hard failure, on purpose: an app that refuses
+  // to answer because a key is missing is worse than one that answers and
+  // says loudly that it could not check. The [fake-title] log repeats it
+  // on every request, and /api/health reports it, so it cannot stay quiet.
+  if (!process.env.TMDB_API_KEY?.trim()) {
+    problems.push(
+      "TMDB_API_KEY missing — the real-title guard is DISABLED and unverified movie/TV titles will ship"
+    );
+  }
+
   if (process.env.REKOMENDR_SIMULATE_OPENAI_FAILURE && isProductionRuntime()) {
     problems.push(
       "REKOMENDR_SIMULATE_OPENAI_FAILURE is set on the production deployment — it is ignored there, unset it"
@@ -133,6 +146,7 @@ export function runEnvCheck(): string[] {
     console.log("[env-check] ok", {
       supabase: safeHost(process.env.SUPABASE_URL),
       openaiKey: process.env.OPENAI_API_KEY ? "present" : "missing",
+      tmdbKey: process.env.TMDB_API_KEY ? "present" : "missing",
       runtime: isProductionRuntime() ? "production" : "non-production",
     });
   } else {

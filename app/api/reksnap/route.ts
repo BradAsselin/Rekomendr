@@ -2,6 +2,14 @@ import OpenAI from "openai";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { HEALTH_MEDICAL_CATEGORIES } from "../../../src/lib/categoryGates";
+// S1.5 — the real-title guard, snap side. The helpers live in a lib
+// rather than here because a Next route module may only export route
+// handlers and route config; anything else belongs outside it (and is
+// testable there, which this is).
+import {
+  NEW_TO_ME_NOTICE,
+  dropUnresolvedMediaReks,
+} from "../../../src/lib/snapTitleGuard";
 import { runEnvCheck } from "../../../src/lib/envCheck";
 import {
   maybeSimulateOpenAIFailure,
@@ -281,17 +289,28 @@ async function handleBackfill(backfill: any): Promise<Response> {
     (typeof rek.category === "string" ? normalize(rek.category) : "") ||
     (typeof item.category === "string" ? normalize(item.category) : "");
 
-  return Response.json(
-    {
-      rek: {
-        name: rek.name,
-        description:
-          typeof rek.description === "string" ? rek.description : "",
-        category: rekCategory || undefined,
-      },
-    },
-    { status: 200 }
-  );
+  const candidate = {
+    name: rek.name,
+    description: typeof rek.description === "string" ? rek.description : "",
+    category: rekCategory || undefined,
+  };
+
+  // S1.5 — a backfill that invented its one title is worse than an empty
+  // slot: the slot is honest. The client already handles `rek: null` by
+  // leaving the slot alone and logging it, so an unresolved title takes
+  // that path rather than a new one.
+  const [survivor] = await dropUnresolvedMediaReks([candidate], {
+    path: "snap-backfill",
+    anchor: item.name,
+    anchorCategory:
+      typeof item.category === "string" ? item.category : undefined,
+  });
+
+  if (!survivor) {
+    return Response.json({ rek: null, reason: "unresolved_title" }, { status: 200 });
+  }
+
+  return Response.json({ rek: survivor }, { status: 200 });
 }
 
 // ---------------------------------------------------------------------------
@@ -873,13 +892,37 @@ async function handleChain(chain: any): Promise<Response> {
   if (reks.length === 0) {
     return Response.json({ error: "Chain failed" }, { status: 502 });
   }
-  if (reks.length < 5) {
+
+  // S1.5 — the guard runs AFTER the exclusion filter and BEFORE the
+  // short-set warning, so the count in the log is the count that ships.
+  const beforeGuard = reks.length;
+  const verified = await dropUnresolvedMediaReks(reks, {
+    path: "chain",
+    anchor: item.name,
+    anchorCategory: typeof item.category === "string" ? item.category : undefined,
+  });
+
+  // Every candidate was fiction. Never a 502 here: the chain worked, the
+  // model simply could not name real neighbours, and saying so plainly is
+  // the honest answer (charter §2.4). 200 with an empty set + the notice
+  // lets the surface speak instead of reading as a transport failure.
+  if (verified.length === 0) {
     console.warn(
-      `RekSnap chain: only ${reks.length}/5 reks survived exclusion filtering (kind: ${kind})`
+      `RekSnap chain: all ${beforeGuard} reks dropped as unresolved titles (kind: ${kind})`
+    );
+    return Response.json(
+      { reks: [], notice: NEW_TO_ME_NOTICE },
+      { status: 200 }
     );
   }
 
-  return Response.json({ reks }, { status: 200 });
+  if (verified.length < 5) {
+    console.warn(
+      `RekSnap chain: only ${verified.length}/5 reks survived filtering + the real-title guard (kind: ${kind})`
+    );
+  }
+
+  return Response.json({ reks: verified }, { status: 200 });
 }
 
 export async function POST(req: Request) {
@@ -1014,23 +1057,71 @@ export async function POST(req: Request) {
       return ranked;
     };
 
-    const cleaned = {
+    const cleanedRaw = {
       similar: cleanList(results.similar, "similar"),
       uses: cleanList(results.uses, "uses"),
       alternatives: cleanList(results.alternatives, "alternatives"),
     };
 
     // Fail only if every list is empty — a partial result is still usable.
+    // This check runs BEFORE the real-title guard on purpose: an empty
+    // result here means the photo could not be read, which is a different
+    // (and honestly different-sounding) failure from "I read it fine and
+    // the neighbours it offered were invented".
     if (
-      cleaned.similar.length === 0 &&
-      cleaned.uses.length === 0 &&
-      cleaned.alternatives.length === 0
+      cleanedRaw.similar.length === 0 &&
+      cleanedRaw.uses.length === 0 &&
+      cleanedRaw.alternatives.length === 0
     ) {
       return Response.json(
         { error: "Could not read that photo." },
         { status: 502 }
       );
     }
+
+    // S1.5 — THE REAL-TITLE GUARD. This is the exact site of the field
+    // failure: a 2026 A24 release the model could not place, five
+    // fabricated titles, each wearing a Trailer and a Watch button. All
+    // three lists are guarded (a media rek can appear in any of them);
+    // the anchor is never touched.
+    const [similar, uses, alternatives] = await Promise.all([
+      dropUnresolvedMediaReks(cleanedRaw.similar, {
+        path: "snap",
+        anchor: detected.name,
+        anchorCategory: anchorCategory,
+      }),
+      dropUnresolvedMediaReks(cleanedRaw.uses, {
+        path: "snap",
+        anchor: detected.name,
+        anchorCategory: anchorCategory,
+      }),
+      dropUnresolvedMediaReks(cleanedRaw.alternatives, {
+        path: "snap",
+        anchor: detected.name,
+        anchorCategory: anchorCategory,
+      }),
+    ]);
+
+    // Ranks are 1..n by contract; re-rank after the guard so a dropped
+    // title never leaves a hole in the numbering.
+    const reRank = <T extends { rank: number }>(list: T[]): T[] =>
+      list.map((r, i) => ({ ...r, rank: i + 1 }));
+
+    const cleaned = {
+      similar: reRank(similar),
+      uses: reRank(uses),
+      alternatives: reRank(alternatives),
+    };
+
+    // The guard emptied everything. NOT a 502 and NOT "Could not read
+    // that photo" — the photo was read perfectly; the model just filled
+    // the slots with fiction. The anchor still ships, with plain-voice
+    // honesty in place of the invented five (charter §2.4: honest-short
+    // over canned-full).
+    const guardEmptiedAll =
+      cleaned.similar.length === 0 &&
+      cleaned.uses.length === 0 &&
+      cleaned.alternatives.length === 0;
 
     const allowedModes = ["similar", "uses", "alternatives"] as const;
     let mode: (typeof allowedModes)[number] = allowedModes.includes(parsed?.mode)
@@ -1054,6 +1145,9 @@ export async function POST(req: Request) {
         },
         mode,
         results: cleaned,
+        // Present ONLY when the guard left nothing to show. The client
+        // renders it in plain voice where the five cards would have been.
+        ...(guardEmptiedAll ? { notice: NEW_TO_ME_NOTICE } : {}),
       },
       { status: 200 }
     );

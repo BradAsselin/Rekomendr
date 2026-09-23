@@ -56,11 +56,71 @@ export const HEALTH_MEDICAL_CATEGORIES = new Set<string>(HEALTH_MEDICAL_WORDS);
 
 export const MEDIA_CATEGORIES = new Set<string>(MEDIA_WORDS);
 
-// Recipe-link gate: in "uses" mode anything you eat or drink gets
-// "View recipe ›" by DEFAULT (food, beverages, AND alcohol — a vodka "uses"
-// snap returns cocktails, which ARE recipes); suppress only for this union
-// (health ∪ media ∪ other non-consumables — identical membership to the
-// pre-split list, so the rek-card recipe gate is unchanged).
+// Recipe-link gate: the DENY half. Anything here can never get a recipe,
+// whatever else matches (health ∪ media ∪ other non-consumables —
+// identical membership to the pre-split list).
 export const NON_RECIPE_CATEGORIES = new Set<string>(
   HEALTH_MEDICAL_WORDS.concat(MEDIA_WORDS, NON_CONSUMABLE_WORDS)
 );
+
+/* ------------------------------------------------------------------
+   S1.5 — THE RECIPE GATE FLIPS TO AN ALLOW-LIST.
+
+   Session 0 logged this as found-not-fixed: a snapped app icon read as
+   "Nextdoor Logo" got a "View recipe" button, and the field has since
+   produced the same thing on a snapped ad. The cause is the posture, not
+   the word list — a DENY-list shows the button for everything it has not
+   been taught to suppress, and the space of non-food things a camera can
+   see is infinite. Every leak was a category nobody had thought to ban.
+
+   The original comment above argued against an allow-list because the
+   vision model's category is unstable ("food" 3x, "eggs" 1x across four
+   snaps of the same eggs). That instability is real, but it is WITHIN the
+   food domain — an advert and a logo never come back as a food word. So
+   the allow-list is written wide across food and drink, and the failure
+   it can still produce is the mild one (a recipe button missing from an
+   oddly-labelled food snap) rather than the one Brad keeps seeing (a
+   recipe button on an advert).
+
+   UNKNOWN NOW SUPPRESSES. That is the actual fix.
+------------------------------------------------------------------- */
+const FOOD_DRINK_WORDS = [
+  // Umbrella labels the model reaches for most often
+  "food", "foods", "drink", "drinks", "beverage", "beverages",
+  "ingredient", "ingredients", "produce", "grocery", "groceries",
+  "snack", "snacks", "dessert", "desserts", "candy", "sweets", "chocolate",
+  "baking", "baked goods", "bread", "pastry", "pastries",
+  "condiment", "condiments", "sauce", "sauces", "spice", "spices",
+  "herb", "herbs", "seasoning", "oil", "vinegar", "syrup", "honey", "jam",
+  "pantry", "canned goods", "cereal", "pasta", "noodles", "rice", "grain",
+  "grains", "flour", "sugar",
+  // Proteins and fresh
+  "meat", "beef", "pork", "chicken", "poultry", "seafood", "fish",
+  "shellfish", "egg", "eggs", "dairy", "milk", "cheese", "yogurt", "butter",
+  "fruit", "fruits", "vegetable", "vegetables", "veggies", "salad",
+  "tofu", "beans", "legumes", "nuts",
+  // Prepared
+  "meal", "meals", "dish", "dishes", "recipe", "recipes", "cuisine",
+  "takeout", "leftovers", "soup", "pizza", "sandwich", "burger",
+  // Drinks, soft and hard — a vodka "uses" snap returns cocktails, which
+  // ARE recipes, so alcohol belongs here exactly as it always did
+  "coffee", "tea", "juice", "soda", "smoothie", "water",
+  "wine", "wines", "beer", "beers", "cider", "spirits", "spirit",
+  "liquor", "alcohol", "vodka", "gin", "rum", "whiskey", "whisky",
+  "bourbon", "scotch", "tequila", "mezcal", "brandy", "liqueur",
+  "cocktail", "cocktails", "mixer", "mixers", "champagne", "prosecco",
+  "sake", "kombucha",
+];
+
+const FOOD_DRINK_CATEGORIES = new Set<string>(FOOD_DRINK_WORDS);
+
+// The one gate both the anchor card and the rek cards call. Deny always
+// wins over allow, so a word that somehow lands in both lists (or a
+// health word that also reads as food) is suppressed — the health wall is
+// structural, never conditional (charter §2.2).
+export function categoryGetsRecipe(rawCategory: string | undefined): boolean {
+  const c = (rawCategory ?? "").trim().toLowerCase();
+  if (!c) return false;
+  if (NON_RECIPE_CATEGORIES.has(c)) return false;
+  return FOOD_DRINK_CATEGORIES.has(c);
+}

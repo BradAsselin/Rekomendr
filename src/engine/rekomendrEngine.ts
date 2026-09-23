@@ -21,6 +21,14 @@ import { getTop5FromDeck } from "./deckSelector";
 // buildMoviePrompt.ts, had zero importers and was retired in Session 0.
 import { rankMovieCandidates } from "./movieProfileScorer";
 import { readServiceFailure, isAIServiceError } from "../lib/aiServiceError";
+// S1.5 — the real-title guard. Movies/TV only; the lookup itself lives
+// server-side (TMDB_API_KEY never reaches the browser, and this engine
+// runs in the browser).
+import {
+  verifyTitlesViaApi,
+  verifiedKindForCategory,
+  verifyKey,
+} from "../lib/titleVerification";
 
 /**
  * Feature flag
@@ -890,6 +898,51 @@ ${avoidTitles.length ? avoidTitles.join(", ") : "(none)"}
 `.trim();
 }
 
+// S1.5 — drop every movie/TV title that does not resolve to a real TMDb
+// entry. Non-media categories (Books, Wine) pass through untouched: TMDb
+// does not know them, and a guard that cannot check a category must not
+// pretend to.
+//
+// Fail-closed on a missing verdict. If the route is unreachable, or the
+// bundle is talking to a deploy that predates it, the map comes back
+// empty and every media title is treated as unresolved — the same posture
+// the server takes, for the same reason: an unverifiable title is exactly
+// what this session exists to stop shipping. The ONE exception is
+// `enabled: false` (TMDB_API_KEY absent), which passes everything and is
+// shouted about by envCheck, /api/health and the [fake-title] log.
+async function dropUnresolvedMediaTitles(
+  candidates: Rek[],
+  ctx: {
+    category: Category;
+    anchor: string;
+    path: "search" | "search-freshness" | "mlt" | "search-backfill";
+  }
+): Promise<Rek[]> {
+  const kind = verifiedKindForCategory(ctx.category);
+  if (!kind || candidates.length === 0) return candidates;
+
+  const { enabled, resolved } = await verifyTitlesViaApi({
+    items: candidates.map((r) => ({ title: r.title, year: r.year, kind })),
+    anchor: ctx.anchor,
+    path: ctx.path,
+    category: ctx.category,
+  });
+
+  if (!enabled) return candidates;
+
+  return candidates.filter((r) => resolved.get(verifyKey(r.title)) === true);
+}
+
+// S1.5 — a way for a caller to learn WHY a set came back empty without
+// changing what generateAIReks returns at its other three call sites.
+// "The model produced nothing" and "the model produced five titles and
+// every one of them was fiction" are different facts that deserve
+// different words on screen.
+export type GenerationOutcome = {
+  produced: number;
+  droppedAsFake: number;
+};
+
 async function generateAIReks(args: {
   category: Category;
   count: number;
@@ -901,6 +954,7 @@ async function generateAIReks(args: {
   currentTitles?: string[];
   seenTitles?: Set<string>;
   backfill?: boolean;
+  outcome?: GenerationOutcome;
   freshness?: boolean;
   shortlistTitles?: string[];
 }): Promise<Rek[] | null> {
@@ -956,7 +1010,7 @@ async function generateAIReks(args: {
   // Tripwire counters (RC-4): when a set ships short, the log below names
   // what filtered it — silent failures get named.
   let produced = 0;
-  const drops = { sanitize: 0, dupe: 0, seen: 0, marked: 0 };
+  const drops = { sanitize: 0, dupe: 0, seen: 0, marked: 0, fake: 0 };
 
   // One generation round-trip: build the prompt, fetch, fold survivors into
   // `out`. Two passes share `out`/`dedupe`/`seen`, so a top-up can never
@@ -1028,9 +1082,22 @@ async function generateAIReks(args: {
     if (!arr || arr.length === 0) return false;
 
     produced += arr.length;
-    for (const item of arr) {
-      if (out.length >= args.count) break;
 
+    // S1.5 — TWO STAGES NOW, and the order is the whole point.
+    //
+    // Stage 1 runs every cheap local filter over the WHOLE batch, not just
+    // the first `count` of it, collecting survivors instead of shipping
+    // them. Stage 2 asks TMDb which of those survivors actually exist, in
+    // ONE batched call, and only then fills `out`.
+    //
+    // Doing it this way is what lets the charter's line "existing over-ask
+    // sizing covers the drops" be true: the over-ask produced ~8 items for
+    // a 5-slot frontier, so verifying all 8 and keeping the first 5 real
+    // ones costs nothing, while verifying only the first 5 and dropping
+    // two would ship a short set with three good candidates still sitting
+    // unused in the batch.
+    const passCandidates: Rek[] = [];
+    for (const item of arr) {
       const safe = sanitizeGeneratedRek(item, args.category);
       if (!safe) {
         drops.sanitize++;
@@ -1051,8 +1118,28 @@ async function generateAIReks(args: {
         continue;
       }
 
+      // Claimed here, before verification, so the second pass cannot
+      // re-offer a title this pass already rejected as fiction.
       dedupe.add(titleKey);
-      out.push(safe);
+      passCandidates.push(safe);
+    }
+
+    const survivors = await dropUnresolvedMediaTitles(passCandidates, {
+      category: args.category,
+      anchor: args.seedTitle || args.context || "(fresh search)",
+      path: args.backfill
+        ? "search-backfill"
+        : args.freshness
+        ? "search-freshness"
+        : args.seedTitle
+        ? "mlt"
+        : "search",
+    });
+    drops.fake += passCandidates.length - survivors.length;
+
+    for (const rek of survivors) {
+      if (out.length >= args.count) break;
+      out.push(rek);
     }
     return true;
   };
@@ -1094,6 +1181,11 @@ async function generateAIReks(args: {
         produced,
         drops,
       });
+    }
+
+    if (args.outcome) {
+      args.outcome.produced = produced;
+      args.outcome.droppedAsFake = drops.fake;
     }
 
     return out.length >= 1 ? normalize(out.slice(0, args.count)) : null;
@@ -1218,6 +1310,22 @@ function applyFreshnessSlot(
 /* ------------------------------------------------------------------
    PRIMARY ENTRY
 ------------------------------------------------------------------- */
+// S1.5 — the search lane's honest-short copy. Plain voice: this is
+// machinery reporting on itself, not Reks Ray, and it must not invite a
+// retry that will fail the same way (the model will keep inventing for a
+// line it cannot place). The snap lane has its own wording — there the
+// user snapped a specific thing, so the sentence can name it.
+export const UNVERIFIED_SEARCH_NOTICE =
+  "Every title that came back for this line was one I couldn't confirm is real, so I'm not showing them. Try another lane, or name something you liked.";
+
+export type SearchResult = {
+  reks: Rek[];
+  // Plain-voice honest-short copy, set ONLY when the set is empty because
+  // the real-title guard dropped everything. An empty set with no notice
+  // is the pre-existing generation failure and keeps its existing voice.
+  notice?: string;
+};
+
 export async function getTop5FromEngine({
   rawQuery,
   starterDeckId = "comfort-core",
@@ -1234,7 +1342,7 @@ export async function getTop5FromEngine({
   // Liked-but-not-watched, newest first — the freshness slot's preferred
   // candidates, and the source of the resurfacing marker's date.
   shortlist?: ShortlistSeed[];
-}): Promise<Rek[]> {
+}): Promise<SearchResult> {
   const { category, clarifier, text, vibe, context, mode } =
     parseRawQuery(rawQuery);
   const sessionSeen = getSessionSeen(category);
@@ -1243,6 +1351,8 @@ export async function getTop5FromEngine({
 
   /* ------------------ FULL AI DISCOVERY MODE ------------------ */
   if (mode === "ai") {
+    const outcome: GenerationOutcome = { produced: 0, droppedAsFake: 0 };
+
     // The freshness slot rides ALONGSIDE the main generation, not after
     // it: two independent round-trips started together cost the slower
     // one, not the sum. It is a small ask (FRESHNESS_ASK) against a much
@@ -1279,6 +1389,7 @@ export async function getTop5FromEngine({
       dislikedTitles,
       watchedTitles,
       seenTitles: sessionSeen,
+      outcome,
     });
 
     if (aiGenerated && aiGenerated.length > 0) {
@@ -1298,7 +1409,7 @@ export async function getTop5FromEngine({
 
       result.forEach((r) => sessionSeen.add(seenKey(r.title)));
 
-      return normalize(result);
+      return { reks: normalize(result) };
     }
 
     // The main generation came up empty, so there is no set to place a
@@ -1308,8 +1419,21 @@ export async function getTop5FromEngine({
 
     // No silent fallback: a failed deliberate path reports empty and the
     // UI shows an honest failure notice. Pool is Play-only.
+    //
+    // S1.5 splits that one empty into two: a set the model never produced
+    // (today's Reks Ray voice — a retry might work) and a set the model
+    // produced entirely out of fiction (plain voice — a retry will not).
+    if (outcome.droppedAsFake > 0) {
+      console.warn("[fake-title] fresh AI search emptied by the guard", {
+        category,
+        produced: outcome.produced,
+        droppedAsFake: outcome.droppedAsFake,
+      });
+      return { reks: [], notice: UNVERIFIED_SEARCH_NOTICE };
+    }
+
     console.warn("[short-sets] fresh AI search returned empty", { category });
-    return [];
+    return { reks: [] };
   }
 
   /* ------------------ POOL / PLAY MODE ------------------ */
@@ -1333,7 +1457,7 @@ export async function getTop5FromEngine({
       finalPoolForSelection,
       sessionSeen
     );
-    if (fromDeck.length === 5) return normalize(fromDeck);
+    if (fromDeck.length === 5) return { reks: normalize(fromDeck) };
   }
 
   const usedTitles = new Set<string>();
@@ -1383,7 +1507,7 @@ export async function getTop5FromEngine({
   }
 
   fallback.forEach((r) => sessionSeen.add(seenKey(r.title)));
-  return normalize(fallback);
+  return { reks: normalize(fallback) };
 }
 
 /* ------------------------------------------------------------------

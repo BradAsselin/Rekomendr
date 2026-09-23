@@ -68,7 +68,21 @@ let mainReply = [];
 
 const isFreshnessPrompt = (p) => p.includes("THIS IS THE RECALL SLOT");
 
-globalThis.fetch = async (_url, init) => {
+globalThis.fetch = async (url, init) => {
+  // S1.5's real-title guard (merged after S1) asks /api/verify/titles
+  // before any movie ships. This harness tests slot assembly, not
+  // existence, so every title it offers is real: the guard stays ON
+  // and answers "resolved" for each one. validate-s15.cjs owns the guard.
+  if (String(url).startsWith("/api/verify/titles")) {
+    const { items } = JSON.parse(init.body);
+    return {
+      ok: true,
+      json: async () => ({
+        enabled: true,
+        verdicts: items.map((i) => ({ title: i.title, resolved: true })),
+      }),
+    };
+  }
   const body = JSON.parse(init.body);
   const prompt = body.prompt;
   const kind = isFreshnessPrompt(prompt) ? "freshness" : "main";
@@ -125,7 +139,8 @@ async function run({ liked = [], disliked = [], watched = [], shortlist = [], fr
   mainReply = titles(6, `Main${seed}`).map((t) => card(t));
   freshnessReply = fresh.map((t) => card(t));
   const engine = freshEngine();
-  const reks = await engine.getTop5FromEngine({
+  // Since S1.5 the entry point returns { reks, notice? }, not Rek[].
+  const { reks } = await engine.getTop5FromEngine({
     rawQuery: `Movies||Romance||something clever ${seed}`,
     likedTitles: liked,
     dislikedTitles: disliked,
@@ -292,7 +307,7 @@ async function run({ liked = [], disliked = [], watched = [], shortlist = [], fr
     captured = [];
     mainReply = [card("Paddington"), ...titles(5, "Other").map((t) => card(t))];
     freshnessReply = [];
-    const first = await engine.getTop5FromEngine({
+    const { reks: first } = await engine.getTop5FromEngine({
       rawQuery: "Movies||Romance||something clever",
       likedTitles: [],
     });
@@ -301,7 +316,7 @@ async function run({ liked = [], disliked = [], watched = [], shortlist = [], fr
     captured = [];
     mainReply = titles(6, "Second").map((t) => card(t));
     freshnessReply = [card("Paddington")];
-    const second = await engine.getTop5FromEngine({
+    const { reks: second } = await engine.getTop5FromEngine({
       rawQuery: "Movies||Romance||something else",
       likedTitles: ["Paddington"],
       shortlist: [{ title: "Paddington", likedAt: "2026-07-04T10:00:00Z" }],
@@ -314,7 +329,7 @@ async function run({ liked = [], disliked = [], watched = [], shortlist = [], fr
     captured = [];
     mainReply = titles(6, "Third").map((t) => card(t));
     freshnessReply = [card("Paddington")];
-    const third = await engine2.getTop5FromEngine({
+    const { reks: third } = await engine2.getTop5FromEngine({
       rawQuery: "Movies||Romance||something clever",
       likedTitles: ["Paddington"],
       shortlist: [{ title: "Paddington", likedAt: "2026-07-04T10:00:00Z" }],

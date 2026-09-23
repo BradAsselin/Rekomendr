@@ -6,7 +6,7 @@ import { Camera, ChevronRight, Plus } from "lucide-react";
 import {
   HEALTH_MEDICAL_CATEGORIES,
   MEDIA_CATEGORIES,
-  NON_RECIPE_CATEGORIES,
+  categoryGetsRecipe,
 } from "../lib/categoryGates";
 import { recordSnapSignal, type SnapMode } from "../lib/reksnapSignals";
 import { compensatedCommit } from "../lib/scrollCompensation";
@@ -31,6 +31,10 @@ export type SnapResult = {
   detected_item: { name: string; description: string; category: string };
   mode: SnapMode;
   results: Record<SnapMode, SnapRek[]>;
+  // S1.5 — plain-voice honest-short, present only when the real-title
+  // guard dropped every rek the model offered. The anchor still ships;
+  // this stands where the five cards would have been.
+  notice?: string;
 };
 
 // Graduation upward: a marked card (thumbed-up or saved) LEAVES the five
@@ -754,7 +758,21 @@ const RekSnapResults: React.FC<Props> = ({
           rank: i + 1,
         }));
       if (resultRef.current !== forResult) return; // new snap mid-flight
-      if (cleaned.length === 0) throw new Error("chain returned no reks");
+      if (cleaned.length === 0) {
+        // S1.5 — the chain succeeded and the guard emptied it: every
+        // title offered was fiction. That is not a chain FAILURE, so it
+        // does not get the Reks Ray failure voice; the route's plain-voice
+        // notice says what actually happened. The previous list is
+        // restored so the user is not left staring at nothing.
+        const notice =
+          typeof data?.notice === "string" && data.notice ? data.notice : null;
+        if (notice) {
+          setLists((prev) => (prev ? { ...prev, [mode]: restoreList } : prev));
+          setChainError(notice);
+          return;
+        }
+        throw new Error("chain returned no reks");
+      }
 
       cleaned.forEach((r) => everShownRef.current.add(r.name));
       setLists((prev) => (prev ? { ...prev, [mode]: cleaned } : prev));
@@ -1014,14 +1032,14 @@ const RekSnapResults: React.FC<Props> = ({
   const anchorIsHealthMedical = HEALTH_MEDICAL_CATEGORIES.has(detectedCategory);
   const anchorIsMedia = MEDIA_CATEGORIES.has(detectedCategory);
 
-  // "uses"-mode cards push through to a recipe by DEFAULT (food, beverages,
-  // alcohol). We suppress only known non-recipe categories (health/medical/
-  // etc. + non-consumable references) — see NON_RECIPE_CATEGORIES in
-  // lib/categoryGates.ts. Exclusion list, not a food allow-list: the
-  // model's category is unstable, so we can't enumerate every food word —
-  // we enumerate what must NOT get a recipe. Trail cards keep the
+  // "uses"-mode cards push through to a recipe only when the anchor is
+  // actually something you eat or drink. S1.5 flipped this from a
+  // deny-list to an ALLOW-list (categoryGetsRecipe in lib/categoryGates.ts):
+  // a deny-list showed the button for everything nobody had thought to
+  // ban, which is how a snapped logo and a snapped advert both got
+  // "View recipe". Unknown now suppresses. Trail cards keep the
   // push-through of their ORIGIN mode.
-  const usesGetRecipes = !NON_RECIPE_CATEGORIES.has(detectedCategory);
+  const usesGetRecipes = categoryGetsRecipe(detectedCategory);
 
   /* Recipe open lives ONLY on this button (not the whole card) so it
      won't collide with the swipe-to-dismiss gesture (frontier) or the
@@ -1261,6 +1279,17 @@ const RekSnapResults: React.FC<Props> = ({
         </div>
 
         <div className="space-y-3">
+          {/* S1.5 — honest-short. The photo was read, the anchor is right
+              above, and every neighbour the model offered turned out not
+              to exist. Plain voice (machinery, not Reks Ray) standing
+              exactly where the five cards would have been — the charter's
+              honest-short over canned-full, made visible. */}
+          {result.notice && (lists?.[activeMode] ?? []).length === 0 && (
+            <div className="bg-white border border-amber-300 rounded-2xl p-4 shadow-sm">
+              <div className="text-sm text-gray-800">{result.notice}</div>
+            </div>
+          )}
+
           {/* The frontier — five full, unmarked candidates still being
               judged. The plain wrapper div carries the DOM handle the
               scroll-compensated migration commit measures against; all
