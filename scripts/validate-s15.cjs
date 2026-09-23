@@ -215,10 +215,15 @@ const check = (label, actual, expected) => {
     installStubTmdb();
     const engine = fresh("engine/rekomendrEngine.js");
     // The TMDb stub installed above IS the network for the verifier. The
-    // engine, being browser code, talks to two app routes instead, so the
-    // app-route stub wraps the TMDb one and hands control back to it for
-    // the duration of the verify call — which is exactly the real hop:
+    // engine, being browser code, talks to two app routes instead. One
+    // stub routes by URL — relative app routes here, absolute TMDb URLs to
+    // the TMDb stub — which is exactly the real hop:
     // browser -> /api/verify/titles -> TMDb.
+    //
+    // It must NOT swap globalThis.fetch for the duration of a verify call:
+    // since S1 the fresh search runs two generations in parallel (the
+    // main set and the freshness slot), and a swap made by one would
+    // catch the other's /api/openai call mid-flight.
     const tmdbStub = globalThis.fetch;
     const { verifyTitles } = fresh("lib/tmdbVerify.js");
 
@@ -242,15 +247,11 @@ const check = (label, actual, expected) => {
       }
 
       if (u.startsWith("/api/verify/titles")) {
-        const appStub = globalThis.fetch;
-        globalThis.fetch = tmdbStub; // the verifier's turn on the wire
-        try {
-          const out = await verifyTitles(JSON.parse(init.body).items);
-          return { ok: true, json: async () => out };
-        } finally {
-          globalThis.fetch = appStub;
-        }
+        const out = await verifyTitles(JSON.parse(init.body).items);
+        return { ok: true, json: async () => out };
       }
+
+      if (/^https?:/.test(u)) return tmdbStub(url, init);
 
       return { ok: false, status: 404 };
     };

@@ -349,7 +349,7 @@ export async function verifyTitles(items: VerifyItem[]): Promise<VerifyOutcome> 
    these?"
 ------------------------------------------------------------------- */
 export function logFakeTitles(args: {
-  path: "search" | "mlt" | "search-backfill" | "snap" | "snap-backfill" | "chain";
+  path: "search" | "search-freshness" | "mlt" | "search-backfill" | "snap" | "snap-backfill" | "chain";
   anchor: string;
   category?: string;
   dropped: { title: string; reason?: VerifyReason }[];

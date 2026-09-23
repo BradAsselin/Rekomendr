@@ -53,7 +53,7 @@ export function verifiedKindForCategory(category: string): VerifiedKind | null {
 export async function verifyTitlesViaApi(args: {
   items: VerifyRequestItem[];
   anchor: string;
-  path: "search" | "mlt" | "search-backfill";
+  path: "search" | "search-freshness" | "mlt" | "search-backfill";
   category?: string;
 }): Promise<VerifyResult> {
   const empty: VerifyResult = { enabled: true, resolved: new Map() };

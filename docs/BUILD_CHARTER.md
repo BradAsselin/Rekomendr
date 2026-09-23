@@ -212,4 +212,20 @@ Then: the ops dashboard session (SMTP, Supabase tripwire verification, usage ale
 
 ---
 
+## 10. Multi-session runs and self-merge (added Sept 22, 2026)
+
+**10.1 Chained sessions.** A launch may name several sessions. They run in order, each still on its own branch with its own PR, plan, fence, and "Brad's twenty minutes." Maximum three per launch.
+
+**10.2 Carry-forward verification.** Before starting session N, re-read session N−1's SESSION_LOG.md entry and verify its acceptance still holds — run its checks, confirm its tripwires still fire, confirm nothing in the new session's plan contradicts it. If it cannot be verified, stop per §3.8 rather than build on it. A session never builds on an unverified predecessor.
+
+**10.3 Self-merge, bounded.** A session may merge its own PR into main when all of: checks green; tsc --noEmit clean; the diff matches the plan and stays inside the fence; no BLOCKED:; §10.2 verified; and the session's own acceptance items that are machine-checkable pass. Record the merge commit SHA in the log entry so any single session is individually revertible.
+
+**10.4 What may never self-merge.** Anything touching prompt text, voice, register, or the feel of output (§3.9, §5) — those PRs stay open, labeled VOICE — joint session required. Anything requiring a migration Brad has not yet run. Anything that changes this charter's §2 invariants. And never, under any circumstance, a merge into release/v2: production promotion is Brad's alone, by a PR he opens.
+
+**10.5 Stop conditions for a chain.** Halt the chain, write, and end the run if: any session hits BLOCKED:; two consecutive sessions list found-not-fixed items in the same file; a session's plan would require crossing an invariant; or a pending migration blocks a later session's acceptance.
+
+**10.6 One validation batch.** At the end of a chain, append a combined "Brad's twenty minutes" to the final PR and the log, written against the main preview URL, covering every session in the run in the order he should check them.
+
+---
+
 *Be honest before helpful. Diagnose before fixing. Measure, don't estimate. Bound at the source. Prove the grant, not just the denial. The saved thing must be rich on return — that is the product. And when in doubt about feel: stop, write, and let the founder's ear decide.*

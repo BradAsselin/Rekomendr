@@ -8,6 +8,7 @@ import { TrailerVerb, WhereToWatchVerb, titleInfoUrl } from "./MediaVerbs";
 import RekCard from "./RekCard";
 import RekSkeleton, { RekSkeletonCard } from "./RekSkeleton";
 import RekTrail, { TrailRow } from "./RekTrail";
+import ShortlistStrip, { type ShortlistItem } from "./ShortlistStrip";
 
 // Scroll-compensated layout commits for trail migrations (see the module
 // comment — layout changes once, animation is transform/opacity only).
@@ -18,6 +19,7 @@ import { getBackfillRek, getMoreLikeThisSet } from "../engine/rekomendrEngine";
 import { isAIServiceError } from "../lib/aiServiceError";
 import type { Rek } from "../engine/rekomendrEngine";
 import { recordLike } from "../lib/userPrefs";
+import { resurfacedMarker } from "../engine/rekomendrEngine";
 
 // Descriptor typing
 import type { RekCategory } from "../lib/descriptors";
@@ -58,6 +60,14 @@ interface ResultsProps {
   onPlayVibe?: () => void;
   persistedLikedTitles?: string[];
   persistedDislikedTitles?: string[];
+  // S1 — the Shortlist strip. Owned by the page (so it survives search to
+  // search within the visit) and rendered here, above the results.
+  shortlist?: ShortlistItem[];
+  // Fires for every "Watched it" tap, from the strip or an expanded card.
+  // The page owns the write and the optimistic list update.
+  onWatched?: (item: { title: string; year: number | null }) => void;
+  watchPendingTitle?: string | null;
+  watchFailedTitle?: string | null;
   initialVertical?: Category;
   autoRunVertical?: boolean;
 }
@@ -70,6 +80,10 @@ const ResultsV4: React.FC<ResultsProps> = ({
   onPlayVibe,
   persistedLikedTitles = [],
   persistedDislikedTitles = [],
+  shortlist = [],
+  onWatched,
+  watchPendingTitle,
+  watchFailedTitle,
 }) => {
   const [reks, setReks] = useState<Rek[]>([]);
   // Mark state (graduation model, same as the snap lane): thumbs-up marks
@@ -556,6 +570,24 @@ const ResultsV4: React.FC<ResultsProps> = ({
   // the whole result set shares one category.
   const isMedia = MEDIA_CATEGORIES.has(category.toLowerCase());
 
+  // S1 — "Watched it". Media only: the charter's watched arc is the
+  // can't-wait-to-watch arc, and the media-adjacent verb pairs (Listen /
+  // Read for music and books) are explicitly a later, prepared-only item.
+  // Wine has no "finished" verb at all. Non-media categories therefore get
+  // a Shortlist they can read but not retire from — deliberate, and named
+  // in the PR rather than half-built here.
+  const watchedVerb = (rek: Rek): React.ReactNode =>
+    isMedia && onWatched ? (
+      <button
+        type="button"
+        disabled={watchPendingTitle === rek.title}
+        onClick={() => onWatched({ title: rek.title, year: rek.year ?? null })}
+        className="rounded-lg border border-gray-300 px-2.5 py-1 text-[13px] text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+      >
+        {watchPendingTitle === rek.title ? "Saving…" : "Watched it"}
+      </button>
+    ) : undefined;
+
   return (
     <div className="w-full flex flex-col items-center px-4 pt-2 pb-14 select-none">
       {/* Safety Valve Notice */}
@@ -585,6 +617,31 @@ const ResultsV4: React.FC<ResultsProps> = ({
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* THE SHORTLIST STRIP — cross-session recall, above both bands and
+          OUTSIDE the loading branch: the charter asks for it to be
+          persistent across searches within the visit, so it must not
+          blink out every time the frontier regenerates. The decided trail
+          and the undecided frontier keep their relationship to each other
+          untouched (charter §2.5); this is memory sitting above both of
+          them, not a third decision surface. Hidden entirely when there
+          is nothing to remember. */}
+      {shortlist.length > 0 && (
+        <div className="w-full max-w-xl mb-3">
+          <ShortlistStrip
+            items={shortlist}
+            titleHref={(t) => (isMedia ? titleInfoUrl(t) : undefined)}
+            onWatched={
+              isMedia && onWatched
+                ? (item) => onWatched({ title: item.title, year: item.year })
+                : undefined
+            }
+            pendingTitle={watchPendingTitle}
+            failedTitle={watchFailedTitle}
+            markerFor={(item) => resurfacedMarker(item.likedAt)}
+          />
         </div>
       )}
 
@@ -626,8 +683,10 @@ const ResultsV4: React.FC<ResultsProps> = ({
                     }
                     title={rek.title}
                     year={rek.year}
+                    markerLine={rek.resurfacedNote}
                     short={rek.short}
                     long={rek.long}
+                    detailAction={watchedVerb(rek)}
                     titleHref={isMedia ? titleInfoUrl(rek.title) : undefined}
                     detailsOpen={expandedTop === rek.id}
                     onToggleDetails={() => toggleTopExpand(rek.id)}
@@ -679,8 +738,12 @@ const ResultsV4: React.FC<ResultsProps> = ({
                 }
                 title={rek.title}
                 year={rek.year}
+                /* S1 — set by the engine on the freshness slot only, and
+                   only when that slot landed on a real past like. */
+                markerLine={rek.resurfacedNote}
                 short={rek.short}
                 long={rek.long}
+                detailAction={watchedVerb(rek)}
                 titleHref={isMedia ? titleInfoUrl(rek.title) : undefined}
                 detailsOpen={expandedTop === rek.id}
                 onToggleDetails={() => toggleTopExpand(rek.id)}
