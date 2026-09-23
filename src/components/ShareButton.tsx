@@ -2,30 +2,11 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import { Share2 } from "lucide-react";
+import { shareOrCopy } from "../lib/shareLink";
 
 const SHARE_URL = "https://rekomendr.ai";
 const SHARE_TEXT =
   "Check out Rekomendr — taste-first recommendations for movies, TV, books, and wine.";
-
-// Last-resort copy for insecure contexts (navigator.clipboard undefined):
-// hidden textarea + execCommand('copy'). Deprecated but still functional.
-function legacyCopy(text: string): boolean {
-  try {
-    const ta = document.createElement("textarea");
-    ta.value = text;
-    ta.setAttribute("readonly", "");
-    ta.style.position = "fixed";
-    ta.style.left = "-9999px";
-    document.body.appendChild(ta);
-    ta.select();
-    ta.setSelectionRange(0, text.length); // iOS needs an explicit range
-    const ok = document.execCommand("copy");
-    document.body.removeChild(ta);
-    return ok;
-  } catch {
-    return false;
-  }
-}
 
 export default function ShareButton() {
   const [toast, setToast] = useState<string | null>(null);
@@ -43,40 +24,17 @@ export default function ShareButton() {
     toastTimer.current = setTimeout(() => setToast(null), ms);
   };
 
+  // The cascade lives in src/lib/shareLink.ts (shared with the anchor's
+  // Share since Session 2); the outcomes map to the same toasts as before.
   const handleShare = async () => {
-    // 1) Native share sheet (requires secure context on iOS)
-    if (typeof navigator.share === "function") {
-      try {
-        await navigator.share({
-          title: "Rekomendr",
-          text: SHARE_TEXT,
-          url: SHARE_URL,
-        });
-      } catch {
-        // User canceled the share sheet — ignore
-      }
-      return;
-    }
-
-    // 2) Async clipboard (also requires secure context)
-    if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
-      try {
-        await navigator.clipboard.writeText(SHARE_URL);
-        showToast("Link copied!");
-        return;
-      } catch {
-        // fall through to legacy copy
-      }
-    }
-
-    // 3) execCommand textarea trick — works in insecure contexts
-    if (legacyCopy(SHARE_URL)) {
-      showToast("Link copied!");
-      return;
-    }
-
-    // 4) Nothing can copy — show the URL so the user can copy it manually
-    showToast(SHARE_URL, 4000);
+    const outcome = await shareOrCopy({
+      title: "Rekomendr",
+      text: SHARE_TEXT,
+      url: SHARE_URL,
+    });
+    // Native sheet: canceled or refused is ignored, exactly as before.
+    if (outcome === "copied") showToast("Link copied!");
+    else if (outcome === "manual") showToast(SHARE_URL, 4000);
   };
 
   return (
