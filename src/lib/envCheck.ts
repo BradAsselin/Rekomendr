@@ -127,6 +127,17 @@ function collectProblems(): string[] {
     );
   }
 
+  // S2 — shareable anchors' one new env dependency (charter §3.7). Without
+  // it nothing is signed, so nothing can be minted or shared: saves still
+  // work exactly as before, Share never renders, and the text-only snap
+  // paths skip verification. A warning, not a failure — the app is
+  // byte-identical to pre-S2 without it — but never a silent one.
+  if (!process.env.MINT_SIGNING_SECRET?.trim()) {
+    problems.push(
+      "MINT_SIGNING_SECRET missing — anchor snapshots are DISABLED: saves don't mint and Share never appears"
+    );
+  }
+
   if (process.env.REKOMENDR_SIMULATE_OPENAI_FAILURE && isProductionRuntime()) {
     problems.push(
       "REKOMENDR_SIMULATE_OPENAI_FAILURE is set on the production deployment — it is ignored there, unset it"
@@ -147,6 +158,7 @@ export function runEnvCheck(): string[] {
       supabase: safeHost(process.env.SUPABASE_URL),
       openaiKey: process.env.OPENAI_API_KEY ? "present" : "missing",
       tmdbKey: process.env.TMDB_API_KEY ? "present" : "missing",
+      mintSecret: process.env.MINT_SIGNING_SECRET ? "present" : "missing",
       runtime: isProductionRuntime() ? "production" : "non-production",
     });
   } else {

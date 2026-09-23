@@ -45,13 +45,16 @@ export async function GET() {
   // movie/TV titles can ship; it is deliberately visible from outside the
   // log so the failure has somewhere to show up on its own.
   const tmdb = process.env.TMDB_API_KEY?.trim() ? "ok" : "disabled";
+  // S2 — "disabled" means saves don't mint snapshots and Share never
+  // renders (MINT_SIGNING_SECRET missing). Same surface, same reason.
+  const mint = process.env.MINT_SIGNING_SECRET?.trim() ? "ok" : "disabled";
 
   const client = await getServerClient();
   if (!client) {
     console.error(
       "[health] db unconfigured — SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY missing or client failed to load"
     );
-    return json({ ok: false, db: "unconfigured", tmdb, env, envProblems, at }, 503);
+    return json({ ok: false, db: "unconfigured", tmdb, mint, env, envProblems, at }, 503);
   }
 
   const { error } = await client
@@ -73,6 +76,7 @@ export async function GET() {
         error: error.message,
         latencyMs,
         tmdb,
+        mint,
         env,
         envProblems,
         at,
@@ -81,5 +85,5 @@ export async function GET() {
     );
   }
 
-  return json({ ok: true, db: "ok", latencyMs, tmdb, env, envProblems, at }, 200);
+  return json({ ok: true, db: "ok", latencyMs, tmdb, mint, env, envProblems, at }, 200);
 }
