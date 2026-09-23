@@ -41,7 +41,7 @@ Field validation is the only validation. Six wows on the ledger share one beat: 
 5. **Anchor grammar holds.** The snapped/typed item is the subject; it never dismisses; its identity doesn't flip when the pills do; it reads as an answer, not a menu (at most one instinctive verb collapsed). Position is meaning: LEFT learn / MIDDLE complete / RIGHT continue; top-right = verdict cluster (Save + thumbs); decided trail above, undecided frontier below.
 6. **One new affordance per feature, maximum.** If the collapsed UI of any surface grows more than one new tap target from a session, the design is wrong. Modes are forbidden; slots are allowed.
 7. **Human recommendations only.** No platform imports, no aggregating other apps' lists, no rebuilding the Google info page, no licensed review data on cards. Crowd data may be plumbing (quality floor), never surface.
-8. **Production is untouchable from a session.** `release/v2` deploys production. Sessions never push to `release/v2` or `main`. Branch → PR → preview → Brad merges. No exceptions, including "tiny."
+8. **Production is untouchable from a session.** `release/v2` deploys production. Sessions never push to `release/v2` or `main`. Branch → PR → preview → Brad merges, except as §10.3 allows. No exceptions, including "tiny."
 9. **Schema changes ship as SQL in the PR, never executed by the session.** Every `CREATE TABLE` includes explicit GRANTs and REVOKEs (anon/authenticated) and RLS enabled with zero client policies unless the charter says otherwise. Every policy that joins through another table gets that table a matching read policy. Every adversarial suite includes a **positive control**.
 10. **The model is gpt-4o-mini + the tuned prompts.** No model swaps, no reasoning-tier models. Both flagship pilots were run and closed in August; `ANTHROPIC_API_KEY` in `.env.local` is dev-only and not to be used in product code.
 11. **Timeouts sit above the p99 of legitimate completions** — hang protection, never a latency SLA. Any timeout extension re-audits every response landing site (a request that lives longer arrives later).
@@ -174,9 +174,9 @@ Sessions that reach an unmarked call stop with `BLOCKED:`. Defaults are Claude's
 1. **Freshness slot position** — default: position 3 of 5. (Alternative: position 1, "the one you'll recognize"; or 5, "the safe landing.")
 2. **Resurfacing likes: marker copy** — default: a quiet grey line, "You liked this in July." (Alternative: no marker; or a small ↺ glyph only.)
 3. **Quality floor tiers** — defaults in Session 5. Confirm or adjust per lane; confirm minimum vote count 500.
-4. **Benchmark picker default** — default: most recent Saved item in the category is the one-tap pin; picker shows the last five. (Alternative: Favorites first.)
-5. **Panel landing tab** — default: Recent. (Alternative: Shortlist.)
-6. **S3 blueprint Q-list** — the seven open questions in `docs/s3-shareable-anchors-blueprint.md §6`; mark them in that file.
+4. **Benchmark picker default** — default: most recent Saved item in the category is the one-tap pin; picker shows the last five. (Alternative: Favorites first.) — **MARKED 2026-09-22 by Brad: default.**
+5. **Panel landing tab** — default: Recent. (Alternative: Shortlist.) — **MARKED 2026-09-22 by Brad: default.**
+6. **S3 blueprint Q-list** — the seven open questions in `docs/s3-shareable-anchors-blueprint.md §6`; mark them in that file. — **MARKED 2026-09-23 by Brad:** Q2, Q5, Q8 decided 2026-07-19 (Ledger #18/#19); Q1, Q3, Q4, Q6, Q7, Q9 accepted as proposed — marked in the blueprint.
 7. **Production promotion cadence** — default: Brad opens `main → release/v2` after each validated batch. (Alternative: after every merged PR.)
 
 ---

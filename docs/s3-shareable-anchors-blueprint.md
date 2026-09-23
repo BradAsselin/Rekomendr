@@ -358,25 +358,25 @@ Both cache previews **per exact URL**, aggressively and opaquely, with no purge 
 
 > **Q5 + Q8 DECIDED — Ledger #19 (2026-07-19):** `docs/s3-minting-integrity.md` — HMAC-stamped minting (b) + lazy server-side long completion (i) + publish-moment guards, APPROVED with amendments: token verification covers `handleChain` too (Catch 1), and the completion query health-excludes on token-verified category — the wall's fifth twin (Catch 2). Rate/moderation calls decided in that doc. Build plan: `docs/s3-build-plan.md`.
 
-**Q1 — Does a share expose the sharer's identity?**
+**Q1 — Does a share expose the sharer's identity? DECIDED 2026-09-23 (Brad): accepted as proposed — fully anonymous shares; no attribution, no "shared by" line; `client_id` stays server-side.**
 Proposed: no. The page and OG card render nothing but the snapshot content; `client_id` stays server-side (stored only for provenance/revocation). There is no display name anywhere in the system (auth is bare email magic-link), so "Shared by X" isn't even buildable today. Confirm: fully anonymous shares, no attribution, no "shared by" line?
 
 **Q2 — Snapshot at share-tap or save-tap? DECIDED 2026-07-19: save-tap, privately; Share flips a visibility bit.** (Decision Ledger #18)
 Brad: *"No other saved list opens back up and tells you the details of what you saved. It's the point."* `anchor_snapshots` is the S4 saved-items store; rows mint private (`shared_at NULL`) at save-tap and only an explicit Share makes one publicly resolvable. §3.2, §3.3, §3.5, and §4.1 reflect this. Follow-on consequences: the long-tier sub-decision moved into Q5, and Q8's abuse analysis is re-scoped below.
 
-**Q3 — Can a snapshot be unshared?**
+**Q3 — Can a snapshot be unshared? DECIDED 2026-09-23 (Brad): accepted as proposed — ship the `revoked_at` column now; revocation UI deferred to S4's panel. Unshare stops the page, not previews already unfurled.**
 Schema ships `revoked_at` (cheap now, painful to retrofit). But: no UI surface exists until S4's history/saved panel, and revocation cannot recall previews already unfurled in recipients' threads (§5.4.3). Ship the column now and defer the UI? Or is "shares are forever" acceptable for v1 and revocation drops entirely?
 
-**Q4 — Landing page scope: anchor only, or anchor + kept reks?**
+**Q4 — Landing page scope: anchor only, or anchor + kept reks? DECIDED 2026-09-23 (Brad): accepted as proposed — anchor-only for S3; `snapshot_reks` is a later additive extension.**
 S3 as stated renders the anchor. The trail (user's keeps) is arguably the more shareable artifact ("here's what I found") but multiplies snapshot size, staleness questions, and the health-gating surface (each rek carries its own category). Proposed: anchor-only for S3; a `snapshot_reks` extension is additive later. Confirm.
 
 **Q5 — Long tier: background completion, or what's-loaded-only? (the open sub-decision under decided Q2)**
 Save-tap minting makes short-only rows the common case (most saves happen without expanding details). Options: (a) **what's-on-screen only** — `long_description` stays NULL forever if unexpanded; saved list and landing page render short-only; zero extra generation. (b) **Background completion** — after the save-tap mint, fire the existing `anchorDetail` generation server-side (or client fire-and-forget) and UPDATE the row, so every saved/shared anchor eventually opens back up rich — which is arguably what "it's the point" implies for S4. Cost: one OpenAI call per anchor save, content the user never saw at save time, and the row becomes write-twice instead of write-once (a minor wrinkle for §5.4's immutability-based caching — the OG card should render from `short` only, or completion must land before first share). (c) Complete lazily at share-tap only. Needs a call before S4; the schema supports all three unchanged.
 
-**Q6 — The photo.**
+**Q6 — The photo. DECIDED 2026-09-23 (Brad): accepted as proposed — no photo in S3; the snapshot is the reading, not the picture.**
 Sharers may expect their photo on the page ("look what I snapped"). Today the photo is transient by design (§1.6); persisting it means storage buckets, image moderation exposure (photos contain people, homes, shelves of other products), EXIF/location hygiene, and a size budget. Proposed: no photo in S3 — the snapshot is the *reading*, not the picture. Flag if you want photos, because it changes the schema, the OG card, and the privacy posture materially.
 
-**Q7 — URL shape.**
+**Q7 — URL shape. DECIDED 2026-09-23 (Brad): accepted as proposed — `/a/{uuid}` now; a slug column can be added later without breaking links.**
 `/a/{uuid}` (proposed: zero-dependency, unguessable) vs. a short slug (`/a/x7Kq2mVe...`, ~16-22 chars, needs minting code or a dependency). UUIDs are ugly in a text message but the share sheet hides them behind the OG preview in practice. Cheap to add a slug column later without breaking old links. Default: UUID now.
 
 **Q8 — Abuse surface: RE-EXAMINE under decided Q2 (share no longer mints).**
@@ -385,7 +385,7 @@ The original analysis assumed share-tap minting: one endpoint that both created 
 - **The share route (bit-flip)** creates no content; it can only publish a row that already exists for that `client_id`. The "arbitrary text on a public rekomendr.ai URL" attack now requires the same actor to mint *and* flip — same effort as before in an automated attack, so the public-content risk class is narrowed but not eliminated (mint-then-flip is two cheap calls).
 Re-proposed v1 posture: length caps + `noindex` on `/a/*` (unchanged), per-client mint cap sized for saves, and a cheaper share-side guard (per-client daily flip cap). The heavy option (c) — only persist payloads matching a server-verified generation — remains the real fix if abuse materializes, and save-tap minting actually moves *toward* it: the mint moment is adjacent to the generation, so a server-side mint from generation output (instead of a client echo) is a smaller step than it was under share-tap minting. Worth noting as the eventual direction.
 
-**Q9 — Snap-limit interaction.**
+**Q9 — Snap-limit interaction. DECIDED 2026-09-23 (Brad): accepted as proposed — share creation does not consume a snap or count toward `SNAP_LIMIT`; no share-attribution analytics.**
 Share creation doesn't consume a snap and shouldn't count toward `SNAP_LIMIT` (`app/page.tsx:53-54`). Landing-page visitors clicking through to the app enter the normal cold-load flow. Any desire for share-attribution ("came from a share link") in analytics is a separate, deliberate addition — flag if wanted.
 
 ---
