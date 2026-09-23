@@ -8,7 +8,12 @@ import RekSnapResults, { type SnapResult } from "../src/components/RekSnapResult
 import RecipeModal from "../src/components/RecipeModal";
 import AuthControl from "../src/components/AuthControl";
 import { getTop5FromEngine, type Rek } from "../src/engine/rekomendrEngine";
-import { getAnonymousClientId, loadPrefsForCategory } from "../src/lib/userPrefs";
+import {
+  getAnonymousClientId,
+  loadPrefsForCategory,
+  recordWatched,
+  type ShortlistEntry,
+} from "../src/lib/userPrefs";
 import { AIServiceError, isAIServiceError } from "../src/lib/aiServiceError";
 
 export type Category = "Movies" | "TV Shows" | "Books" | "Wine";
@@ -120,6 +125,21 @@ export default function Page() {
   const [persistedLikedTitles, setPersistedLikedTitles] = useState<string[]>([]);
   const [persistedDislikedTitles, setPersistedDislikedTitles] = useState<string[]>([]);
   const [hasSearched, setHasSearched] = useState(false);
+
+  // S1 — the Shortlist lives HERE, not in ResultsV4, because the charter
+  // asks for it to persist across searches within the visit and ResultsV4
+  // wipes its own view state on every incoming set. Reloaded from
+  // /api/prefs on each search; cleared only by the home reset.
+  const [shortlist, setShortlist] = useState<ShortlistEntry[]>([]);
+  // Titles marked watched during THIS visit. The server's own watched list
+  // arrives with each prefs load; the union of the two is what the engine
+  // excludes, so a successful tap takes effect on the very next search
+  // even if the read window has since rolled past the row.
+  const [sessionWatchedTitles, setSessionWatchedTitles] = useState<string[]>([]);
+  // One in-flight "Watched it" at a time, keyed by title, and the last one
+  // that failed. Honest over quiet: a failed write puts the chip back.
+  const [watchPendingTitle, setWatchPendingTitle] = useState<string | null>(null);
+  const [watchFailedTitle, setWatchFailedTitle] = useState<string | null>(null);
 
   // Honest AI-failure notice for a fresh search — the engine reports empty
   // on AI failure now (no silent pool fallback exists anymore).
@@ -267,8 +287,26 @@ export default function Page() {
 
       setPersistedLikedTitles(prefs.likedTitles);
       setPersistedDislikedTitles(prefs.dislikedTitles);
+      // The server is authoritative for the strip, but a title marked
+      // watched earlier in this visit must not reappear in it — that is
+      // the one thing "Watched it" promises. Filter locally too, in case
+      // the write landed after this read was already in flight.
+      const watchedNow = new Set(
+        [...prefs.watchedTitles, ...sessionWatchedTitles].map((t) =>
+          t.trim().toLowerCase()
+        )
+      );
+      setShortlist(
+        prefs.shortlist.filter((e) => !watchedNow.has(e.title.trim().toLowerCase()))
+      );
 
-      const next = await getTop5FromEngine({ rawQuery: query, ...prefs });
+      const next = await getTop5FromEngine({
+        rawQuery: query,
+        likedTitles: prefs.likedTitles,
+        dislikedTitles: prefs.dislikedTitles,
+        watchedTitles: Array.from(watchedNow),
+        shortlist: prefs.shortlist,
+      });
       if (searchId !== searchIdRef.current) return;
 
       setReks(next);
@@ -285,6 +323,60 @@ export default function Page() {
         setLoading(false);
       }
     }
+  };
+
+  // S1 — "Watched it". Optimistic: the chip leaves the strip immediately,
+  // because the tap is a verdict and a verdict that lags feels broken. If
+  // the write does not land (most likely: the CHECK constraint has not
+  // been widened yet — the route names that case `migration_pending` in
+  // the server log), the chip comes BACK and the strip says so. Never a
+  // silent success.
+  const handleWatched = async (item: { title: string; year: number | null }) => {
+    if (watchPendingTitle) return; // one verdict in flight at a time
+    const key = item.title.trim().toLowerCase();
+
+    // Remember the entry as it stood, so a failed write can restore it
+    // with its real like-date and keep the strip's newest-first order.
+    const previousEntry =
+      shortlist.find((e) => e.title.trim().toLowerCase() === key) ?? null;
+
+    setWatchPendingTitle(item.title);
+    setWatchFailedTitle(null);
+    setShortlist((prev) =>
+      prev.filter((e) => e.title.trim().toLowerCase() !== key)
+    );
+
+    const res = await recordWatched({
+      category,
+      title: item.title,
+      year: item.year ?? undefined,
+    });
+
+    setWatchPendingTitle(null);
+
+    if (res.ok) {
+      setSessionWatchedTitles((p) =>
+        p.includes(item.title) ? p : [...p, item.title]
+      );
+      return;
+    }
+
+    // Put it back exactly where it was: the strip is newest-first and this
+    // entry's like time has not changed, so re-inserting by likedAt keeps
+    // the order stable rather than jumping it to the front.
+    console.warn("[watched-signal] not persisted", { reason: res.reason });
+    setWatchFailedTitle(item.title);
+    setShortlist((prev) => {
+      if (prev.some((e) => e.title.trim().toLowerCase() === key)) return prev;
+      const restored = [
+        ...prev,
+        previousEntry ?? { title: item.title, year: item.year, likedAt: null },
+      ];
+      // Newest first, and entries with no date sink to the bottom rather
+      // than jumping to the front.
+      restored.sort((a, b) => (b.likedAt ?? "").localeCompare(a.likedAt ?? ""));
+      return restored;
+    });
   };
 
   // Wordmark tap → the snap-first cold-load state. No confirmation: the
@@ -309,6 +401,12 @@ export default function Page() {
     setCategory("Movies");
     setPersistedLikedTitles([]);
     setPersistedDislikedTitles([]);
+    // Coming home clears the visit's memory surface along with everything
+    // else on screen; the next search reloads it from the server.
+    setShortlist([]);
+    setSessionWatchedTitles([]);
+    setWatchPendingTitle(null);
+    setWatchFailedTitle(null);
     setSearchBarKey((k) => k + 1); // remount SearchBar → pristine bar + lane
   };
   resetToHomeRef.current = resetToHome;
@@ -382,6 +480,10 @@ export default function Page() {
                 onPlayVibe={() => vibePlayRef.current?.()}
                 persistedLikedTitles={persistedLikedTitles}
                 persistedDislikedTitles={persistedDislikedTitles}
+                shortlist={shortlist}
+                onWatched={handleWatched}
+                watchPendingTitle={watchPendingTitle}
+                watchFailedTitle={watchFailedTitle}
               />
             </>
           )}
