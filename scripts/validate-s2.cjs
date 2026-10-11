@@ -301,7 +301,8 @@ const OTHER = "anon_harness_client_2";
   {
     logs = [];
     const bare = await post("app/api/reksnap/route.js", {
-      anchorDetail: { name: item.name, category: item.category, shortDescription: item.description },
+      // S3.6: every capped route requires a client id; the subject here is the TOKEN.
+      anchorDetail: { name: item.name, category: item.category, shortDescription: item.description, clientId: CLIENT },
     });
     check("anchorDetail with no token → 400", bare.status, 400);
     check("…named [mintToken] anchorDetail", logged("[mintToken] anchorDetail"), true);
@@ -333,7 +334,8 @@ const OTHER = "anon_harness_client_2";
 
     delete process.env.MINT_SIGNING_SECRET;
     const legacy = await post("app/api/reksnap/route.js", {
-      anchorDetail: { name: item.name, category: item.category, shortDescription: item.description },
+      // S3.6: every capped route requires a client id; the subject here is the TOKEN.
+      anchorDetail: { name: item.name, category: item.category, shortDescription: item.description, clientId: CLIENT },
     });
     check("no secret: a tokenless anchorDetail still answers 200 (pre-S2 behaviour)", legacy.status, 200);
     check("no secret: …and returns no token", legacy.json?.token, undefined);
