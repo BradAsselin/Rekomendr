@@ -206,3 +206,22 @@ NEXT SESSION SHOULD KNOW:
 - Keyless local builds need placeholder env, because module-level clients construct at build time: `OPENAI_API_KEY`, `NEXT_PUBLIC_SUPABASE_URL`/`_ANON_KEY`, `SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY`. Use placeholders only, and never commit them. Run `npm ci` first: bare `npx tsc` pulls TypeScript 6, which rejects this tsconfig.
 
 VALIDATION: S1 and S1.5 validation blocks stand as written in their entries above. Their combined check is folded into Session 2's "Brad's twenty minutes".
+
+---
+
+## Charter amendment §11 (local agent mode) — 2026-10-11 — committed directly to main (charter-only, on Brad's instruction) — no PR
+
+SHIPPED:
+- Charter §11 "Local agent mode" appended verbatim to `docs/BUILD_CHARTER.md` (before the closing line, as §10 was).
+- **BRAD-AUTHORIZED INVARIANT CHANGE (2026-10-11): §2.9** now reads "Schema changes ship as SQL in the PR, never executed by the session, except as §11 allows." This is the only §2 change, authorized by Brad in chat. Cloud sessions are unchanged; §11.2 governs local execution (backup → block-by-block readback → adversarial suite with positive control → log with backup filename).
+- `.gitignore`: `.vercel`, `.env*` and `backups/` ignored — `pg_dump` output from §11.2(a) never enters git.
+
+FOUND, NOT FIXED: nothing.
+
+BRAD MUST: nothing for this entry.
+
+NEXT SESSION SHOULD KNOW:
+- A local-mode session reads §11 alongside §10; cloud sessions read §3 and §10 only.
+- Backups live in `backups/` at the repo root and are git-ignored by design. They contain user data — never attach them to a PR or copy them off the machine.
+
+VALIDATION: none — docs only.
