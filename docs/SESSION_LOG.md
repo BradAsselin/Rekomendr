@@ -375,3 +375,74 @@ NEXT SESSION SHOULD KNOW:
 - Any new client call to a capped route must send `clientId: getAnonymousClientId()` from `src/lib/clientId.ts`.
 
 VALIDATION: folded into the combined §10.6 batch at the end of this chain.
+
+---
+
+## Session 1.6 — anchor-grounding — 2026-10-11 — branch auto/s1.6-anchor-grounding — PR #7 (VOICE — joint session required; NOT merged)
+
+SHIPPED (to the PR, not to main):
+- **Media anchors stop inventing plots.** The field case reproduced 5/5 on `main`: the Undertone poster (a title plus a red audio waveform) became "a reclusive sound engineer" ×4 and "a radio DJ" ×1. With the PR: **0/10** invented across two no-synopsis images. The anchor says plainly that the title is too new to know.
+- **The three tiers, in the charter's order.** (1) A synopsis visible in the photo is used. This already worked before: 5/5 before, 8/8 after. (2) TMDb's overview, via a grounded rewrite in the same shared media grammar. Signed by the S2 token, so Save keeps the grounded text. (3) Otherwise, honest-unknown. The long tier (Show details and the S2 lazy completion) gets the synopsis as data; `ANCHOR_DETAIL_PROMPT` is untouched.
+- Counted: TMDb tier (real gpt-4o, TMDb reply stubbed with Brad's logline because the key is broken) → **5/5 correct premise**. `validate-s16` 41/41 for the mechanism; regression 50/54/97/59, all passing.
+
+FOUND, NOT FIXED (for the joint session; details in PR #7 §2):
+- The first after-run was **contaminated**: my RIGHT example mirrored the test poster and was copied verbatim 5/5. It was replaced with a made-up poster, and all reported counts use the clean prompt.
+- **Mold:** "A new thriller whose poster gives away nothing but…" 8/10; "slow, watchful suspense over action" verbatim 3/5; a horror film called a "thriller" 8/10.
+- **Embellishment in the TMDb rewrite:** "skeptical" host 5/5 → 3/5 after one tightening line (n=5, so noise-level); "inbox"/"studio" 2/5 each. The media grammar's "CHARACTERIZED role" pulls toward invented traits.
+- The five reks around an unknown title are still generated from the model's guess about it. The S1.5 guard is the backstop, and it's off without a key.
+
+BRAD MUST:
+1. **A working TMDb key** (themoviedb.org → Settings → API → the "API Read Access Token" `eyJ…`): put it in `.env.local` and add it to Vercel **Production** yourself. This unblocks S1.6 acceptance AND turns S1.5's real-title guard back on. Production has no key today, and invented titles ("Whisper Frequency", "Soundwave Conspiracy") shipped on the main preview during this run.
+2. Joint session for PR #7. Do not merge it from a validation batch.
+
+NEXT SESSION SHOULD KNOW:
+- Once the key exists: set Preview + Development (§11.3), then re-run the scratchpad count harness against the live API (fixtures: Undertone poster, key art, Apple TV synopsis screen, Winchester '73 poster). A missing key gets the `[anchor-grounding] no tmdb source { reason: 'disabled' }` line; a rejected key gets `lookup_failed` plus `[fake-title] tmdb lookup non-OK { status: 401 }`.
+- **Bash-tool gotcha on this machine:** inside a heredoc, `\` arrives as `\`. Any edit that writes escaped `\n` into TS source must go through a script file written with the Write tool, not a heredoc.
+
+---
+
+## Chain close (S2 → S3.6 → S1.6) — local agent mode (§11) — 2026-10-11
+
+**Merged (§10.3 + §11.4):** S2 shareable anchors, PR #5, merge **`c302ea5`**; S3.6 rate caps, PR #6, merge **`7255623`**. Each reverts on its own: `git revert -m 1 <sha>`.
+**Open:** S1.6, PR #7, VOICE: joint session, BLOCKED on the TMDb key.
+**Toolchain (§11.1), checked at start:** `gh` logged in (BradAsselin); `vercel whoami` bradasselin-8214, linked project `rekomendr`; psql `select 1` OK through the session pooler, **same project ref as `SUPABASE_URL`**; `pg_dump` 17.11 vs server 17.6 (same major); bypass header 302 → 200 on the main preview.
+
+### Brad's twenty minutes — combined (§10.6), against the main preview
+Main preview: https://rekomendr-git-main-brad-asselins-projects.vercel.app (carries S0, S1, S1.5, S2 and S3.6).
+
+What to do, in this order:
+1. Open `<main preview>/api/health`. Expect `"db":"ok"` and `"mint":"ok"`. **`"tmdb":"disabled"` is expected until the key is fixed. It means S1.5's guard is off.**
+2. **S2:** snap a wine → Save → **Share** appears under the card → Show details → Share → text it to yourself → open it (signed in to Vercel, since this is a preview) and see the rich card with the long.
+3. **S2:** snap a movie → Save without details → Share → open the link → reload after a minute and the long appears.
+4. **S2:** snap a vitamin bottle → Save. **No Share appears.**
+5. **S2:** open `<main preview>/a/00000000-0000-4000-8000-000000000000` → "This rek isn't here anymore."
+6. **S3.6:** use the app normally for a few minutes: a search, a "+ More like this", a recipe, Show details. **Nothing should feel different**; the caps are invisible at human pace.
+7. **S1.6 (PR #7 preview, joint session):** snap the Undertone poster and confirm no invented plot.
+
+What it should feel like:
+- [ ] Saving is instant; Share is the only new tap target, and only on a saved anchor.
+- [ ] A shared page reads like the card you saved.
+- [ ] No Share near anything health-related.
+- [ ] Search, snap, details, chain and recipe all feel exactly as before.
+- [ ] (After the key fix) no invented movie titles anywhere.
+
+What to screenshot if it's wrong:
+- the anchor area after Save;
+- any shared page that doesn't match what you saved;
+- the health JSON;
+- any search or recipe that fails during normal use (that would be a cap misfire);
+- Vercel log lines `[api-cap]`, `[snapshot]`, `[share]`, `[anchor-grounding]`.
+
+### Production promotion checklist (§11.8)
+**Production environment variables to add (Brad, in Vercel → Settings → Environment Variables → Production) before promoting `main → release/v2`:**
+- `MINT_SIGNING_SECRET`: use the **same value** as in `.env.local`. It was generated earlier with `openssl rand -base64 48`; reuse it, don't generate a new one, or previews and production will sign differently. Without it, Save/Share is invisibly off in production (the app degrades to today's behavior).
+- `TMDB_API_KEY`: a **new, working** TMDb key (see BRAD MUST above). The current one is rejected (401).
+
+**Migrations already live** (one database, shared by previews and production):
+- `anchor_snapshots` (S2), backup `backups/2026-10-11-1300-s2.sql`;
+- `api_usage` (S3.6), backup `backups/2026-10-11-1316-s3.6.sql`.
+Both are additive. Rollback is the `drop table` in each SQL file's BLOCK 5; the code fails soft without either table.
+
+**Revert SHAs if needed:** `c302ea5` (S2), `7255623` (S3.6).
+
+**Production test residue:** `anchor_snapshots` holds 4 agent rows (`anon_agent_s2check_*`), all revoked. `api_usage` holds ~370 agent rows (`anon_agent_s36*`, `anon_agent_s16count_*`) that age out of the 24h window by themselves.
