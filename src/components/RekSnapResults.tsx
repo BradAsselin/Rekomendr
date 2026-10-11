@@ -551,6 +551,10 @@ const RekSnapResults: React.FC<Props> = ({
   // Share: flip the saved snapshot public, then hand its URL to the share
   // sheet. The URL is built HERE from the page's own origin, so a preview
   // shares a preview link and production shares a production one.
+  // One-tap (S2.2): Share is on the anchor from the start. Tapped on an
+  // unsaved anchor it IS the save — the same handleSave a Save tap runs
+  // (mark, signal, mint) — and the flow below awaits that mint. Sharing
+  // something is keeping it, so the Save mark lights up with it.
   const handleShareAnchor = async () => {
     const forResult = resultRef.current;
     if (!forResult) return;
@@ -570,12 +574,14 @@ const RekSnapResults: React.FC<Props> = ({
       }
     };
 
+    if (share.status === "working") return;
+    if (!savedNames[anchorName]) handleSave(anchorName);
+
     // Already public: a fresh gesture straight into the sheet.
     if (share.status === "ready" && share.url) {
       await send(share.url);
       return;
     }
-    if (share.status === "working") return;
     setShare({ status: "working" });
 
     const pendingMint =
@@ -1230,11 +1236,10 @@ const RekSnapResults: React.FC<Props> = ({
     .trim()
     .toLowerCase();
   const anchorIsHealthMedical = HEALTH_MEDICAL_CATEGORIES.has(detectedCategory);
-  // S2 — Share exists only for a saved, server-attested, non-health anchor.
+  // S2 — Share exists only for a server-attested, non-health anchor.
+  // S2.2: no longer waits for Save — tapping Share saves first (§12.3).
   const anchorShareable =
-    !anchorIsHealthMedical &&
-    !!result.detected_item_token &&
-    !!savedNames[result.detected_item.name];
+    !anchorIsHealthMedical && !!result.detected_item_token;
   const anchorIsMedia = MEDIA_CATEGORIES.has(detectedCategory);
 
   // "uses"-mode cards push through to a recipe only when the anchor is
@@ -1373,15 +1378,16 @@ const RekSnapResults: React.FC<Props> = ({
           }
         />
 
-        {/* S2 — SHARE: the one new affordance (§2.6). It appears only once
-            the anchor is SAVED (the snapshot is the save), only when the
-            server attests anchors (token present), and never for a
-            health/medical anchor — the client twin of the server's walls.
-            Plain text button, right-aligned under the verdict cluster. */}
+        {/* S2 — SHARE: the one new affordance (§2.6). Visible from the
+            start (S2.2) whenever the server attests anchors (token
+            present), and never for a health/medical anchor — the client
+            twin of the server's walls. Tapping it on an unsaved anchor
+            saves it first: the snapshot is still the save. Plain text
+            button, right-aligned under the verdict cluster. */}
         {anchorShareable && (
           <div className="-mt-1 mb-2 flex items-center justify-end gap-3 px-1 text-sm">
             {share.note && (
-              <span className="text-[13px] text-gray-500 select-all break-all">
+              <span className="text-[13px] text-gray-400 sm:text-gray-500 select-all break-all">
                 {share.note}
               </span>
             )}
@@ -1389,7 +1395,7 @@ const RekSnapResults: React.FC<Props> = ({
               type="button"
               onClick={handleShareAnchor}
               disabled={share.status === "working"}
-              className="font-medium text-[#1E3A8A] hover:underline disabled:opacity-60"
+              className="font-medium text-blue-300 sm:text-[#1E3A8A] hover:underline disabled:opacity-60"
             >
               {share.status === "working"
                 ? "Sharing…"

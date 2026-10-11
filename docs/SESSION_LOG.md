@@ -483,3 +483,24 @@ NEXT SESSION SHOULD KNOW:
 - Any new list or surface on a snap result inherits this: health anchors get Similar only. Gate on `HEALTH_MEDICAL_CATEGORIES`, server first.
 
 VALIDATION: folded into the combined §10.6 batch at the end of this chain.
+
+---
+
+## Session 2.2 — one-tap-share — 2026-10-11 — branch auto/s2.2-one-tap-share — PR #10 (local agent mode, §11)
+
+SHIPPED:
+- **Share is on every shareable anchor from the start.** Tapping it on an unsaved anchor saves it (same `handleSave`: mark, signal, mint), then opens the share sheet; the Save mark lights up, because sharing is keeping (the snapshot is the save, Ledger #18). Save alone still works and opens nothing. Health anchors still have no Share. Still one new tap target (`src/components/RekSnapResults.tsx`: `anchorShareable` no longer needs `savedNames`; `handleShareAnchor` saves first, after the `working` guard so a double tap can't save twice; the existing pending-mint await means one mint).
+- **Why (§12):** §12.3 — Share used to appear only after Save, a prerequisite the user had to discover. §12.2 precedent: Share sits on the item itself in Spotify, YouTube, Apple/Google Photos, Google Docs and Notion, none of which require a prior save; Docs/Notion create the link on demand, which is what minting on the tap is.
+- **Share is readable on the phone.** It was `#1E3A8A` on the phone's `#0b1725` background (~1.5:1; WCAG AA asks 4.5:1) — nearly invisible in the screenshot. Now light blue on mobile, unchanged on the white desktop layout. Pre-existing from S2; it mattered once Share was always on screen.
+- **Real browser on the preview (Playwright, bypass header, `navigator.share` captured): 14/14.** Wine: Share visible before Save → one tap → one `/api/save` + one `/api/share` → sheet gets `/a/<uuid>` on the preview origin → anchor marked Saved → page 200; second tap re-sends the same link, no new mint. Movie: Save alone → mint only, no sheet, Share still there. Vitamin: no Share, no "Use it for"/"Instead try". Regression s2 97, s21 126; tsc clean.
+
+FOUND, NOT FIXED:
+- **Health anchors' Similar cards still make benefit and comparison claims.** Live vitamin snap on the preview: "enhanced absorption and immune support", "a more comprehensive antioxidant effect", "a slightly more potent formula"; the anchor short itself says "intended to support immune health". §2.2 says health anchors get "no comparisons". The cure is either code (health anchors show the anchor only, no list — one line in the S2.1 wall) or prompt (joint session). Brad's call; recommendation: anchor-only, for the same reason S2.1 hid the tabs — a prompt rule already failed here.
+
+BRAD MUST: nothing (no env, no migration). Test the feel on the phone (§12.4).
+
+NEXT SESSION SHOULD KNOW:
+- The anchor's Share is now always on screen for non-health attested anchors; any future anchor affordance shares that row.
+- The browser driver (Playwright, bypass header via `extraHTTPHeaders`, `navigator.share` stubbed in an init script, `setInputFiles` on the hidden snap input) lived in the session scratchpad. The header has its own app-level "Share" button with a `title`; target the anchor's with `button:not([title])`.
+
+VALIDATION: folded into the combined §10.6 batch at the end of this chain.
