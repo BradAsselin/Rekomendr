@@ -233,11 +233,21 @@ const RekSnapResults: React.FC<Props> = ({
   useEffect(() => {
     resultRef.current = result;
     if (result) {
-      setActiveMode(result.mode);
+      // Health wall on the result tabs (charter §2.2): a health anchor
+      // has a Similar list only. The server already withholds the other
+      // two; this twin holds even against an older server.
+      const health = HEALTH_MEDICAL_CATEGORIES.has(
+        (result.detected_item.category ?? "").trim().toLowerCase()
+      );
+      setActiveMode(health ? "similar" : result.mode);
       setThumbSignals({});
       setSavedNames({});
       setTrail([]);
-      setLists(result.results);
+      setLists(
+        health
+          ? { similar: result.results.similar, uses: [], alternatives: [] }
+          : result.results
+      );
       setDismissedNames([]);
       setExiting(null);
       setMigrating(null);
@@ -1483,7 +1493,10 @@ const RekSnapResults: React.FC<Props> = ({
             <div className="text-sm text-gray-800">{chainError}</div>
           </div>
         )}
-        {/* Mode toggle — all three lists are preloaded, so this is instant. */}
+        {/* Mode toggle — all three lists are preloaded, so this is instant.
+            Health anchors get no toggle at all: their only list is Similar,
+            and a row with one pill is not a choice. */}
+        {!anchorIsHealthMedical && (
         <div className="flex justify-center gap-2 mb-3">
           {MODE_TABS.map(({ mode, label }) => {
             const active = mode === activeMode;
@@ -1504,6 +1517,7 @@ const RekSnapResults: React.FC<Props> = ({
             );
           })}
         </div>
+        )}
 
         <div className="space-y-3">
           {/* S1.5 — honest-short. The photo was read, the anchor is right

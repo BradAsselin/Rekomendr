@@ -268,6 +268,19 @@ async function handleBackfill(backfill: any): Promise<Response> {
   const clientId = cleanClientId(backfill?.clientId);
   const unattested = refuseUnattested("backfill", item, clientId, backfill?.token);
   if (unattested) return unattested;
+
+  // Belt-and-braces twin of the vision response's tab wall: a health
+  // anchor has only a Similar list, so no backfill may generate a "use" or
+  // an "instead" for one.
+  const backfillCategory =
+    typeof item.category === "string" ? item.category.trim().toLowerCase() : "";
+  if (mode !== "similar" && HEALTH_MEDICAL_CATEGORIES.has(backfillCategory)) {
+    return Response.json(
+      { error: "Not available for this category" },
+      { status: 403 }
+    );
+  }
+
   const prior = clientId
     ? await racePriorDislikes({
         clientId,
@@ -1189,10 +1202,27 @@ export async function POST(req: Request) {
     const reRank = <T extends { rank: number }>(list: T[]): T[] =>
       list.map((r, i) => ({ ...r, rank: i + 1 }));
 
+    // Health wall on the result tabs (charter §2.2). "Use it for" on a
+    // supplement is a dosing/timing/benefit slot by construction (field
+    // case: Vitafusion → "take after exercising to support muscle
+    // recovery"), and "Instead try" frames a substitute as a remedy. A
+    // prompt rule cannot guarantee a model writes no claim into a slot
+    // built to hold one, so the slots themselves are withheld here,
+    // before anything reaches the client. Similar stays: it names
+    // comparable products under the existing conservative-health rule.
+    const anchorIsHealthMedical = HEALTH_MEDICAL_CATEGORIES.has(anchorCategory);
+    if (anchorIsHealthMedical && (uses.length > 0 || alternatives.length > 0)) {
+      console.info("[health-wall] uses/alternatives withheld", {
+        anchorCategory,
+        uses: uses.length,
+        alternatives: alternatives.length,
+      });
+    }
+
     const cleaned = {
       similar: reRank(similar),
-      uses: reRank(uses),
-      alternatives: reRank(alternatives),
+      uses: anchorIsHealthMedical ? [] : reRank(uses),
+      alternatives: anchorIsHealthMedical ? [] : reRank(alternatives),
     };
 
     // The guard emptied everything. NOT a 502 and NOT "Could not read
@@ -1200,10 +1230,12 @@ export async function POST(req: Request) {
     // the slots with fiction. The anchor still ships, with plain-voice
     // honesty in place of the invented five (charter §2.4: honest-short
     // over canned-full).
+    // Read from the guard's own output, before the health wall: a wall
+    // that leaves a supplement with no list is not "new to me".
     const guardEmptiedAll =
-      cleaned.similar.length === 0 &&
-      cleaned.uses.length === 0 &&
-      cleaned.alternatives.length === 0;
+      similar.length === 0 &&
+      uses.length === 0 &&
+      alternatives.length === 0;
 
     const allowedModes = ["similar", "uses", "alternatives"] as const;
     let mode: (typeof allowedModes)[number] = allowedModes.includes(parsed?.mode)
