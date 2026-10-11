@@ -94,6 +94,59 @@ function authFor(key: string): { headers: HeadersInit; query: string } {
 }
 
 /* ------------------------------------------------------------------
+   KEY PROBE (for /api/health)
+   Presence is not validity: the key once sat in .env.local for weeks
+   answering 401 while health said "ok". One authenticated call to
+   TMDb's key-validation endpoint, cached per process so an open health
+   route can cost TMDb at most one call per window, with concurrent
+   probes sharing one request.
+------------------------------------------------------------------- */
+export type TmdbKeyState = "ok" | "disabled" | "rejected" | "unreachable";
+
+const PROBE_TTL_MS = 10 * 60 * 1000;
+// TMDb having a bad minute is not a key problem; re-ask sooner.
+const PROBE_UNREACHABLE_TTL_MS = 60 * 1000;
+const PROBE_TIMEOUT_MS = 5000;
+
+let probeCache: { key: string; state: TmdbKeyState; at: number } | null = null;
+let probeInFlight: { key: string; promise: Promise<TmdbKeyState> } | null = null;
+
+export async function probeTmdbKey(): Promise<TmdbKeyState> {
+  const key = process.env.TMDB_API_KEY?.trim();
+  if (!key) return "disabled";
+  const now = Date.now();
+  if (probeCache && probeCache.key === key) {
+    const ttl = probeCache.state === "unreachable" ? PROBE_UNREACHABLE_TTL_MS : PROBE_TTL_MS;
+    if (now - probeCache.at < ttl) return probeCache.state;
+  }
+  if (probeInFlight && probeInFlight.key === key) return probeInFlight.promise;
+
+  const promise = (async (): Promise<TmdbKeyState> => {
+    const auth = authFor(key);
+    let state: TmdbKeyState;
+    try {
+      const res = await fetch(
+        `https://api.themoviedb.org/3/authentication${auth.query ? `?${auth.query}` : ""}`,
+        { headers: auth.headers, cache: "no-store", signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) }
+      );
+      state = res.ok ? "ok" : res.status === 401 || res.status === 403 ? "rejected" : "unreachable";
+      if (state !== "ok") console.error("[health] tmdb key probe", { state, status: res.status });
+    } catch (err) {
+      state = "unreachable";
+      console.error("[health] tmdb key probe", { state, error: (err as Error)?.name ?? "error" });
+    }
+    probeCache = { key, state, at: Date.now() };
+    return state;
+  })();
+  probeInFlight = { key, promise };
+  try {
+    return await promise;
+  } finally {
+    if (probeInFlight?.promise === promise) probeInFlight = null;
+  }
+}
+
+/* ------------------------------------------------------------------
    NORMALIZATION
    Loose enough that a real title survives punctuation and accents,
    tight enough that an invented title cannot slip through on a
