@@ -324,3 +324,28 @@ NEXT SESSION SHOULD KNOW:
 - Backups live in `backups/` at the repo root and are git-ignored by design. They contain user data — never attach them to a PR or copy them off the machine.
 
 VALIDATION: none — docs only.
+
+---
+
+## Session 2 — landed in local agent mode (§11) — 2026-10-11 — branch auto/s2-shareable-anchors — PR #5
+
+SHIPPED:
+- **The `anchor_snapshots` migration is live** (§11.2). Backup first: **`backups/2026-10-11-1300-s2.sql`** (506,345 bytes, 41 data tables including `user_likes`, `reksnap_signals`, `account_devices`; dump-complete footer present). Then block by block from `docs/sql/s2-anchor-snapshots.sql`, each read back against the file's EXPECTED lines: Block 1 `already_exists = NULL`; Block 2 `BEGIN/CREATE TABLE/CREATE INDEX/ALTER TABLE/REVOKE/COMMIT`; Block 3 RLS `t`, zero policies, zero anon/authenticated grants, service_role has INSERT/SELECT/UPDATE (+ DELETE/REFERENCES/TRIGGER/TRUNCATE, Supabase defaults); Block 4 both POSITIVE CONTROL rows `t`, five PASS notices, zero FAIL, rolled back to 0 rows.
+- `MINT_SIGNING_SECRET` set for **Preview** from `.env.local` (Vercel CLI, value never echoed). Production is Brad's (promotion checklist).
+- **A real bug, found only on the live preview:** Next 14 caches every `fetch()` inside a GET route handler, and supabase-js reads are fetches. A **revoked share kept rendering 200**, and a page read while private **stayed 404 after it was shared**. `/api/health`'s DB read sat on the same cache, so the keep-warm ping could answer without ever touching Supabase. Fixed at the one service-role client: `src/lib/supabaseServer.ts` passes `cache: 'no-store'` on every fetch. POST routes (`/api/save`, `/api/share`, `/api/prefs`) were never cached and behave the same. The local harness could not see this because it uses an in-memory Supabase.
+- **Acceptance on the preview, by machine, through the bypass header (§11.5): 22 checks, 22 passing.** Health `mint/db` ok; guessed URL → real 404 with "This rek isn't here anymore"; wine snap carries a token; tokenless detail → 400; forged short → 400; details → long + extended token; save mints and dedupes; private row → 404; someone else's id → uniform `not_found`; share flips; shared page 200 with the long, `og:image`, noindex; OG image 200 PNG; movie short-only save → share (`needsCompletion`) → lazy completion → second completion `already_rich`; a vitamin snap's save → **403 health**. After the fix: the previously stale page → 200; a revoked row → 404.
+- Harnesses on the combined tree: `validate-s1` 50/50, `validate-s15` 54/54, `validate-s2` 97/97; `tsc --noEmit` clean. (On Windows the harnesses need a preload that resolves `npx` to `npx.cmd`; it lived in the session scratchpad, not the repo.)
+- Test rows: four rows under `anon_agent_s2check_*`, all revoked after the run. No health row was ever minted.
+
+FOUND, NOT FIXED:
+- **`TMDB_API_KEY` is broken everywhere.** It is absent from Vercel in every environment (the S1.5 log said it was set; `vercel env ls` says not), so **production's real-title guard is OFF right now**. The key in `.env.local` is rejected by TMDb with 401 as both a v3 key and a Bearer token. Added to Preview, it made the guard fail closed (every movie rek dropped, the honest-short line every time), so it was removed again; the preview is back to "guard disabled, loudly".
+- **`/api/health` reports `"tmdb":"ok"` for a key TMDb rejects.** It checks presence, not validity (`app/api/health/route.ts`). The per-request `[fake-title] tmdb lookup non-OK { status: 401 }` line does name it. A one-call validity probe on health would close the gap.
+- A movie poster snapped as `mode: uses` once (Winchester '73 → "Costume Inspiration"), pre-existing vision-prompt behavior, not S2's.
+
+BRAD MUST:
+1. **Get a working TMDb key** (themoviedb.org → Settings → API → copy the v3 "API Key" or the v4 "Read Access Token"), put it in `.env.local`, and add it to Vercel **Production** yourself. Tell the next session and it will set Preview + Development.
+2. `MINT_SIGNING_SECRET` in Production: same value as `.env.local`, before promoting.
+
+NEXT SESSION SHOULD KNOW:
+- Any new GET route that reads Supabase is now uncached by construction. A new client created elsewhere must do the same.
+- Sharing a preview link still hits Vercel SSO for strangers; the signed-out and iMessage checks complete on production.
