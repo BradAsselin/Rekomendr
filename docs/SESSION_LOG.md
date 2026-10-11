@@ -349,3 +349,29 @@ BRAD MUST:
 NEXT SESSION SHOULD KNOW:
 - Any new GET route that reads Supabase is now uncached by construction. A new client created elsewhere must do the same.
 - Sharing a preview link still hits Vercel SSO for strangers; the signed-out and iMessage checks complete on production.
+
+---
+
+## Session 3.6 — rate-caps — 2026-10-11 — branch auto/s3.6-rate-caps — PR #6 (local agent mode, §11)
+
+SHIPPED:
+- **Every OpenAI-burning route is capped per client, per day:** `/api/openai` 300, `/api/recipe` 60, `/api/reksnap` vision 60, and its three text branches (details, backfill, chain) 300 under one shared key. Mint 30 and flip 20 were already live from S2. A real user never sees a cap. A runaway loop or a scripted client hits one and gets the surface's **existing** failure voice: the 429 carries `error` but no `reason`, so S0's honest-failure reader leaves it alone (`src/lib/apiUsage.ts`, `capGate`).
+- **A call without a client id is refused with 400** (the cheap bot filter). The engine's search call and the recipe modal now send one. `getAnonymousClientId` moved unchanged to the import-free `src/lib/clientId.ts`, with the same localStorage key, and `userPrefs.ts` re-exports it. The engine must not import `userPrefs`, because that pulls in the browser Supabase client.
+- **A broken counter never blocks anyone (§2.4).** A missing table, a count or insert error, a thrown client, or missing env all allow the request and log `[api-cap] uncapped — …` naming the reason.
+- **Migration live (§11.2):** backup **`backups/2026-10-11-1316-s3.6.sql`** (512,213 bytes, 42 data tables, footer present). Block 1 `NULL`; Block 2 `BEGIN/CREATE TABLE/CREATE INDEX/ALTER TABLE/REVOKE/COMMIT`; Block 3 RLS `t`, zero policies, zero anon/authenticated grants, service_role INSERT+SELECT; Block 4 both POSITIVE CONTROLs `t`, six PASS (unknown route, short id, anon SELECT/INSERT/DELETE, authenticated SELECT), zero FAIL, 0 rows after rollback.
+- **Preview acceptance by machine (§11.5): 8/8.** Without a client id: `/api/openai`, `/api/recipe` and vision each → 400. With one: `/api/openai`, vision and details → 200, each counted exactly once under the right route. A client seeded to the cap: recipe → 429 `{"error":"Daily limit reached"}` with no `reason`; `/api/openai` → 429; refused calls not counted. `[api-cap]` lines present in the preview log.
+- Harnesses: `validate-s36` **59/59**; `validate-s2` 97/97 (its two token cases now send a client id, so they still test the token rather than the new 400); `validate-s15` 54/54; `validate-s1` 50/50; `tsc` clean; touched files lint clean.
+- **S2 merge commit: `c302ea5`** (recorded here because S2's own entry was written before its merge).
+
+FOUND, NOT FIXED:
+- Count-then-insert is not atomic, so parallel requests at cap−1 can overshoot by the concurrency. That's deliberate for generous loop-bounding caps.
+- `api_usage` grows one row per capped request with no pruning. Fine at today's volume; a windowed delete is the plan once it matters (build plan S3.6).
+- Test rows remain: `anon_agent_s36capped_*` (360 seeded rows) and `anon_agent_s36check_*` (3). They fall out of the 24h window by themselves. Deleting them was not done: the session's permission rules deny `DELETE` and none is needed.
+
+BRAD MUST: nothing for this session (no Production variable is new).
+
+NEXT SESSION SHOULD KNOW:
+- **Any new OpenAI-calling route gets one `capGate(clientId, "<key>")` line**, a new key in `CAPS_PER_DAY`, AND a migration adding that key to `api_usage.route`'s CHECK constraint. Otherwise its inserts fail the CHECK; the helper fails open and logs `request not counted`, so the route runs uncapped.
+- Any new client call to a capped route must send `clientId: getAnonymousClientId()` from `src/lib/clientId.ts`.
+
+VALIDATION: folded into the combined §10.6 batch at the end of this chain.
