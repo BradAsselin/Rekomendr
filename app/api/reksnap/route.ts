@@ -405,6 +405,7 @@ async function handleBackfill(backfill: any): Promise<Response> {
 // ---------------------------------------------------------------------------
 const GROUNDED_ANCHOR_PROMPT =
   "You write the two-sentence description for one movie or TV title a user just photographed. Its premise must come ONLY from the SOURCE synopsis you are given — add no character, event, setting or twist the synopsis does not state.\n" +
+  "The CHARACTERIZED role below is held to the same rule: every word of it must be supported by the synopsis. No trait, backstory, place or object the synopsis does not state; vividness comes from the synopsis's own specifics, not from additions.\n" +
   MEDIA_ANCHOR_GRAMMAR +
   'Return JSON only, in this exact shape: { "description": string }';
 
