@@ -435,7 +435,7 @@ What to screenshot if it's wrong:
 
 ### Production promotion checklist (§11.8)
 **Production environment variables to add (Brad, in Vercel → Settings → Environment Variables → Production) before promoting `main → release/v2`:**
-- `MINT_SIGNING_SECRET`: use the **same value** as in `.env.local`. It was generated earlier with `openssl rand -base64 48`; reuse it, don't generate a new one, or previews and production will sign differently. Without it, Save/Share is invisibly off in production (the app degrades to today's behavior).
+- `MINT_SIGNING_SECRET`: copy the **same value** that is in `.env.local` (and now in Preview). Don't generate a new one, or previews and production will sign differently. If it ever has to be rotated: `openssl rand -base64 48`, then update `.env.local`, Preview and Production together. Without it, Save/Share is invisibly off in production (the app degrades to today's behavior).
 - `TMDB_API_KEY`: a **new, working** TMDb key (see BRAD MUST above). The current one is rejected (401).
 
 **Migrations already live** (one database, shared by previews and production):
