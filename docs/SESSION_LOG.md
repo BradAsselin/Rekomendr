@@ -209,6 +209,105 @@ VALIDATION: S1 and S1.5 validation blocks stand as written in their entries abov
 
 ---
 
+## Session 2 — shareable-anchors — 2026-09-23 — branch auto/s2-shareable-anchors — PR #5
+
+SHIPPED (PR open, NOT merged. It needs a migration Brad hasn't run yet, so §10.4 forbids a self-merge):
+- **Saving a snapped anchor now keeps a private snapshot of it.** The snapshot holds the name, category, the short profile, the long profile if you opened it, and the mode. `/api/save` writes it at save-tap. Only text the server itself generated can be saved: the vision response carries an HMAC token over exactly what it said (`src/lib/mintToken.ts`), and the save route refuses anything the token doesn't cover. Save → unsave → save gives back the same row. If you save first and open details afterwards, the snapshot picks up the long profile you actually read. Rek cards never mint.
+- **Share: the one new affordance, and only on a saved anchor.** It is a small text button under the anchor card. It never appears on a health anchor, and it doesn't exist while the server has no signing secret. The flow is Share → `/api/share` → your phone's share sheet with a `/a/{id}` link. If the share is refused, the card reads *"couldn't share this one — it's still saved"*. If iOS refuses the share sheet after the network wait, the button turns into "Send link" for one more tap.
+- **A stranger can open the link with no account.** `/a/{id}` shows the saved card read-only, with Trailer/Watch or Buy links, the "Snapped with Rekomendr" CTA, `noindex`, and a link-preview image (`/api/og/{id}`, 1200×630, name + category + the first sentence). The page renders **database columns only**, and no public file reaches OpenAI (the harness proves this by walking the import graph). Never shared, revoked, health, garbage, and nonexistent ids all get the same **real 404**: *"This rek isn't here anymore."*
+- **Moderation before anything goes public.** A flagged or unreachable moderation check keeps the row private and logs `[share] moderation blocked` / `moderation_unreachable`. It never fails silently.
+- **Short-only saves become rich when shared.** `action:"complete"` generates the long tier server-side from the row's own attested fields, using the **unchanged** Show-details prompt. The prompt moved to `src/lib/anchorDetailPrompt.ts` byte for byte, sha256 `d500c0cf5cf5…` before and after, and the harness asserts it. The write is `WHERE long_description IS NULL`, and the fifth health twin runs first.
+- **Health wall, every layer:** no Share affordance · mint 403 · share refusal · completion skip · public 404 · generic preview card. The category checked is the token-attested one.
+- **No side doors (Catch 1):** once the secret is set, backfill, anchor-detail and chain all verify the anchor token before generating. Without the secret they behave exactly as before S2.
+- **Caps:** mint ≤ 30/day and flip ≤ 20/day per client, counted on the table itself.
+- **Tripwires:** `MINT_SIGNING_SECRET` is named at boot and on `/api/health` (`"mint":"ok"/"disabled"`). `[snapshot] mint refused {reason}` fires on every refusal, including `migration_pending` until the SQL runs. Also added: `[share] … refused {reason}`, `[mintToken] <path>: token missing/invalid — refused`, `[snapshot-completion] …`, and the dev-only `[prompt-diag] snapshot-completion`.
+- Validation: `node scripts/validate-s2.cjs` **97/97**. `validate-s1` 50/50 and `validate-s15` 54/54 are unchanged. `tsc --noEmit` is clean, lint is clean on every touched file, and `npm run build` succeeds. A local production build rendered the page, the 404 and the preview image against fixture rows (`docs/screenshots/s2-*`, fixture text, not model output).
+
+FOUND, NOT FIXED:
+- **S3.6 (per-client caps on `/api/openai`, `/api/reksnap`, `/api/recipe`) is split out.** It needs a second migration (`api_usage`) and touches three generation routes plus three client call sites, none of which are about saving or sharing. Ledger #19 decided generation caps "IN the S3 window", so **this should land before this PR is promoted to release/v2.** It is Session 2b, or the first slice of the next run.
+- `/a/{id}` is a route handler that emits HTML, not a React page. The root `app/loading.tsx` wraps every page in Suspense, so a page's 200 goes out before `notFound()` can run, even from `generateMetadata` (reproduced on a local production build). Moving `loading.tsx` into a route group would give the page back its React form, but it touches the main app shell.
+- **The preview image's title renders in regular weight.** `next/og`'s bundled font has no bold. Bundling a TTF (for example Inter Bold) is a design iteration: bump `OG_DESIGN_VERSION` in `app/a/[id]/route.ts` when it lands.
+- **Food anchors get "Buy" on the public page.** The blueprint's "View recipe → the app" needs the app's recipe modal, and a public page has no snap context. Revisit with S6 deep links.
+- **Search-lane saves don't mint.** Snap anchors only, per the blueprint. The S4 panel's "Saved" tab will show snap saves only until the search lane gets a snapshot path.
+- **The model on the completion path is `gpt-4o`.** That mirrors the existing Show-details route (`handleAnchorDetail`) so the saved long reads like the one you'd have seen. §2.10 names gpt-4o-mini; the snap lane has used gpt-4o since before this charter. This session did not change it.
+- The pre-existing lint error in `src/components/RekSnapResults.tsx` (the unescaped apostrophe, now line 88) is untouched.
+
+BRAD MUST (in this order):
+1. **Run `docs/sql/s2-anchor-snapshots.sql`** in the Supabase SQL editor, one block at a time. Block 1 must return `NULL`. Block 2 is the migration. Block 3 checks RLS, zero policies, zero anon/authenticated grants, and service_role *can* reach the table. Block 4 is the self-test: it rolls itself back and must show two passing POSITIVE CONTROL rows plus five `PASS` notices with no `FAIL`.
+2. **Add `MINT_SIGNING_SECRET` in Vercel** (paste-block below), for Preview **and** Production, with the same value in both, and redeploy the PR preview.
+3. Merge PR #5 after the twenty minutes pass. It can't self-merge (§10.4: pending migration).
+4. Before promoting to release/v2: the S3.6 caps session (above).
+
+Paste-block — `MINT_SIGNING_SECRET` (Vercel):
+- Make a 48-byte random value. On a Mac, Terminal: `openssl rand -base64 48`. Copy the one line it prints.
+- Vercel → project **rekomendr** → Settings → Environment Variables → Add New → Key `MINT_SIGNING_SECRET`, Value = that line, Environments: **Production** and **Preview** → Save.
+- Deployments → the latest `auto/s2-shareable-anchors` preview → ⋯ → **Redeploy**.
+- Expected: `<preview>/api/health` shows `"mint":"ok"`. The Vercel log line `[env-check] ok` includes `mintSecret: 'present'`.
+- Never paste the value anywhere else (not the PR, not a chat). If it leaks, change it in Vercel. That only invalidates tokens for snaps taken before the change.
+
+NEXT SESSION SHOULD KNOW:
+- **Session 3 (the panel) reads `anchor_snapshots` for its Saved tab.** Its acceptance depends on this migration, so §10.5 applies if it hasn't run. The owner-scoped list read is a new service-role route keyed by `client_id` (plus the `account_devices` join for signed-in users). Private rows exist for exactly this. Q5(i)'s second trigger ("complete on reopen") belongs to S4: call `/api/share` `action:"complete"`, or lift the completion call into the panel's read route.
+- **The token is the S4 panel's friend.** A snapshot row is already attested. Reopening one into the front door ("tap any item → front door with that anchor on top") needs a *fresh* token for that anchor, or the text-only paths will refuse it. Plan a server route that re-signs a row the caller owns.
+- **Previews are behind Vercel SSO.** A signed-out Safari tab and iMessage's link scraper **cannot open preview links**. The stranger-view and iMessage-unfurl half of the acceptance can only be fully proven on production. The PR says this in Brad's twenty minutes.
+- Keyless local builds: `npm ci` first, and use placeholder env (see the 2026-09-23 merges entry). The local render check used a small fake PostgREST (a scratchpad script, not committed on purpose).
+- Stale tabs: once the secret is set, a tab opened before this deploy has no token. Its first detail/chain/backfill tap fails politely with the existing voice; a re-snap fixes it. This was accepted in #19.
+
+VALIDATION (verbatim from PR #5's "Brad's twenty minutes"):
+
+**One batch for today's run, in the order to check it.** Session 1 and Session 1.5 are on `main` now. Session 2 is this PR and sits on top of them, so its preview carries all three.
+
+**Preview URL (this PR):** https://rekomendr-git-auto-s2-shareable-anchors-brad-asselins-projects.vercel.app
+**Main preview (S1 + S1.5 only):** https://rekomendr-git-main-brad-asselins-projects.vercel.app
+
+#### Paste-blocks first (both needed before step 3)
+
+**A. The migration: `docs/sql/s2-anchor-snapshots.sql`**, in the Supabase SQL editor, one block at a time.
+- Block 1 → `already_exists = NULL`.
+- Block 2 → "Success. No rows returned."
+- Block 3 → `anchor_snapshots | true`; zero policies; zero anon/authenticated grants; service_role shows INSERT/SELECT/UPDATE.
+- Block 4, run whole → two `POSITIVE CONTROL … pass = true` rows, plus five `PASS` notices in Messages with no `FAIL`. It rolls itself back.
+
+**B. `MINT_SIGNING_SECRET` in Vercel.**
+- Mac Terminal: `openssl rand -base64 48` → copy the line.
+- Vercel → rekomendr → Settings → Environment Variables → Add → Key `MINT_SIGNING_SECRET`, Value = the line, **Production + Preview** → Save.
+- Redeploy this PR's preview (Deployments → latest `auto/s2-shareable-anchors` → ⋯ → Redeploy).
+- Expected: `<preview>/api/health` shows `"mint":"ok"` and `"tmdb":"ok"`.
+
+#### What to do (phone)
+
+1. **S1.5 on the main preview.** Re-snap the 2026 release that produced the five invented titles. Then snap an ad or a logo.
+2. **Health check on this PR's preview.** Open `<preview>/api/health` → `"mint":"ok"`, `"tmdb":"ok"`, `"db":"ok"`.
+3. **Snap a wine.** Tap **Save** (top right of the anchor). A small **Share** appears under the card.
+4. Tap **Show details**, read it, then tap **Share**. Pick Messages and text it to yourself.
+5. **Snap a movie** (a poster, a DVD, a screen). Save it **without** opening details, then Share it.
+6. Open both links **on the phone, in Safari**. The wine page should include the long you read. The movie should be short-only at first; reload it after a minute and the long appears (the page caches for 60 seconds).
+7. **Snap a vitamin bottle or a skincare product** and tap Save. No Share appears.
+8. In Safari open `<preview>/a/00000000-0000-4000-8000-000000000000` (a made-up id). You should see "This rek isn't here anymore."
+9. Supabase → Table editor → `anchor_snapshots`. You should see the wine and the movie as rows with `shared_at` set. The vitamin never appears.
+
+#### What it should feel like
+- [ ] S1.5: every movie title you're shown exists; the unplaceable snap says so plainly; the ad has no "View recipe".
+- [ ] Saving feels exactly like before. Nothing waits, and Share simply appears once saved.
+- [ ] **Exactly one** new tap target in the app: Share, only on a saved anchor. Nothing on the rek cards grew.
+- [ ] The shared page reads like the card you saved: same words, and the long when you'd opened it.
+- [ ] No Share anywhere near a health/medical snap.
+- [ ] The made-up link reads "This rek isn't here anymore."
+- [ ] Snap, chain ("+ More like this"), show details and dismiss-backfill all behave as they did yesterday.
+
+#### Honest limit: the stranger's view and the iMessage preview
+Preview deployments sit behind **Vercel SSO**. A signed-out Safari tab and iMessage's link scraper both get bounced to a Vercel login, so on the preview **the text bubble won't show the card image, and a signed-out tab can't open the page.** The page, the 404 and the image were rendered on a local production build (screenshots below). The charter's "signed-out Safari + iMessage preview" check is fully provable only on production, after promotion. On the preview, check steps 3–9 signed in.
+
+#### What to screenshot if it's wrong
+- The anchor card area after Save: with Share, without it, or with the amber "couldn't share this one — it's still saved".
+- Any shared page that doesn't match what you saved.
+- `<preview>/api/health` if `"mint"` isn't `"ok"`.
+- Vercel log lines starting `[snapshot]`, `[share]`, `[mintToken]`, `[snapshot-completion]`, `[env-check]`.
+
+#### Rendered locally (production build, fixture rows; the text is fixture, not model output)
+`docs/screenshots/s2-shared-wine.png` · `s2-shared-tv-short-only.png` · `s2-private-404.png` · `s2-og-wine.png`
+
+---
+
 ## Charter amendment §11 (local agent mode) — 2026-10-11 — committed directly to main (charter-only, on Brad's instruction) — no PR
 
 SHIPPED:
@@ -225,3 +324,28 @@ NEXT SESSION SHOULD KNOW:
 - Backups live in `backups/` at the repo root and are git-ignored by design. They contain user data — never attach them to a PR or copy them off the machine.
 
 VALIDATION: none — docs only.
+
+---
+
+## Session 2 — landed in local agent mode (§11) — 2026-10-11 — branch auto/s2-shareable-anchors — PR #5
+
+SHIPPED:
+- **The `anchor_snapshots` migration is live** (§11.2). Backup first: **`backups/2026-10-11-1300-s2.sql`** (506,345 bytes, 41 data tables including `user_likes`, `reksnap_signals`, `account_devices`; dump-complete footer present). Then block by block from `docs/sql/s2-anchor-snapshots.sql`, each read back against the file's EXPECTED lines: Block 1 `already_exists = NULL`; Block 2 `BEGIN/CREATE TABLE/CREATE INDEX/ALTER TABLE/REVOKE/COMMIT`; Block 3 RLS `t`, zero policies, zero anon/authenticated grants, service_role has INSERT/SELECT/UPDATE (+ DELETE/REFERENCES/TRIGGER/TRUNCATE, Supabase defaults); Block 4 both POSITIVE CONTROL rows `t`, five PASS notices, zero FAIL, rolled back to 0 rows.
+- `MINT_SIGNING_SECRET` set for **Preview** from `.env.local` (Vercel CLI, value never echoed). Production is Brad's (promotion checklist).
+- **A real bug, found only on the live preview:** Next 14 caches every `fetch()` inside a GET route handler, and supabase-js reads are fetches. A **revoked share kept rendering 200**, and a page read while private **stayed 404 after it was shared**. `/api/health`'s DB read sat on the same cache, so the keep-warm ping could answer without ever touching Supabase. Fixed at the one service-role client: `src/lib/supabaseServer.ts` passes `cache: 'no-store'` on every fetch. POST routes (`/api/save`, `/api/share`, `/api/prefs`) were never cached and behave the same. The local harness could not see this because it uses an in-memory Supabase.
+- **Acceptance on the preview, by machine, through the bypass header (§11.5): 22 checks, 22 passing.** Health `mint/db` ok; guessed URL → real 404 with "This rek isn't here anymore"; wine snap carries a token; tokenless detail → 400; forged short → 400; details → long + extended token; save mints and dedupes; private row → 404; someone else's id → uniform `not_found`; share flips; shared page 200 with the long, `og:image`, noindex; OG image 200 PNG; movie short-only save → share (`needsCompletion`) → lazy completion → second completion `already_rich`; a vitamin snap's save → **403 health**. After the fix: the previously stale page → 200; a revoked row → 404.
+- Harnesses on the combined tree: `validate-s1` 50/50, `validate-s15` 54/54, `validate-s2` 97/97; `tsc --noEmit` clean. (On Windows the harnesses need a preload that resolves `npx` to `npx.cmd`; it lived in the session scratchpad, not the repo.)
+- Test rows: four rows under `anon_agent_s2check_*`, all revoked after the run. No health row was ever minted.
+
+FOUND, NOT FIXED:
+- **`TMDB_API_KEY` is broken everywhere.** It is absent from Vercel in every environment (the S1.5 log said it was set; `vercel env ls` says not), so **production's real-title guard is OFF right now**. The key in `.env.local` is rejected by TMDb with 401 as both a v3 key and a Bearer token. Added to Preview, it made the guard fail closed (every movie rek dropped, the honest-short line every time), so it was removed again; the preview is back to "guard disabled, loudly".
+- **`/api/health` reports `"tmdb":"ok"` for a key TMDb rejects.** It checks presence, not validity (`app/api/health/route.ts`). The per-request `[fake-title] tmdb lookup non-OK { status: 401 }` line does name it. A one-call validity probe on health would close the gap.
+- A movie poster snapped as `mode: uses` once (Winchester '73 → "Costume Inspiration"), pre-existing vision-prompt behavior, not S2's.
+
+BRAD MUST:
+1. **Get a working TMDb key** (themoviedb.org → Settings → API → copy the v3 "API Key" or the v4 "Read Access Token"), put it in `.env.local`, and add it to Vercel **Production** yourself. Tell the next session and it will set Preview + Development.
+2. `MINT_SIGNING_SECRET` in Production: same value as `.env.local`, before promoting.
+
+NEXT SESSION SHOULD KNOW:
+- Any new GET route that reads Supabase is now uncached by construction. A new client created elsewhere must do the same.
+- Sharing a preview link still hits Vercel SSO for strangers; the signed-out and iMessage checks complete on production.
