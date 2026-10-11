@@ -6,19 +6,8 @@
 
 import { supabase } from './supabaseClient';
 
-const CLIENT_ID_KEY = 'rekomendr.client_id';
-
-export function getAnonymousClientId(): string {
-  if (typeof window === 'undefined') return '';
-  let id = localStorage.getItem(CLIENT_ID_KEY);
-  if (!id) {
-    id = typeof crypto !== 'undefined' && crypto.randomUUID
-      ? `anon_${crypto.randomUUID()}`
-      : `anon_${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`;
-    localStorage.setItem(CLIENT_ID_KEY, id);
-  }
-  return id;
-}
+import { getAnonymousClientId } from './clientId';
+export { getAnonymousClientId };
 
 export type LikeAction = 'like' | 'dislike' | 'save' | 'more_like_this';
 
