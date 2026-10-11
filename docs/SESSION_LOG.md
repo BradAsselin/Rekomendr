@@ -579,3 +579,12 @@ What to screenshot if it's wrong:
 **Migrations this run:** none. Already live from the previous run: `anchor_snapshots` (backup `backups/2026-10-11-1300-s2.sql`), `api_usage` (backup `backups/2026-10-11-1316-s3.6.sql`).
 **Revert SHAs if needed:** `3f5737b` (S2.1), `81c2491` (S2.2), `1dfa054` (S2.3); earlier this day `c302ea5` (S2), `7255623` (S3.6).
 **Production test residue added this run:** `anchor_snapshots` gained 6 agent rows from three browser runs (fresh Playwright `anon_*` clients): three Sainte Magdeleine wine shares — **all three revoked after the run** (the link now 404s, checked) — and three private Winchester '73 saves. `api_usage` gained rows from the preview checks; they age out of the 24h window.
+
+---
+
+## Charter amendment §10.5 — 2026-10-11 — committed directly to main (charter-only, on Brad's instruction) — no PR
+
+SHIPPED:
+- **BRAD-AUTHORIZED CHANGE (2026-10-11): §10.5** stop condition now reads "two consecutive sessions logging NEW found-not-fixed items in the same file". A carried item restated in a later session no longer halts a chain. Settles the judgment call recorded in the S2.1→S2.3 chain close. §2 untouched.
+
+FOUND, NOT FIXED: nothing. BRAD MUST: nothing. VALIDATION: none — docs only.

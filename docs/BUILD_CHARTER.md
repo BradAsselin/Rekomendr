@@ -222,7 +222,7 @@ Then: the ops dashboard session (SMTP, Supabase tripwire verification, usage ale
 
 **10.4 What may never self-merge.** Anything touching prompt text, voice, register, or the feel of output (§3.9, §5) — those PRs stay open, labeled VOICE — joint session required. Anything requiring a migration Brad has not yet run. Anything that changes this charter's §2 invariants. And never, under any circumstance, a merge into release/v2: production promotion is Brad's alone, by a PR he opens.
 
-**10.5 Stop conditions for a chain.** Halt the chain, write, and end the run if: any session hits BLOCKED:; two consecutive sessions list found-not-fixed items in the same file; a session's plan would require crossing an invariant; or a pending migration blocks a later session's acceptance.
+**10.5 Stop conditions for a chain.** Halt the chain, write, and end the run if: any session hits BLOCKED:; two consecutive sessions logging NEW found-not-fixed items in the same file; a session's plan would require crossing an invariant; or a pending migration blocks a later session's acceptance.
 
 **10.6 One validation batch.** At the end of a chain, append a combined "Brad's twenty minutes" to the final PR and the log, written against the main preview URL, covering every session in the run in the order he should check them.
 
