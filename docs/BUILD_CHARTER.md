@@ -42,7 +42,7 @@ Field validation is the only validation. Six wows on the ledger share one beat: 
 6. **One new affordance per feature, maximum.** If the collapsed UI of any surface grows more than one new tap target from a session, the design is wrong. Modes are forbidden; slots are allowed.
 7. **Human recommendations only.** No platform imports, no aggregating other apps' lists, no rebuilding the Google info page, no licensed review data on cards. Crowd data may be plumbing (quality floor), never surface.
 8. **Production is untouchable from a session.** `release/v2` deploys production. Sessions never push to `release/v2` or `main`. Branch → PR → preview → Brad merges, except as §10.3 allows. No exceptions, including "tiny."
-9. **Schema changes ship as SQL in the PR, never executed by the session.** Every `CREATE TABLE` includes explicit GRANTs and REVOKEs (anon/authenticated) and RLS enabled with zero client policies unless the charter says otherwise. Every policy that joins through another table gets that table a matching read policy. Every adversarial suite includes a **positive control**.
+9. **Schema changes ship as SQL in the PR, never executed by the session, except as §11 allows.** Every `CREATE TABLE` includes explicit GRANTs and REVOKEs (anon/authenticated) and RLS enabled with zero client policies unless the charter says otherwise. Every policy that joins through another table gets that table a matching read policy. Every adversarial suite includes a **positive control**.
 10. **The model is gpt-4o-mini + the tuned prompts.** No model swaps, no reasoning-tier models. Both flagship pilots were run and closed in August; `ANTHROPIC_API_KEY` in `.env.local` is dev-only and not to be used in product code.
 11. **Timeouts sit above the p99 of legitimate completions** — hang protection, never a latency SLA. Any timeout extension re-audits every response landing site (a request that lives longer arrives later).
 12. **Two-tier exclusion canon:** an uncapped drop-set at the single response site is the guarantee; the capped prompt avoid-list is pressure. Guarantees never truncate.
@@ -225,6 +225,26 @@ Then: the ops dashboard session (SMTP, Supabase tripwire verification, usage ale
 **10.5 Stop conditions for a chain.** Halt the chain, write, and end the run if: any session hits BLOCKED:; two consecutive sessions list found-not-fixed items in the same file; a session's plan would require crossing an invariant; or a pending migration blocks a later session's acceptance.
 
 **10.6 One validation batch.** At the end of a chain, append a combined "Brad's twenty minutes" to the final PR and the log, written against the main preview URL, covering every session in the run in the order he should check them.
+
+---
+
+## 11. Local agent mode (added Oct 11, 2026)
+
+11.1 Scope. Applies to a Claude Code session running on Brad's desktop in the repo, with `gh` and `vercel` logged in and `SUPABASE_DB_URL` set in `.env.local`. Cloud sessions remain under §3 and §10 unchanged.
+
+11.2 Migrations. In local mode the agent may execute migrations (superseding §2.9 for local mode only) when ALL of these hold: (a) before any DDL, a full `pg_dump` of the database is written to `backups/YYYY-MM-DD-HHMM-<session>.sql`, its size is verified to be non-zero, and its filename is logged; (b) the migration runs block by block, with a readback after each block, compared against the expected output written in the SQL file; (c) the adversarial suite, including its positive control, passes; (d) the run is recorded in SESSION_LOG.md with the backup filename. If any block fails, stop. Rely only on transaction rollback, attempt no repair, and write BLOCKED: with the restore command for Brad.
+
+11.3 Environment variables. The agent may add or update Preview and Development variables via the Vercel CLI. Production variables are Brad's and are listed as a paste-block in the promotion checklist (§11.8). Secret values are never echoed into logs, PRs, commits, or chat. Generated values are written only to `.env.local` and Vercel.
+
+11.4 Merges. The agent may merge PRs into `main` under the §10.3 conditions. This includes PRs that required a migration, once §11.2 is satisfied for it.
+
+11.5 Preview testing. The agent exercises previews using the `VERCEL_AUTOMATION_BYPASS_SECRET` header. Acceptance items that can be checked by machine on a preview are checked there, not only on a local build.
+
+11.6 Never: push or merge to `release/v2`; deploy with `--prod`; set Production environment variables; drop, delete, or narrow anything containing user data outside an approved migration plan; disable RLS or Vercel deployment protection; force-push; merge a VOICE PR; edit §2 except as Brad authorizes in chat.
+
+11.7 Additional stop conditions (on top of §10.5): the backup fails or comes out empty; a migration is destructive to user data (DROP, DELETE, a narrowing ALTER TYPE, TRUNCATE), so stop and present it for Brad's approval; a usage limit is reached, so commit working state and log where to resume.
+
+11.8 Reporting. Every run ends with the §10.6 combined validation batch plus a Production promotion checklist: the Production environment variables to add (names only, with how to generate each), the migrations already live with their backup files, and the merge SHAs to revert if needed.
 
 ---
 

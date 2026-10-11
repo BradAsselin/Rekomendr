@@ -305,3 +305,22 @@ Preview deployments sit behind **Vercel SSO**. A signed-out Safari tab and iMess
 
 #### Rendered locally (production build, fixture rows; the text is fixture, not model output)
 `docs/screenshots/s2-shared-wine.png` · `s2-shared-tv-short-only.png` · `s2-private-404.png` · `s2-og-wine.png`
+
+---
+
+## Charter amendment §11 (local agent mode) — 2026-10-11 — committed directly to main (charter-only, on Brad's instruction) — no PR
+
+SHIPPED:
+- Charter §11 "Local agent mode" appended verbatim to `docs/BUILD_CHARTER.md` (before the closing line, as §10 was).
+- **BRAD-AUTHORIZED INVARIANT CHANGE (2026-10-11): §2.9** now reads "Schema changes ship as SQL in the PR, never executed by the session, except as §11 allows." This is the only §2 change, authorized by Brad in chat. Cloud sessions are unchanged; §11.2 governs local execution (backup → block-by-block readback → adversarial suite with positive control → log with backup filename).
+- `.gitignore`: `.vercel`, `.env*` and `backups/` ignored — `pg_dump` output from §11.2(a) never enters git.
+
+FOUND, NOT FIXED: nothing.
+
+BRAD MUST: nothing for this entry.
+
+NEXT SESSION SHOULD KNOW:
+- A local-mode session reads §11 alongside §10; cloud sessions read §3 and §10 only.
+- Backups live in `backups/` at the repo root and are git-ignored by design. They contain user data — never attach them to a PR or copy them off the machine.
+
+VALIDATION: none — docs only.
