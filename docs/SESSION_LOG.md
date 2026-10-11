@@ -504,3 +504,26 @@ NEXT SESSION SHOULD KNOW:
 - The browser driver (Playwright, bypass header via `extraHTTPHeaders`, `navigator.share` stubbed in an init script, `setInputFiles` on the hidden snap input) lived in the session scratchpad. The header has its own app-level "Share" button with a `title`; target the anchor's with `button:not([title])`.
 
 VALIDATION: folded into the combined §10.6 batch at the end of this chain.
+
+---
+
+## Session 2.3 — housekeeping — 2026-10-11 — branch auto/s2.3-housekeeping — PR #11 (local agent mode, §11)
+
+SHIPPED:
+- **`/api/health` now asks TMDb whether the key works**, instead of checking that one is set. `tmdb`: `ok` | `disabled` | `rejected` (401/403) | `unreachable` (network/timeout/5xx). One call to TMDb's `/3/authentication`, cached per process 10 min (1 min when unreachable), concurrent probes share one request, a changed key re-probes at once, `no-store` fetch, key never logged; tripwire `[health] tmdb key probe {state, status}` (`probeTmdbKey`, `src/lib/tmdbVerify.ts`). HTTP status and `ok` still mean "database reachable" — the keep-warm ping's contract. Real TMDb API: the current key → `ok`; bogus v4 and v3 keys → `rejected`. Preview: `"tmdb":"ok"`.
+- **TMDb attribution**: "This product uses the TMDB API but is not endorsed or certified by TMDB." — small grey footer on every page (root layout), AA contrast on both backgrounds (gray-400 on the phone's dark, gray-500 on desktop white). Precedent: Letterboxd's footer credit.
+- `validate-s23` **32/32**; regression s1 50, s15 54, s2 97, s36 59, s21 126; tsc + lint clean.
+
+REPORT (no Vercel change): `SUPABASE_KEY` and `SURVEY_BONUS_TOKENS` are read nowhere and never appear in git history. `GLOBAL_DAILY_CAP` is read nowhere; its last reader was a site-wide cap in `pages_backup`, deleted 2026-01-03 (`ff08321`); S3.6's per-client caps replace it. All three are set in Development, Preview and Production and are dead.
+
+FOUND, NOT FIXED:
+- TMDb's terms also ask for their logo, less prominent than ours. A visual choice → Brad (§12.4).
+- `TMDB_API_KEY` is set for Production and Preview but not Development (`vercel env ls`). Only `vercel dev` would notice. §11.3 lets a session add it; not in this run's ask.
+- Option for Brad: make `tmdb: "rejected"` turn health red, so the external ping alerts on a dead key. Left off because it would also wake him for a DB-unrelated blip.
+
+BRAD MUST: nothing required. Optional: delete the three dead variables in Vercel; decide the logo.
+
+NEXT SESSION SHOULD KNOW:
+- Health is now a real TMDb signal. `rejected` on production means every movie/TV rek is being dropped (the guard fails closed).
+
+VALIDATION: folded into the combined §10.6 batch at the end of this chain.
