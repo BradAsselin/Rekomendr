@@ -51,6 +51,10 @@ export type SnapResult = {
 // trail entry remembers its origin mode so toggle-off can reinsert there.
 type TrailEntry = { rek: SnapRek; mode: SnapMode };
 
+// S2.4 — stands on a health anchor where the reks would be. Plain voice
+// (machinery, not Reks Ray); Brad tests the wording.
+const HEALTH_ANCHOR_LINE = "Rekomendr doesn't recommend health products.";
+
 // Plain-language labels + order for the mode toggle row.
 const MODE_TABS: { mode: SnapMode; label: string }[] = [
   { mode: "similar", label: "Similar" },
@@ -233,9 +237,9 @@ const RekSnapResults: React.FC<Props> = ({
   useEffect(() => {
     resultRef.current = result;
     if (result) {
-      // Health wall on the result tabs (charter §2.2): a health anchor
-      // has a Similar list only. The server already withholds the other
-      // two; this twin holds even against an older server.
+      // Health wall (charter §2.2): a health anchor has no rek list at
+      // all (S2.4; S2.1 removed the tabs). The server already withholds
+      // every list; this twin holds even against an older server.
       const health = HEALTH_MEDICAL_CATEGORIES.has(
         (result.detected_item.category ?? "").trim().toLowerCase()
       );
@@ -245,7 +249,7 @@ const RekSnapResults: React.FC<Props> = ({
       setTrail([]);
       setLists(
         health
-          ? { similar: result.results.similar, uses: [], alternatives: [] }
+          ? { similar: [], uses: [], alternatives: [] }
           : result.results
       );
       setDismissedNames([]);
@@ -1321,6 +1325,7 @@ const RekSnapResults: React.FC<Props> = ({
           }
           long={anchorLong ?? undefined}
           expandable={!anchorIsHealthMedical}
+          markerLine={anchorIsHealthMedical ? HEALTH_ANCHOR_LINE : undefined}
           detailsLoading={anchorLoading}
           detailsOpen={anchorOpen}
           onToggleDetails={toggleAnchorDetails}
