@@ -1387,7 +1387,7 @@ const RekSnapResults: React.FC<Props> = ({
         {anchorShareable && (
           <div className="-mt-1 mb-2 flex items-center justify-end gap-3 px-1 text-sm">
             {share.note && (
-              <span className="text-[13px] text-gray-500 select-all break-all">
+              <span className="text-[13px] text-gray-400 sm:text-gray-500 select-all break-all">
                 {share.note}
               </span>
             )}
@@ -1395,7 +1395,7 @@ const RekSnapResults: React.FC<Props> = ({
               type="button"
               onClick={handleShareAnchor}
               disabled={share.status === "working"}
-              className="font-medium text-[#1E3A8A] hover:underline disabled:opacity-60"
+              className="font-medium text-blue-300 sm:text-[#1E3A8A] hover:underline disabled:opacity-60"
             >
               {share.status === "working"
                 ? "Sharing…"
