@@ -169,6 +169,8 @@ type TmdbRow = {
   original_name?: string;
   release_date?: string;
   first_air_date?: string;
+  overview?: string;
+  popularity?: number;
 };
 
 type SearchOutcome =
@@ -297,6 +299,74 @@ async function verifyOne(item: VerifyItem, key: string): Promise<VerifyVerdict> 
   };
   cacheSet(item, verdict);
   return verdict;
+}
+
+/* ------------------------------------------------------------------
+   OVERVIEW LOOKUP — Session 1.6 (anchor grounding). The snapped anchor's
+   premise must come from something we can stand behind; for movies and
+   TV, TMDb's overview is that source when the photo itself carries no
+   synopsis. Same search, auth and title normalization as the guard: only
+   an exact (normalized) title match counts, year ±1 when a year is known,
+   most popular match when several films share the title.
+------------------------------------------------------------------- */
+export type OverviewLookup =
+  | { found: true; overview: string; tmdbTitle: string; year: number | null }
+  | { found: false; reason: "disabled" | "no_match" | "no_overview" | "lookup_failed" };
+
+const overviewCache = new Map<string, { at: number; out: OverviewLookup }>();
+
+export async function lookupOverview(
+  title: string,
+  kind: TitleKind,
+  year?: number | null
+): Promise<OverviewLookup> {
+  const key = process.env.TMDB_API_KEY?.trim();
+  if (!key) return { found: false, reason: "disabled" };
+  const wanted = normalizeTitle(title);
+  if (!wanted) return { found: false, reason: "no_match" };
+
+  const ck = `${kind}|${year ?? ""}|${wanted}`;
+  const hit = overviewCache.get(ck);
+  if (hit && Date.now() - hit.at < CACHE_TTL_MS) return hit.out;
+
+  const paths: ("movie" | "tv")[] =
+    kind === "movie" ? ["movie"] : kind === "tv" ? ["tv"] : ["movie", "tv"];
+  let transportFailed = false;
+  const matches: { row: TmdbRow; path: "movie" | "tv"; rowYear: number | null }[] = [];
+  for (const path of paths) {
+    const out = await searchWithRetry(path, title, key);
+    if (!out.ok) {
+      transportFailed = true;
+      continue;
+    }
+    for (const row of out.rows) {
+      const { titleHit, rowYear } = rowMatches(row, path, wanted);
+      if (titleHit && matchesYear(year, rowYear)) matches.push({ row, path, rowYear });
+    }
+  }
+
+  let result: OverviewLookup;
+  if (matches.length === 0) {
+    // A failed transport is not evidence the title is unknown — never cached.
+    if (transportFailed) return { found: false, reason: "lookup_failed" };
+    result = { found: false, reason: "no_match" };
+  } else {
+    const best = [...matches].sort(
+      (a, b) => (b.row.popularity ?? 0) - (a.row.popularity ?? 0)
+    )[0];
+    const overview = (best.row.overview ?? "").trim();
+    result = overview
+      ? {
+          found: true,
+          overview,
+          tmdbTitle: (best.path === "movie" ? best.row.title : best.row.name) ?? title,
+          year: best.rowYear,
+        }
+      : { found: false, reason: "no_overview" };
+  }
+  if (overviewCache.size >= CACHE_MAX) overviewCache.clear();
+  overviewCache.set(ck, { at: Date.now(), out: result });
+  return result;
 }
 
 /* ------------------------------------------------------------------
