@@ -7,6 +7,7 @@ import RekSkeleton from "./RekSkeleton";
 import SignalButtons from "./SignalButtons";
 import { recordSnapSignal, type SnapSignalAction } from "../lib/reksnapSignals";
 import { isAIServiceError, readServiceFailure } from "../lib/aiServiceError";
+import { getAnonymousClientId } from "../lib/clientId";
 
 // Plain voice: the modal's machinery failed, not the recipe's author. A
 // named service failure (out of credit, key refused, …) replaces this with
@@ -57,7 +58,8 @@ const RecipeModal: React.FC<Props> = ({ dish, detectedItem, onClose }) => {
         const res = await fetch("/api/recipe", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ dish, detectedItem }),
+          // S3.6: the route caps per client and refuses a call without one.
+          body: JSON.stringify({ dish, detectedItem, clientId: getAnonymousClientId() }),
         });
         if (!res.ok)
           throw (await readServiceFailure(res)) ?? new Error(`recipe ${res.status}`);

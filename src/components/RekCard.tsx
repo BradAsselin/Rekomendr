@@ -29,6 +29,11 @@ type Props = {
   year?: number;
   // Rendered above the title row (search's DescriptorLine). Omit for snap.
   genreLine?: React.ReactNode;
+  // S1 — the freshness slot's quiet memory line ("You liked this in
+  // July."), rendered directly under the title. Presentational only: no
+  // tap target, no icon, no colour — the card must read as an answer,
+  // never as a badge (charter §2.5). Unset on every other card.
+  markerLine?: string;
   // Snap cards show their list position next to the thumbs.
   rank?: number;
   short: string;
@@ -62,6 +67,14 @@ type Props = {
   verbLeft?: React.ReactNode;
   verbMiddle?: React.ReactNode;
   verbRight?: React.ReactNode;
+  // S1 — an action that exists ONLY while the card is expanded ("Watched
+  // it"). Kept out of the three verb zones on purpose: those are LEFT
+  // learn / MIDDLE complete / RIGHT continue (charter §2.5), and this is
+  // a VERDICT — it belongs with the signals, not with the links. Kept out
+  // of the collapsed card on purpose too: the collapsed surface may grow
+  // by at most one tap target per feature, and this session spends that
+  // one on the Shortlist chip.
+  detailAction?: React.ReactNode;
   // Emphasized chrome for the snap detected-item card.
   accent?: boolean;
   // Touch-only swipe: a committed swipe in EITHER direction fires
@@ -79,6 +92,7 @@ const RekCard: React.FC<Props> = ({
   title,
   year,
   genreLine,
+  markerLine,
   rank,
   short,
   long,
@@ -95,6 +109,7 @@ const RekCard: React.FC<Props> = ({
   verbLeft,
   verbMiddle,
   verbRight,
+  detailAction,
   accent,
   swipeable,
   className,
@@ -197,6 +212,12 @@ const RekCard: React.FC<Props> = ({
         </div>
       </div>
 
+      {/* S1 — the resurfacing marker. One quiet grey line under the title,
+          no chrome of its own (charter §7 call #2, marked: default). */}
+      {markerLine && (
+        <div className="-mt-1 mb-2 text-[13px] text-gray-500">{markerLine}</div>
+      )}
+
       {/* SHORT DESCRIPTION + EXPAND (expand when a long body exists, or when
           the parent lazy-loads one on first expand) */}
       <p
@@ -242,6 +263,15 @@ const RekCard: React.FC<Props> = ({
         >
           {long}
         </p>
+      )}
+
+      {/* S1 — expanded-only verdict action ("Watched it"). Sits below the
+          read moment and above the completion verbs, so it never competes
+          with them for a zone. */}
+      {detailsOpen && !detailsLoading && detailAction && (
+        <div className="mb-1" onClick={(e) => e.stopPropagation()}>
+          {detailAction}
+        </div>
       )}
 
       {/* COMPLETION VERBS — three fixed zones. A grid keeps each verb's

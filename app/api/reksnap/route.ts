@@ -2,11 +2,26 @@ import OpenAI from "openai";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { HEALTH_MEDICAL_CATEGORIES } from "../../../src/lib/categoryGates";
+// S1.5 — the real-title guard, snap side. The helpers live in a lib
+// rather than here because a Next route module may only export route
+// handlers and route config; anything else belongs outside it (and is
+// testable there, which this is).
+import {
+  NEW_TO_ME_NOTICE,
+  dropUnresolvedMediaReks,
+} from "../../../src/lib/snapTitleGuard";
 import { runEnvCheck } from "../../../src/lib/envCheck";
+import { ANCHOR_DETAIL_PROMPT } from "../../../src/lib/anchorDetailPrompt";
+import {
+  signAnchor,
+  tokensEnabled,
+  verifyAnchor,
+} from "../../../src/lib/mintToken";
 import {
   maybeSimulateOpenAIFailure,
   openAIFailureResponse,
 } from "../../../src/lib/openaiFailure";
+import { capGate } from "../../../src/lib/apiUsage";
 
 export const runtime = "nodejs";
 
@@ -186,6 +201,46 @@ const buildBackfillPrompt = (mode: string) => {
   );
 };
 
+// ---------------------------------------------------------------------------
+// S2 — ANCHOR ATTESTATION (Ledger #19, Catch 1: no side doors on the wall).
+// When MINT_SIGNING_SECRET is set, every text-only path that accepts a
+// detected-item payload (backfill, anchorDetail, chain) first verifies the
+// token the vision response signed. The health gates below each call then
+// run on a SERVER-attested category, never a client-asserted one. With no
+// secret this returns null for everyone and the paths are byte-identical
+// to before S2. A refusal is a 400 the client already handles with its
+// existing failure voice; a pre-deploy tab fails once and re-snaps
+// (accepted in #19).
+// ---------------------------------------------------------------------------
+function refuseUnattested(
+  path: "backfill" | "anchorDetail" | "chain",
+  item: { name?: unknown; category?: unknown; description?: unknown },
+  clientId: string | null,
+  token: unknown
+): Response | null {
+  if (!tokensEnabled()) return null;
+  const ok =
+    !!clientId &&
+    typeof item?.name === "string" &&
+    verifyAnchor(
+      {
+        name: item.name,
+        category: typeof item.category === "string" ? item.category : "",
+        short: typeof item.description === "string" ? item.description : "",
+        long: null,
+        clientId,
+      },
+      token
+    );
+  if (ok) return null;
+  console.warn(`[mintToken] ${path}: token missing/invalid — refused`, {
+    hasClientId: !!clientId,
+    hasToken: !!token,
+  });
+  const label = path === "anchorDetail" ? "anchor detail" : path;
+  return Response.json({ error: `Bad ${label} request` }, { status: 400 });
+}
+
 async function handleBackfill(backfill: any): Promise<Response> {
   const item = backfill?.detectedItem;
   const mode = backfill?.mode;
@@ -211,6 +266,8 @@ async function handleBackfill(backfill: any): Promise<Response> {
   // Cross-session shading (raced, fail-soft): category-scoped prior
   // dislikes, with everything the session already frames stripped out.
   const clientId = cleanClientId(backfill?.clientId);
+  const unattested = refuseUnattested("backfill", item, clientId, backfill?.token);
+  if (unattested) return unattested;
   const prior = clientId
     ? await racePriorDislikes({
         clientId,
@@ -281,17 +338,28 @@ async function handleBackfill(backfill: any): Promise<Response> {
     (typeof rek.category === "string" ? normalize(rek.category) : "") ||
     (typeof item.category === "string" ? normalize(item.category) : "");
 
-  return Response.json(
-    {
-      rek: {
-        name: rek.name,
-        description:
-          typeof rek.description === "string" ? rek.description : "",
-        category: rekCategory || undefined,
-      },
-    },
-    { status: 200 }
-  );
+  const candidate = {
+    name: rek.name,
+    description: typeof rek.description === "string" ? rek.description : "",
+    category: rekCategory || undefined,
+  };
+
+  // S1.5 — a backfill that invented its one title is worse than an empty
+  // slot: the slot is honest. The client already handles `rek: null` by
+  // leaving the slot alone and logging it, so an unresolved title takes
+  // that path rather than a new one.
+  const [survivor] = await dropUnresolvedMediaReks([candidate], {
+    path: "snap-backfill",
+    anchor: item.name,
+    anchorCategory:
+      typeof item.category === "string" ? item.category : undefined,
+  });
+
+  if (!survivor) {
+    return Response.json({ rek: null, reason: "unresolved_title" }, { status: 200 });
+  }
+
+  return Response.json({ rek: survivor }, { status: 200 });
 }
 
 // ---------------------------------------------------------------------------
@@ -305,23 +373,8 @@ async function handleBackfill(backfill: any): Promise<Response> {
 // vision prompt is never touched.
 // ---------------------------------------------------------------------------
 
-const ANCHOR_DETAIL_PROMPT =
-  "You are a taste-aware recommendation engine. The user snapped a photo of the item below and was shown its two-sentence profile. They tapped 'Show details' — write the longer detail that profile expands into.\n" +
-  "\n" +
-  "Write ONE sentence per job below — 3 sentences, or 4 only if the optional job earns it. Never more. One paragraph.\n" +
-  "- Sentence 1: extend the profile's primary-axis placement (wine = dry vs. sweet; whiskey = smoky vs. smooth; coffee = light vs. dark roast; tools = strength, speed, what it works on) with finer CONCRETE decision words (grapefruit pith, char, bond strength) — never re-characterize on a different axis, never contradict the profile. When the axis is a two-camp fork, NAME the side outright even if the profile only implied it — for whisky, say whether there is peat/smoke ('no peat here' / 'gently peated'); the reader may not know that 'smooth' means unpeated.\n" +
-  "- Sentence 2: place it against one or two NAMED close neighbors in its category — how it differs, in plain decision words.\n" +
-  "- Sentence 3: one concrete moment or pairing where it wins.\n" +
-  "- Optional sentence 4: where a neighbor wins instead.\n" +
-  "The FINAL WORD of the paragraph must be a concrete noun — a food, a moment, a place, a task. Never end on a verb phrase or a mood.\n" +
-  "NEVER repeat the item's name — the title sits directly above this text.\n" +
-  "NEVER restate the profile's sentences in other words — the user just read them.\n" +
-  "Decision rule: if a phrase could describe half the category, delete it and say something only this item earns. This is a friend talking across a table, not a magazine review.\n" +
-  "BAN these in any construction: 'perfect for', 'ideal for', 'great choice', 'a classic X', 'crowd-pleaser', 'known for', 'gentle caress', 'elegance', 'notes unfold', 'refreshing experience'.\n" +
-  "- RIGHT (profile said 'Off-dry and peach-led — ripe stone fruit...'): 'The sweetness stays just off-dry — a ripe-peach roundness rather than sugar, with the acidity tucked underneath it. Against the citrus-sharp styles that dominate the shelf it drinks softer and rounder, nearer a dry Riesling than a grassy Sauvignon Blanc. It earns its place next to spicy takeout — green curry, kung pao — where a sharper white would fight the chilies.' (extends off-dry + peach, adds neighbors and a concrete moment)\n" +
-  "- WRONG (profile said 'Smooth and slightly sweet, with notes of vanilla, honey, and a hint of fruitiness'): 'Its silky texture glides across the palate, enhanced by a subtle sweetness akin to clover honey. The vanilla notes are gentle yet persistent, rounding out the soft edges with a comforting warmth... its understated elegance complements without overwhelming.' (nearly double the allowed length; tasting-poetry that could describe fifty bottles; opens by repeating the item's name; never names a neighbor; ends on a mood, not a noun)\n" +
-  "\n" +
-  'Return JSON only, in this exact shape: { "long": string }';
+// ANCHOR_DETAIL_PROMPT lives in src/lib/anchorDetailPrompt.ts (moved
+// byte-identical in Session 2 so the snapshot completion can share it).
 
 async function handleAnchorDetail(anchorDetail: any): Promise<Response> {
   const name = anchorDetail?.name;
@@ -339,6 +392,15 @@ async function handleAnchorDetail(anchorDetail: any): Promise<Response> {
   ) {
     return Response.json({ error: "Bad anchor detail request" }, { status: 400 });
   }
+
+  const clientId = cleanClientId(anchorDetail?.clientId);
+  const unattested = refuseUnattested(
+    "anchorDetail",
+    { name, category, description: shortDescription },
+    clientId,
+    anchorDetail?.token
+  );
+  if (unattested) return unattested;
 
   // Belt-and-braces twin of the client gate: health/medical anchors stay
   // structurally thin — no request path may generate a rich profile for them.
@@ -379,7 +441,23 @@ async function handleAnchorDetail(anchorDetail: any): Promise<Response> {
     return Response.json({ error: "Detail failed" }, { status: 502 });
   }
 
-  return Response.json({ long: long.trim() }, { status: 200 });
+  // S2 — the EXTENDED token: it covers the long tier too, so the snapshot
+  // minted at save-tap can carry the long the user actually read. Null
+  // (omitted) when tokens are off or the request had no client id.
+  const extended = clientId
+    ? signAnchor({
+        name,
+        category,
+        short: shortDescription,
+        long: long.trim(),
+        clientId,
+      })
+    : null;
+
+  return Response.json(
+    { long: long.trim(), ...(extended ? { token: extended } : {}) },
+    { status: 200 }
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -697,6 +775,14 @@ async function handleChain(chain: any): Promise<Response> {
     return Response.json({ error: "Bad chain request" }, { status: 400 });
   }
 
+  const unattested = refuseUnattested(
+    "chain",
+    item,
+    cleanClientId(chain?.clientId),
+    chain?.anchorToken
+  );
+  if (unattested) return unattested;
+
   // Belt-and-braces twin of the client gate (same as anchorDetail): no
   // chain may generate for a health/medical anchor.
   const category =
@@ -873,13 +959,37 @@ async function handleChain(chain: any): Promise<Response> {
   if (reks.length === 0) {
     return Response.json({ error: "Chain failed" }, { status: 502 });
   }
-  if (reks.length < 5) {
+
+  // S1.5 — the guard runs AFTER the exclusion filter and BEFORE the
+  // short-set warning, so the count in the log is the count that ships.
+  const beforeGuard = reks.length;
+  const verified = await dropUnresolvedMediaReks(reks, {
+    path: "chain",
+    anchor: item.name,
+    anchorCategory: typeof item.category === "string" ? item.category : undefined,
+  });
+
+  // Every candidate was fiction. Never a 502 here: the chain worked, the
+  // model simply could not name real neighbours, and saying so plainly is
+  // the honest answer (charter §2.4). 200 with an empty set + the notice
+  // lets the surface speak instead of reading as a transport failure.
+  if (verified.length === 0) {
     console.warn(
-      `RekSnap chain: only ${reks.length}/5 reks survived exclusion filtering (kind: ${kind})`
+      `RekSnap chain: all ${beforeGuard} reks dropped as unresolved titles (kind: ${kind})`
+    );
+    return Response.json(
+      { reks: [], notice: NEW_TO_ME_NOTICE },
+      { status: 200 }
     );
   }
 
-  return Response.json({ reks }, { status: 200 });
+  if (verified.length < 5) {
+    console.warn(
+      `RekSnap chain: only ${verified.length}/5 reks survived filtering + the real-title guard (kind: ${kind})`
+    );
+  }
+
+  return Response.json({ reks: verified }, { status: 200 });
 }
 
 export async function POST(req: Request) {
@@ -891,6 +1001,18 @@ export async function POST(req: Request) {
     maybeSimulateOpenAIFailure();
 
     const body = await req.json().catch(() => ({}));
+
+    // S3.6: per-client daily caps (Ledger #19). The three text branches
+    // share one key; the vision call has its own. 400 without a client id.
+    const textBranch =
+      (body?.backfill && typeof body.backfill === "object" && body.backfill) ||
+      (body?.anchorDetail && typeof body.anchorDetail === "object" && body.anchorDetail) ||
+      (body?.chain && typeof body.chain === "object" && body.chain) ||
+      null;
+    if (textBranch) {
+      const capped = await capGate(textBranch.clientId, "reksnap-text");
+      if (capped) return capped;
+    }
 
     // Backfill requests are text-only and carry no image.
     if (body?.backfill && typeof body.backfill === "object") {
@@ -912,6 +1034,9 @@ export async function POST(req: Request) {
     if (!image.startsWith("data:image/")) {
       return Response.json({ error: "Missing image" }, { status: 400 });
     }
+
+    const capped = await capGate(body?.clientId, "reksnap-vision");
+    if (capped) return capped;
 
     // Cross-session shading for the vision call: the category is unknown
     // until the model answers, so ALL recent groups ride the user message
@@ -1014,23 +1139,71 @@ export async function POST(req: Request) {
       return ranked;
     };
 
-    const cleaned = {
+    const cleanedRaw = {
       similar: cleanList(results.similar, "similar"),
       uses: cleanList(results.uses, "uses"),
       alternatives: cleanList(results.alternatives, "alternatives"),
     };
 
     // Fail only if every list is empty — a partial result is still usable.
+    // This check runs BEFORE the real-title guard on purpose: an empty
+    // result here means the photo could not be read, which is a different
+    // (and honestly different-sounding) failure from "I read it fine and
+    // the neighbours it offered were invented".
     if (
-      cleaned.similar.length === 0 &&
-      cleaned.uses.length === 0 &&
-      cleaned.alternatives.length === 0
+      cleanedRaw.similar.length === 0 &&
+      cleanedRaw.uses.length === 0 &&
+      cleanedRaw.alternatives.length === 0
     ) {
       return Response.json(
         { error: "Could not read that photo." },
         { status: 502 }
       );
     }
+
+    // S1.5 — THE REAL-TITLE GUARD. This is the exact site of the field
+    // failure: a 2026 A24 release the model could not place, five
+    // fabricated titles, each wearing a Trailer and a Watch button. All
+    // three lists are guarded (a media rek can appear in any of them);
+    // the anchor is never touched.
+    const [similar, uses, alternatives] = await Promise.all([
+      dropUnresolvedMediaReks(cleanedRaw.similar, {
+        path: "snap",
+        anchor: detected.name,
+        anchorCategory: anchorCategory,
+      }),
+      dropUnresolvedMediaReks(cleanedRaw.uses, {
+        path: "snap",
+        anchor: detected.name,
+        anchorCategory: anchorCategory,
+      }),
+      dropUnresolvedMediaReks(cleanedRaw.alternatives, {
+        path: "snap",
+        anchor: detected.name,
+        anchorCategory: anchorCategory,
+      }),
+    ]);
+
+    // Ranks are 1..n by contract; re-rank after the guard so a dropped
+    // title never leaves a hole in the numbering.
+    const reRank = <T extends { rank: number }>(list: T[]): T[] =>
+      list.map((r, i) => ({ ...r, rank: i + 1 }));
+
+    const cleaned = {
+      similar: reRank(similar),
+      uses: reRank(uses),
+      alternatives: reRank(alternatives),
+    };
+
+    // The guard emptied everything. NOT a 502 and NOT "Could not read
+    // that photo" — the photo was read perfectly; the model just filled
+    // the slots with fiction. The anchor still ships, with plain-voice
+    // honesty in place of the invented five (charter §2.4: honest-short
+    // over canned-full).
+    const guardEmptiedAll =
+      cleaned.similar.length === 0 &&
+      cleaned.uses.length === 0 &&
+      cleaned.alternatives.length === 0;
 
     const allowedModes = ["similar", "uses", "alternatives"] as const;
     let mode: (typeof allowedModes)[number] = allowedModes.includes(parsed?.mode)
@@ -1042,18 +1215,35 @@ export async function POST(req: Request) {
         allowedModes.find((m) => cleaned[m].length > 0) ?? "similar";
     }
 
+    // S2 — sign the anchor exactly as it ships (Ledger #19). The token is
+    // what later lets /api/save persist THIS text and nothing else, and
+    // what the text-only paths verify before they generate. Omitted when
+    // tokens are off or the snap carried no client id.
+    const shortText =
+      typeof detected.description === "string" ? detected.description : "";
+    const detectedItemToken = clientId
+      ? signAnchor({
+          name: detected.name,
+          category: anchorCategory,
+          short: shortText,
+          long: null,
+          clientId,
+        })
+      : null;
+
     return Response.json(
       {
         detected_item: {
           name: detected.name,
-          description:
-            typeof detected.description === "string"
-              ? detected.description
-              : "",
+          description: shortText,
           category: anchorCategory,
         },
+        ...(detectedItemToken ? { detected_item_token: detectedItemToken } : {}),
         mode,
         results: cleaned,
+        // Present ONLY when the guard left nothing to show. The client
+        // renders it in plain voice where the five cards would have been.
+        ...(guardEmptiedAll ? { notice: NEW_TO_ME_NOTICE } : {}),
       },
       { status: 200 }
     );

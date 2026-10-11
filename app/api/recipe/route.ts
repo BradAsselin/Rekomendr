@@ -4,6 +4,7 @@ import {
   maybeSimulateOpenAIFailure,
   openAIFailureResponse,
 } from "../../../src/lib/openaiFailure";
+import { capGate } from "../../../src/lib/apiUsage";
 
 export const runtime = "nodejs";
 
@@ -66,6 +67,10 @@ export async function POST(req: Request) {
     if (!dish) {
       return Response.json({ error: "Missing dish name" }, { status: 400 });
     }
+
+    // S3.6: per-client daily cap (Ledger #19). 400 without a client id.
+    const capped = await capGate(body?.clientId, "recipe");
+    if (capped) return capped;
 
     const userContent = detectedItem
       ? `DISH NAME: ${dish}\nDETECTED ITEM (what the dish was suggested from): ${detectedItem}`

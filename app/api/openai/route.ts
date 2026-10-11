@@ -4,6 +4,7 @@ import {
   maybeSimulateOpenAIFailure,
   openAIFailureResponse,
 } from "../../../src/lib/openaiFailure";
+import { capGate } from "../../../src/lib/apiUsage";
 
 export const runtime = "nodejs";
 
@@ -46,6 +47,10 @@ export async function POST(req: Request) {
     maybeSimulateOpenAIFailure();
 
     const body = await req.json();
+
+    // S3.6: per-client daily cap (Ledger #19). 400 without a client id.
+    const capped = await capGate(body?.clientId, "openai");
+    if (capped) return capped;
 
     /* ------------------------------
        V1 MAGIC MODE (prompt based)

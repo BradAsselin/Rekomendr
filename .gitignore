@@ -9,3 +9,7 @@ tsconfig.tsbuildinfo
 .git/
 # Screenshots
 /*.png
+.vercel
+.env*
+
+backups/

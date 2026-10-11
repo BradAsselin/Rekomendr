@@ -41,8 +41,8 @@ Field validation is the only validation. Six wows on the ledger share one beat: 
 5. **Anchor grammar holds.** The snapped/typed item is the subject; it never dismisses; its identity doesn't flip when the pills do; it reads as an answer, not a menu (at most one instinctive verb collapsed). Position is meaning: LEFT learn / MIDDLE complete / RIGHT continue; top-right = verdict cluster (Save + thumbs); decided trail above, undecided frontier below.
 6. **One new affordance per feature, maximum.** If the collapsed UI of any surface grows more than one new tap target from a session, the design is wrong. Modes are forbidden; slots are allowed.
 7. **Human recommendations only.** No platform imports, no aggregating other apps' lists, no rebuilding the Google info page, no licensed review data on cards. Crowd data may be plumbing (quality floor), never surface.
-8. **Production is untouchable from a session.** `release/v2` deploys production. Sessions never push to `release/v2` or `main`. Branch → PR → preview → Brad merges. No exceptions, including "tiny."
-9. **Schema changes ship as SQL in the PR, never executed by the session.** Every `CREATE TABLE` includes explicit GRANTs and REVOKEs (anon/authenticated) and RLS enabled with zero client policies unless the charter says otherwise. Every policy that joins through another table gets that table a matching read policy. Every adversarial suite includes a **positive control**.
+8. **Production is untouchable from a session.** `release/v2` deploys production. Sessions never push to `release/v2` or `main`. Branch → PR → preview → Brad merges, except as §10.3 allows. No exceptions, including "tiny."
+9. **Schema changes ship as SQL in the PR, never executed by the session, except as §11 allows.** Every `CREATE TABLE` includes explicit GRANTs and REVOKEs (anon/authenticated) and RLS enabled with zero client policies unless the charter says otherwise. Every policy that joins through another table gets that table a matching read policy. Every adversarial suite includes a **positive control**.
 10. **The model is gpt-4o-mini + the tuned prompts.** No model swaps, no reasoning-tier models. Both flagship pilots were run and closed in August; `ANTHROPIC_API_KEY` in `.env.local` is dev-only and not to be used in product code.
 11. **Timeouts sit above the p99 of legitimate completions** — hang protection, never a latency SLA. Any timeout extension re-audits every response landing site (a request that lives longer arrives later).
 12. **Two-tier exclusion canon:** an uncapped drop-set at the single response site is the guarantee; the capped prompt avoid-list is pressure. Guarantees never truncate.
@@ -114,6 +114,18 @@ Sessions are ordered by dependency and by leash: the boring one runs first so th
 - **Out of scope:** panel/hamburger, sharing, prompt voice changes (prepare-only per §3.9 if the session touches the register line).
 - **Acceptance:** Brad runs five fresh searches across three lanes over a week on the preview and counts sets containing a card he can't wait to watch (target ≥ 4/5); the Shortlist shows his real liked titles; one search shows a resurfaced like with its marker; "Watched it" removes a title from the strip and it never returns to the frontier.
 
+### Session 1.5 — Real-title guard (inserted 2026-09-22; runs before Session 2)
+**Goal:** the app never recommends a movie or show that does not exist.
+- **The body:** snapping a 2026 A24 release (Backrooms) returned five FABRICATED movie titles, each wearing a working Trailer and Watch button. The model could not place the anchor, so it filled the slots with fiction and the app dressed the fiction in completion verbs. Invariant §2.4 dies right there, and so does §1's recognition beat — you cannot recognize something that was never made.
+- **The rule:** for **movies and TV**, every rek from **every** path (search, snap, backfill, more-like-this, chain) must resolve to a real TMDb entry — title match, year ±1 — before it ships. Unresolved titles are dropped and logged `[fake-title]` **with the anchor that produced them**. Existing over-ask sizing covers the drops.
+- **Anchors are always exempt**, everywhere. The snapped or typed thing is the user's, not the model's; a brand-new release the model cannot place is exactly the case this guard exists to answer honestly.
+- **If every rek drops, the set ships honest-short in plain voice** — snap: *"This one's new to me. Here's what I know about the lane"*; search gets its own wording. Never fiction, and never the "couldn't read that photo" voice: the photo was read fine.
+- **Only the TMDb lookup is pulled forward from Session 5** — no quality floor, no vote counts, no scores. Nothing is judged here, only existence.
+- **Also fixed:** Session 0's found-not-fixed recipe leak. The recipe affordance was a DENY-list (`NON_RECIPE_CATEGORIES`), so it showed for everything nobody had thought to ban — a snapped logo, then a snapped ad. It is now an **allow-list** of food/drink categories: unknown suppresses.
+- **New env dependency:** `TMDB_API_KEY`. Missing → the guard is disabled, every title passes, and it is shouted about by the boot check, `/api/health` and every `[fake-title]` line. A missing key is a deployment problem, never a silent one.
+- **Out of scope:** the quality floor (stays Session 5), Books and Wine (TMDb does not know them), any prompt or voice change.
+- **Acceptance:** Brad re-snaps the release that produced the fiction and sees either real titles or the honest-short line — never an invented title with a Trailer button; the log shows `[fake-title]` naming the anchor; a snapped ad or logo shows no "View recipe".
+
 ### Session 2 — S3: shareable anchors (the snapshot IS the save)
 **Goal:** a saved item opens back up and tells you what you saved; a share link shows the anchor to someone with no account.
 - Per `docs/s3-shareable-anchors-blueprint.md` and `docs/s3-build-plan.md`: `anchor_snapshots` table (UUID pk = unguessable token; RLS on, zero client policies; service-role routes; public reads filter `shared_at is not null`; private rows indistinguishable from nonexistent). Snapshot minted at **save-tap**, full rich profile (short + long + mode + category); Share flips `shared_at`. Never regenerated: page + OG render columns only, no OpenAI import (DoS posture for public URLs). Health anchors unshareable at every layer (no affordance, 403, 404). Server-verified payloads only (mint from server-generated anchors). `next/og` for the preview image; add `metadataBase` to `layout.tsx`; `?v=N` cache-busting for design iterations.
@@ -140,7 +152,7 @@ Sessions are ordered by dependency and by leash: the boring one runs first so th
 
 ### Session 5 — Quality floor (generation-side, anchors exempt)
 **Goal:** Rekomendr never recommends a movie broadly agreed to be bad — quietly, with no score on the card.
-- TMDb `vote_average` + `vote_count` lookup per rek title before shipping; per-lane floors (defaults for Brad to re-mark: drama/general 6.9, comedy 5.0, horror 5.5, documentary 7.2; minimum vote count 500); anchors and typed/snapped inputs **always exempt**; floor relaxes toward the anchor's own score when the anchor is low-rated (a guilty pleasure's neighborhood shouldn't strand it); full floor on cold searches; unverifiable/unmatched titles **pass** (the floor catches known disasters, not obscurity); dropped titles are covered by the existing over-ask sizing; drops instrumented in the `[short-sets]` log. Movies/TV only in v1. No score rendered anywhere.
+- TMDb `vote_average` + `vote_count` lookup per rek title before shipping; per-lane floors (defaults for Brad to re-mark: drama/general 6.9, comedy 5.0, horror 5.5, documentary 7.2; minimum vote count 500); anchors and typed/snapped inputs **always exempt**; floor relaxes toward the anchor's own score when the anchor is low-rated (a guilty pleasure's neighborhood shouldn't strand it); full floor on cold searches; unresolved media titles **fail** (amended by Session 1.5 — the real-title guard has already dropped anything that does not resolve to a TMDb entry, and the floor never re-admits a title the guard refused); a title that RESOLVES but carries no usable rating — too few votes, no score — still **passes** the floor (the floor catches known disasters, not obscurity). Existence and quality are two different questions: S1.5 owns the first and answers it strictly, S5 owns the second and answers it leniently; dropped titles are covered by the existing over-ask sizing; drops instrumented in the `[short-sets]` log. Movies/TV only in v1. No score rendered anywhere.
 - **Acceptance:** Brad runs five searches and finds no card he'd call a dud; the log shows the drop counts; a snapped guilty-pleasure anchor still gets five reks.
 
 ### Session 6 — Share polish + deep links
@@ -162,9 +174,9 @@ Sessions that reach an unmarked call stop with `BLOCKED:`. Defaults are Claude's
 1. **Freshness slot position** — default: position 3 of 5. (Alternative: position 1, "the one you'll recognize"; or 5, "the safe landing.")
 2. **Resurfacing likes: marker copy** — default: a quiet grey line, "You liked this in July." (Alternative: no marker; or a small ↺ glyph only.)
 3. **Quality floor tiers** — defaults in Session 5. Confirm or adjust per lane; confirm minimum vote count 500.
-4. **Benchmark picker default** — default: most recent Saved item in the category is the one-tap pin; picker shows the last five. (Alternative: Favorites first.)
-5. **Panel landing tab** — default: Recent. (Alternative: Shortlist.)
-6. **S3 blueprint Q-list** — the seven open questions in `docs/s3-shareable-anchors-blueprint.md §6`; mark them in that file.
+4. **Benchmark picker default** — default: most recent Saved item in the category is the one-tap pin; picker shows the last five. (Alternative: Favorites first.) — **MARKED 2026-09-22 by Brad: default.**
+5. **Panel landing tab** — default: Recent. (Alternative: Shortlist.) — **MARKED 2026-09-22 by Brad: default.**
+6. **S3 blueprint Q-list** — the seven open questions in `docs/s3-shareable-anchors-blueprint.md §6`; mark them in that file. — **MARKED 2026-09-23 by Brad:** Q2, Q5, Q8 decided 2026-07-19 (Ledger #18/#19); Q1, Q3, Q4, Q6, Q7, Q9 accepted as proposed — marked in the blueprint.
 7. **Production promotion cadence** — default: Brad opens `main → release/v2` after each validated batch. (Alternative: after every merged PR.)
 
 ---
@@ -197,6 +209,42 @@ The log, not any assistant's memory, is the record of this phase. Truth lives on
 - The voice round has been run jointly and the search-lane and snap-lane voices are declared done, with the mold counts at zero across ten counted generations.
 
 Then: the ops dashboard session (SMTP, Supabase tripwire verification, usage alerts), the 50-person test date, and the GTM bucket.
+
+---
+
+## 10. Multi-session runs and self-merge (added Sept 22, 2026)
+
+**10.1 Chained sessions.** A launch may name several sessions. They run in order, each still on its own branch with its own PR, plan, fence, and "Brad's twenty minutes." Maximum three per launch.
+
+**10.2 Carry-forward verification.** Before starting session N, re-read session N−1's SESSION_LOG.md entry and verify its acceptance still holds — run its checks, confirm its tripwires still fire, confirm nothing in the new session's plan contradicts it. If it cannot be verified, stop per §3.8 rather than build on it. A session never builds on an unverified predecessor.
+
+**10.3 Self-merge, bounded.** A session may merge its own PR into main when all of: checks green; tsc --noEmit clean; the diff matches the plan and stays inside the fence; no BLOCKED:; §10.2 verified; and the session's own acceptance items that are machine-checkable pass. Record the merge commit SHA in the log entry so any single session is individually revertible.
+
+**10.4 What may never self-merge.** Anything touching prompt text, voice, register, or the feel of output (§3.9, §5) — those PRs stay open, labeled VOICE — joint session required. Anything requiring a migration Brad has not yet run. Anything that changes this charter's §2 invariants. And never, under any circumstance, a merge into release/v2: production promotion is Brad's alone, by a PR he opens.
+
+**10.5 Stop conditions for a chain.** Halt the chain, write, and end the run if: any session hits BLOCKED:; two consecutive sessions list found-not-fixed items in the same file; a session's plan would require crossing an invariant; or a pending migration blocks a later session's acceptance.
+
+**10.6 One validation batch.** At the end of a chain, append a combined "Brad's twenty minutes" to the final PR and the log, written against the main preview URL, covering every session in the run in the order he should check them.
+
+---
+
+## 11. Local agent mode (added Oct 11, 2026)
+
+11.1 Scope. Applies to a Claude Code session running on Brad's desktop in the repo, with `gh` and `vercel` logged in and `SUPABASE_DB_URL` set in `.env.local`. Cloud sessions remain under §3 and §10 unchanged.
+
+11.2 Migrations. In local mode the agent may execute migrations (superseding §2.9 for local mode only) when ALL of these hold: (a) before any DDL, a full `pg_dump` of the database is written to `backups/YYYY-MM-DD-HHMM-<session>.sql`, its size is verified to be non-zero, and its filename is logged; (b) the migration runs block by block, with a readback after each block, compared against the expected output written in the SQL file; (c) the adversarial suite, including its positive control, passes; (d) the run is recorded in SESSION_LOG.md with the backup filename. If any block fails, stop. Rely only on transaction rollback, attempt no repair, and write BLOCKED: with the restore command for Brad.
+
+11.3 Environment variables. The agent may add or update Preview and Development variables via the Vercel CLI. Production variables are Brad's and are listed as a paste-block in the promotion checklist (§11.8). Secret values are never echoed into logs, PRs, commits, or chat. Generated values are written only to `.env.local` and Vercel.
+
+11.4 Merges. The agent may merge PRs into `main` under the §10.3 conditions. This includes PRs that required a migration, once §11.2 is satisfied for it.
+
+11.5 Preview testing. The agent exercises previews using the `VERCEL_AUTOMATION_BYPASS_SECRET` header. Acceptance items that can be checked by machine on a preview are checked there, not only on a local build.
+
+11.6 Never: push or merge to `release/v2`; deploy with `--prod`; set Production environment variables; drop, delete, or narrow anything containing user data outside an approved migration plan; disable RLS or Vercel deployment protection; force-push; merge a VOICE PR; edit §2 except as Brad authorizes in chat.
+
+11.7 Additional stop conditions (on top of §10.5): the backup fails or comes out empty; a migration is destructive to user data (DROP, DELETE, a narrowing ALTER TYPE, TRUNCATE), so stop and present it for Brad's approval; a usage limit is reached, so commit working state and log where to resume.
+
+11.8 Reporting. Every run ends with the §10.6 combined validation batch plus a Production promotion checklist: the Production environment variables to add (names only, with how to generate each), the migrations already live with their backup files, and the merge SHAs to revert if needed.
 
 ---
 
