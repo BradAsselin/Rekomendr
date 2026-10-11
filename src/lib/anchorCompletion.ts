@@ -18,6 +18,7 @@ if (typeof window !== "undefined") {
 import { createHash } from "crypto";
 import OpenAI from "openai";
 import { ANCHOR_DETAIL_PROMPT } from "./anchorDetailPrompt";
+import { detailGroundingLine } from "./anchorGrounding";
 import { isProductionRuntime } from "./envCheck";
 import {
   LIMITS,
@@ -81,7 +82,13 @@ export async function completeLongIfMissing(
           content:
             `Item: ${row.item_name}\n` +
             (row.item_category ? `Category: ${row.item_category}\n` : "") +
-            `Its displayed profile: ${row.short_description}`,
+            `Its displayed profile: ${row.short_description}` +
+            // S1.6 — movie/TV plot facts ride as data; empty for other categories.
+            (await detailGroundingLine({
+              name: row.item_name,
+              category: row.item_category,
+              path: "snapshot-completion",
+            })),
         },
       ],
     });

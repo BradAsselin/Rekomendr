@@ -9,6 +9,7 @@ import { HEALTH_MEDICAL_CATEGORIES } from "../../../src/lib/categoryGates";
 import {
   NEW_TO_ME_NOTICE,
   dropUnresolvedMediaReks,
+  mediaKindFor,
 } from "../../../src/lib/snapTitleGuard";
 import { runEnvCheck } from "../../../src/lib/envCheck";
 import { ANCHOR_DETAIL_PROMPT } from "../../../src/lib/anchorDetailPrompt";
@@ -22,6 +23,12 @@ import {
   openAIFailureResponse,
 } from "../../../src/lib/openaiFailure";
 import { capGate } from "../../../src/lib/apiUsage";
+import {
+  detailGroundingLine,
+  mediaSourceFor,
+  readModelGrounding,
+  readModelYear,
+} from "../../../src/lib/anchorGrounding";
 
 export const runtime = "nodejs";
 
@@ -30,17 +37,30 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 // Boot-time env-pair check (logs once per process, hostnames only).
 runEnvCheck();
 
+// The media anchor grammar, shared by the vision prompt and the grounded
+// rewrite (Session 1.6) so the two can never drift apart. Byte-identical
+// to the lines it replaced inside SYSTEM_PROMPT.
+const MEDIA_ANCHOR_GRAMMAR =
+  "Sentence 1: a CHARACTERIZED role — a vivid description that sets the tone, NEVER a proper name (names mean nothing to someone who hasn't seen it) — plus the wildly specific premise only this title has. Setup only: if the hook needs the twist, it belongs in the wrong sentence.\n" +
+  "Sentence 2: placement — the tone/pace fork this title sits on (bleak vs. warm, talky vs. propulsive, slow-burn vs. caper), tied to ONE concrete element of the title. NOT a second premise beat, NOT a person-type, NOT a viewing-occasion claim.\n" +
+  "NEVER 'best suited for', NEVER 'fans of', NEVER genre-adjective soup ('an analytical yet heartfelt sports drama' describes a shelf, not a title).\n" +
+  "- RIGHT: 'A night-shift customs inspector starts waving one unmarked truck through her crossing every Thursday, no questions asked. Colder and quieter than its thriller premise suggests — the tension lives in the long silences at the checkpoint gate.'\n" +
+  "- WRONG: 'An analytical yet heartfelt drama exploring the blend of statistics and human emotion. Best suited for fans of underdog stories.' (zero premise, zero hook — genre adjectives plus a person-type; nothing in it belongs to one title)\n";
+
 const SYSTEM_PROMPT =
   "You are a taste-aware recommendation engine reading a single photo.\n" +
   "\n" +
   "Step 1: Identify the main item in the photo (a wine bottle, beer menu, restaurant menu, streaming screen, product on a shelf, a tube of cream, etc.) and its category (a short lowercase label — e.g. wine, vodka, beer, food, movies, tv, books, coffee, snacks, skincare).\n" +
   "For detected_item.description, CHARACTERIZE the item — this must be the richest, most specific description in the entire response. The user snapped this item; the photo is a question about IT. Exactly two sentences, one job each. Two grammars, forked by category:\n" +
   "IF the category is media (movies, tv, books):\n" +
-  "Sentence 1: a CHARACTERIZED role — a vivid description that sets the tone, NEVER a proper name (names mean nothing to someone who hasn't seen it) — plus the wildly specific premise only this title has. Setup only: if the hook needs the twist, it belongs in the wrong sentence.\n" +
-  "Sentence 2: placement — the tone/pace fork this title sits on (bleak vs. warm, talky vs. propulsive, slow-burn vs. caper), tied to ONE concrete element of the title. NOT a second premise beat, NOT a person-type, NOT a viewing-occasion claim.\n" +
-  "NEVER 'best suited for', NEVER 'fans of', NEVER genre-adjective soup ('an analytical yet heartfelt sports drama' describes a shelf, not a title).\n" +
-  "- RIGHT: 'A night-shift customs inspector starts waving one unmarked truck through her crossing every Thursday, no questions asked. Colder and quieter than its thriller premise suggests — the tension lives in the long silences at the checkpoint gate.'\n" +
-  "- WRONG: 'An analytical yet heartfelt drama exploring the blend of statistics and human emotion. Best suited for fans of underdog stories.' (zero premise, zero hook — genre adjectives plus a person-type; nothing in it belongs to one title)\n" +
+  MEDIA_ANCHOR_GRAMMAR +
+  "GROUNDING (media) — the premise in Sentence 1 must be one you can stand behind. NEVER invent a plot.\n" +
+  "(1) If the photo shows descriptive text about the title — a synopsis on a screen, a back-of-box blurb, a back cover — take the premise from THAT text only.\n" +
+  "(2) Otherwise, use a premise only if you know this exact title's story for certain. A title, a poster's imagery, or a genre is NOT a story.\n" +
+  "(3) If neither holds, Sentence 1 says only what the photo shows (what kind of title it is; the studio or year if visible; what the art suggests) and says plainly that it is too new or unfamiliar for you to know its story. Sentence 2 places it from that visible evidence only.\n" +
+  "Set detected_item.grounding to \"image_text\", \"known\" or \"unknown\" to match, and detected_item.year to the release year if the photo shows it or you know it for certain (otherwise null).\n" +
+  "- RIGHT (a poster with only a title and a red audio waveform, a title you don't know): 'A new horror release whose poster is a single red audio waveform — too new for me to know its story yet. The art points to dread built from sound rather than jump scares.'\n" +
+  "- WRONG (same poster): 'A reclusive sound engineer starts hearing strange frequencies that lead him to hidden messages.' (a plot invented from the poster art; nothing in the photo says so)\n" +
   "FOR ALL OTHER CATEGORIES:\n" +
   "Sentence 1 MUST open by placing the item on its category's PRIMARY axis — the first question a buyer of that category asks — then add signature notes. Examples of primary axes: wine = dry vs. sweet ('Dry, with...' / 'Off-dry, leaning sweet...'); whiskey/scotch = smoky vs. smooth; beer = easy-drinking vs. hop-forward; coffee = light vs. dark roast; glue/tools = strength, speed, what it works on. If unsure of the category's primary axis, lead with the single attribute a first-time buyer would ask about before any other.\n" +
   "State the primary-axis placement EVEN WHEN it is the category default (a Cabernet is typically dry — say 'Dry and smooth...' anyway; the user may not know the default). The placement words must be the literal opening of Sentence 1.\n" +
@@ -106,7 +126,7 @@ const SYSTEM_PROMPT =
   "\n" +
   "Every rek in every list carries its OWN category — same register as detected_item.category (a short lowercase label); it may differ from the detected item's (a bourbon alternative under a scotch anchor is 'bourbon'; a cocktail in results.uses is 'cocktails').\n" +
   "Return JSON only, in this exact shape:\n" +
-  "{ \"detected_item\": { \"name\": string, \"description\": string, \"category\": string }, \"mode\": \"similar\"|\"uses\"|\"alternatives\", \"results\": { \"similar\": [ { \"name\": string, \"description\": string, \"category\": string, \"rank\": number } ], \"uses\": [ ... ], \"alternatives\": [ ... ] } }\n" +
+  "{ \"detected_item\": { \"name\": string, \"description\": string, \"category\": string, \"grounding\": \"image_text\"|\"known\"|\"unknown\" (media only), \"year\": number|null (media only) }, \"mode\": \"similar\"|\"uses\"|\"alternatives\", \"results\": { \"similar\": [ { \"name\": string, \"description\": string, \"category\": string, \"rank\": number } ], \"uses\": [ ... ], \"alternatives\": [ ... ] } }\n" +
   "\n" +
   "Hard rules for EVERY list (similar, uses, alternatives):\n" +
   "- Each list must contain EXACTLY 5 items, every time, no fewer.\n" +
@@ -376,6 +396,73 @@ async function handleBackfill(backfill: any): Promise<Response> {
 // ANCHOR_DETAIL_PROMPT lives in src/lib/anchorDetailPrompt.ts (moved
 // byte-identical in Session 2 so the snapshot completion can share it).
 
+// ---------------------------------------------------------------------------
+// S1.6 — GROUNDED ANCHOR REWRITE (movies/TV). When the photo carried no
+// synopsis and TMDb has an overview, the anchor's two sentences are
+// rewritten from that overview alone, in the same media grammar the vision
+// prompt uses (one shared constant). Fail-soft: any failure keeps the
+// vision anchor and logs [anchor-grounding] rewrite_failed.
+// ---------------------------------------------------------------------------
+const GROUNDED_ANCHOR_PROMPT =
+  "You write the two-sentence description for one movie or TV title a user just photographed. Its premise must come ONLY from the SOURCE synopsis you are given — add no character, event, setting or twist the synopsis does not state.\n" +
+  MEDIA_ANCHOR_GRAMMAR +
+  'Return JSON only, in this exact shape: { "description": string }';
+
+type AnchorGroundingTier = "image_text" | "tmdb" | "known" | "unknown" | "unreported";
+
+async function groundMediaAnchor(args: {
+  name: string;
+  category: string;
+  short: string;
+  modelGrounding: unknown;
+  modelYear: unknown;
+}): Promise<{ short: string; tier: AnchorGroundingTier }> {
+  const claimed = readModelGrounding(args.modelGrounding);
+  // Tier 1: the photo itself carried the synopsis — nothing to add.
+  if (claimed === "image_text") {
+    console.info("[anchor-grounding]", { tier: "image_text" });
+    return { short: args.short, tier: "image_text" };
+  }
+  // Tier 2: TMDb. The model's own "known" is NOT trusted over the overview —
+  // the field case was a confident invention.
+  const source = await mediaSourceFor({
+    name: args.name,
+    category: args.category,
+    year: readModelYear(args.modelYear),
+    path: "snap",
+  });
+  // No source (no key, no match, lookup failed): tier 3 — the vision
+  // prompt's own honesty rule stands, and the miss is already logged.
+  if (!source) return { short: args.short, tier: claimed ?? "unreported" };
+  try {
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o",
+      temperature: 0.7,
+      max_tokens: 300,
+      response_format: { type: "json_object" },
+      messages: [
+        { role: "system", content: GROUNDED_ANCHOR_PROMPT },
+        {
+          role: "user",
+          content:
+            `Title: ${source.tmdbTitle}${source.year ? ` (${source.year})` : ""}\n` +
+            `SOURCE (TMDb synopsis): ${source.overview}`,
+        },
+      ],
+    });
+    const parsed = JSON.parse(completion.choices?.[0]?.message?.content ?? "");
+    const rewritten = typeof parsed?.description === "string" ? parsed.description.trim() : "";
+    if (!rewritten) throw new Error("empty description");
+    console.info("[anchor-grounding]", { tier: "tmdb", replaced: claimed ?? "unreported" });
+    return { short: rewritten, tier: "tmdb" };
+  } catch (err) {
+    console.warn("[anchor-grounding] rewrite_failed — vision anchor kept", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return { short: args.short, tier: claimed ?? "unreported" };
+  }
+}
+
 async function handleAnchorDetail(anchorDetail: any): Promise<Response> {
   const name = anchorDetail?.name;
   const shortDescription = anchorDetail?.shortDescription;
@@ -423,7 +510,9 @@ async function handleAnchorDetail(anchorDetail: any): Promise<Response> {
         content:
           `Item: ${name}\n` +
           (category ? `Category: ${category}\n` : "") +
-          `Its displayed profile: ${shortDescription}`,
+          `Its displayed profile: ${shortDescription}` +
+          // S1.6 — movie/TV plot facts ride as data; empty for other categories.
+          (await detailGroundingLine({ name, category, path: "anchorDetail" })),
       },
     ],
   });
@@ -1215,12 +1304,25 @@ export async function POST(req: Request) {
         allowedModes.find((m) => cleaned[m].length > 0) ?? "similar";
     }
 
+    // S1.6 — ground a movie/TV anchor's premise BEFORE it is signed, so the
+    // token attests the text the user actually reads.
+    const visionShort =
+      typeof detected.description === "string" ? detected.description : "";
+    const grounded = mediaKindFor(anchorCategory)
+      ? await groundMediaAnchor({
+          name: detected.name,
+          category: anchorCategory,
+          short: visionShort,
+          modelGrounding: detected.grounding,
+          modelYear: detected.year,
+        })
+      : null;
+
     // S2 — sign the anchor exactly as it ships (Ledger #19). The token is
     // what later lets /api/save persist THIS text and nothing else, and
     // what the text-only paths verify before they generate. Omitted when
     // tokens are off or the snap carried no client id.
-    const shortText =
-      typeof detected.description === "string" ? detected.description : "";
+    const shortText = grounded ? grounded.short : visionShort;
     const detectedItemToken = clientId
       ? signAnchor({
           name: detected.name,
@@ -1237,6 +1339,8 @@ export async function POST(req: Request) {
           name: detected.name,
           description: shortText,
           category: anchorCategory,
+          // Diagnostic only (the client ignores it): where the premise came from.
+          ...(grounded ? { grounding: grounded.tier } : {}),
         },
         ...(detectedItemToken ? { detected_item_token: detectedItemToken } : {}),
         mode,
