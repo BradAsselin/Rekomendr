@@ -462,3 +462,24 @@ NEXT SESSION SHOULD KNOW:
 - Every open choice in a plan now cites a precedent (§12.2), and anything that changes look or feel ships to a preview with its reasoning for Brad's phone (§12.4).
 
 VALIDATION: none — docs only.
+
+---
+
+## Session 2.1 — health-tab-wall — 2026-10-11 — branch auto/s2.1-health-tab-wall — PR #9 (local agent mode, §11)
+
+SHIPPED:
+- **A health, medical or supplement snap shows only Similar.** "Use it for" and "Instead try" are gone for those anchors, and so is the toggle row (one pill is not a choice). Field case: Vitafusion → "take after exercising to support muscle recovery".
+- **Why hide rather than neutralize (§12):** there is no neutral "Use it for" a supplement — any answer is a use instruction, i.e. the claim. A prompt rule only makes a claim less likely (the existing "never imply efficacy" rule let the field case through), and the FTC's Health Products Compliance Guidance (2022) holds benefit claims to scientific substantiation that a generated sentence never has. Precedents: the app's own anchor wall removes rather than weakens; the hide-vs-disable rule (NN/g): a control that can never be available in this context is removed.
+- **Structural, server-first:** `/api/reksnap` empties `uses`/`alternatives` for a health anchor before the response leaves the server (`[health-wall] uses/alternatives withheld` tripwire), and the mode falls to `similar`. Backfill for those two modes on a health anchor → 403, no OpenAI call. Client twin in `RekSnapResults.tsx` (no tab row, Similar forced, the other lists emptied). Same gate as the anchor wall: `HEALTH_MEDICAL_CATEGORIES`.
+- Edge fixed: the S1.5 "This one's new to me" notice now reads the title guard's own output, so a wall-emptied supplement never gets that voice.
+- `validate-s21` **126/126**; regression s15 54, s2 97, s36 59; tsc clean. **Preview by machine: 19/19** — three real vitamin snaps (categories `vitamins`, `supplements`, `vitamins`) each 5/0/0, mode similar, no notice; backfill uses/alternatives 403, similar 200; wine control 5/5/5.
+
+FOUND, NOT FIXED:
+- The Similar list on a health anchor still runs on the existing conservative-health prompt rule. If a claim shows up there, the cure is a prompt change (joint session).
+
+BRAD MUST: nothing (no env, no migration).
+
+NEXT SESSION SHOULD KNOW:
+- Any new list or surface on a snap result inherits this: health anchors get Similar only. Gate on `HEALTH_MEDICAL_CATEGORIES`, server first.
+
+VALIDATION: folded into the combined §10.6 batch at the end of this chain.
