@@ -588,3 +588,30 @@ SHIPPED:
 - **BRAD-AUTHORIZED CHANGE (2026-10-11): §10.5** stop condition now reads "two consecutive sessions logging NEW found-not-fixed items in the same file". A carried item restated in a later session no longer halts a chain. Settles the judgment call recorded in the S2.1→S2.3 chain close. §2 untouched.
 
 FOUND, NOT FIXED: nothing. BRAD MUST: nothing. VALIDATION: none — docs only.
+
+---
+
+## Session 2.4 — health-anchor-only — 2026-10-11 — branch auto/s2.4-health-anchor-only — PR #12 (local agent mode, §11)
+
+Brad's decisions (2026-10-11): (1) health anchors show no rek list, one quiet plain-voice line instead — Brad tests the wording; (2) TMDb logo beside the footer attribution; (3) TMDb status stays out of the alerting `ok` flag — no code; (4) §10.5 amended — on main, `f03880f`.
+
+SHIPPED:
+- **A health, medical or supplement snap shows the anchor and nothing under it**: no pills (S2.1), no cards, no Share. One grey line under the title: *"Rekomendr doesn't recommend health products."* It rides the anchor card's existing `markerLine` slot (the S1 quiet line: no chrome, no tap target), so it reads as a fact about the app, not an error or a badge (§12.2: the app's own precedent). Save and thumbs on the anchor are unchanged.
+- **Server first:** `/api/reksnap` withholds `similar` too (all three lists empty for a health anchor; tripwire `[health-wall] rek lists withheld`); backfill refuses every mode for a health anchor (403, no OpenAI call). The "new to me" notice still never shows on a supplement. Client twin empties every list.
+- **TMDb logo** beside the footer notice: TMDb's official "blue_short" SVG (themoviedb.org/about/logos-attribution), `public/tmdb-logo.svg`, 2 KB, inspected before it went in (shapes, one gradient, internal reference only; no script, no external link). 10 px tall — less prominent than ours, per their terms — and not a link.
+- `validate-s21` updated to the decision, **133/133**; `validate-s23` **35/35** (logo asserted); regression s1 50, s15 54, s2 97, s36 59; tsc clean. **Preview, real browser: 31/31** — three real vitamin snaps (`health`, `supplements`, `vitamins`): server sent 0/0/0, the line on screen once, only the anchor card, no pills, no Share, no notice; wine control: three pills, cards, Share, no line; logo loads at 77×10 on phone and desktop, no link.
+
+FOUND, NOT FIXED (NEW):
+- **The health anchor's own short profile still makes benefit claims.** Live snap: "providing antioxidant support for immune health… designed to enhance overall wellness". The vision prompt's EXCEPTION asks for "one plain, factual identifying sentence only" (`app/api/reksnap/route.ts`, the SYSTEM_PROMPT health EXCEPTION line); the model writes two sentences of claims. The cure is prompt text → joint session (§2.3/§5), or a code option for Brad: replace a health anchor's short with the product name and category only.
+- The vision call still generates three lists for a health snap that the server then discards (token cost only). Skipping it is a prompt change.
+
+BRAD MUST: test the line's wording on the phone (§12.4).
+
+NEXT SESSION SHOULD KNOW:
+- A health anchor now has no rek surface anywhere. Any new surface on a snap result inherits that: gate on `HEALTH_MEDICAL_CATEGORIES`, server first.
+- Long branch names get shortened in Vercel's alias (`…-git-auto-s24-health-anc-e99917-…`); read the preview URL from the Vercel bot's PR comment rather than building it.
+
+VALIDATION (verbatim from PR #12's "Brad's twenty minutes", against the main preview after merge):
+- What to do: (1) Snap a vitamin or supplement bottle. (2) Snap a wine. (3) Scroll to the bottom of the home screen.
+- What it should feel like: [ ] the supplement shows the anchor and one small grey line — "Rekomendr doesn't recommend health products." — and nothing under it: no pills, no cards, no Share; [ ] the line reads calm and plain, a fact, not an error — your call on the wording; [ ] the wine is exactly as before; [ ] at the bottom, a small TMDB logo beside the grey notice, quieter than the Rekomendr mark.
+- What to screenshot if it's wrong: the whole supplement snap; the bottom of the home screen.
