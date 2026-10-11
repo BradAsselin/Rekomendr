@@ -27,11 +27,15 @@ function TopBar() {
 // TMDb's API terms require this notice wherever the API is used (the
 // real-title guard checks every movie/TV rek against it). Footer, small
 // and quiet — the Letterboxd placement. Grey on both backgrounds, at AA
-// contrast for small text.
+// contrast for small text. S2.4: their logo beside it, as their terms
+// ask — the official "blue_short" SVG (public/tmdb-logo.svg), 10px tall so
+// it stays less prominent than ours. Not a link: no new tap target.
 function Attribution() {
   return (
-    <footer className="mx-auto w-full max-w-3xl px-4 pb-6 pt-10 text-center text-[11px] leading-snug text-gray-400 sm:text-gray-500">
-      This product uses the TMDB API but is not endorsed or certified by TMDB.
+    <footer className="mx-auto flex w-full max-w-3xl flex-wrap items-center justify-center gap-x-2 gap-y-1 px-4 pb-6 pt-10 text-center text-[11px] leading-snug text-gray-400 sm:text-gray-500">
+      {/* eslint-disable-next-line @next/next/no-img-element -- a 2 KB static SVG; next/image adds nothing */}
+      <img src="/tmdb-logo.svg" alt="TMDB" width={77} height={10} className="h-[10px] w-auto" />
+      <span>This product uses the TMDB API but is not endorsed or certified by TMDB.</span>
     </footer>
   );
 }

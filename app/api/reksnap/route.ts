@@ -269,12 +269,11 @@ async function handleBackfill(backfill: any): Promise<Response> {
   const unattested = refuseUnattested("backfill", item, clientId, backfill?.token);
   if (unattested) return unattested;
 
-  // Belt-and-braces twin of the vision response's tab wall: a health
-  // anchor has only a Similar list, so no backfill may generate a "use" or
-  // an "instead" for one.
+  // Belt-and-braces twin of the vision response's wall: a health anchor
+  // has no rek list (S2.4), so no backfill may generate one for it.
   const backfillCategory =
     typeof item.category === "string" ? item.category.trim().toLowerCase() : "";
-  if (mode !== "similar" && HEALTH_MEDICAL_CATEGORIES.has(backfillCategory)) {
+  if (HEALTH_MEDICAL_CATEGORIES.has(backfillCategory)) {
     return Response.json(
       { error: "Not available for this category" },
       { status: 403 }
@@ -1208,19 +1207,25 @@ export async function POST(req: Request) {
     // recovery"), and "Instead try" frames a substitute as a remedy. A
     // prompt rule cannot guarantee a model writes no claim into a slot
     // built to hold one, so the slots themselves are withheld here,
-    // before anything reaches the client. Similar stays: it names
-    // comparable products under the existing conservative-health rule.
+    // before anything reaches the client.
+    // S2.4 (Brad, 2026-10-11): Similar goes too. On a live vitamin snap it
+    // carried "enhanced absorption and immune support" and "a slightly
+    // more potent formula" — comparisons §2.2 forbids on health anchors,
+    // through the same conservative-health prompt rule that already
+    // failed. A health anchor ships with no rek list at all; the client
+    // shows one plain line in its place.
     const anchorIsHealthMedical = HEALTH_MEDICAL_CATEGORIES.has(anchorCategory);
-    if (anchorIsHealthMedical && (uses.length > 0 || alternatives.length > 0)) {
-      console.info("[health-wall] uses/alternatives withheld", {
+    if (anchorIsHealthMedical) {
+      console.info("[health-wall] rek lists withheld", {
         anchorCategory,
+        similar: similar.length,
         uses: uses.length,
         alternatives: alternatives.length,
       });
     }
 
     const cleaned = {
-      similar: reRank(similar),
+      similar: anchorIsHealthMedical ? [] : reRank(similar),
       uses: anchorIsHealthMedical ? [] : reRank(uses),
       alternatives: anchorIsHealthMedical ? [] : reRank(alternatives),
     };

@@ -4,10 +4,10 @@
 //
 // Compiles the REAL /api/reksnap route from source and drives it with a stub
 // OpenAI (a scripted vision answer) and an in-memory Supabase stand-in. No
-// keys, no network. Proves: a health anchor ships a Similar list only, lands
-// on Similar whatever mode the model inferred, and no backfill can generate
-// a "use" or an "instead" for it; every non-health anchor is unchanged. The
-// client half is asserted from source (the tab row and the list reset).
+// keys, no network. Proves: a health anchor ships NO rek list (S2.1 took the
+// tabs, S2.4 took Similar), whatever mode the model inferred, and no backfill
+// can generate one for it; every non-health anchor is unchanged. The client
+// half is asserted from source (tab row, list reset, the plain line).
 //
 //   node scripts/validate-s21.cjs
 //
@@ -132,7 +132,7 @@ const visionAnswer = (category, mode) => ({
 const IMAGE = "data:image/jpeg;base64,AAAA";
 
 (async () => {
-  out("\n1. Health anchors ship a Similar list only");
+  out("\n1. Health anchors ship no rek list");
   for (const category of ["supplement", "vitamins", "medication", "skincare", "Supplements "]) {
     for (const mode of ["uses", "alternatives", "similar"]) {
       logs = [];
@@ -142,16 +142,18 @@ const IMAGE = "data:image/jpeg;base64,AAAA";
       check(`${tag}: 200`, r.status, 200);
       check(`${tag}: uses withheld`, r.json?.results?.uses?.length, 0);
       check(`${tag}: alternatives withheld`, r.json?.results?.alternatives?.length, 0);
-      check(`${tag}: similar kept`, r.json?.results?.similar?.length, 5);
+      check(`${tag}: similar withheld`, r.json?.results?.similar?.length, 0);
       check(`${tag}: lands on similar`, r.json?.mode, "similar");
       check(`${tag}: no notice (not the new-to-me voice)`, r.json?.notice, undefined);
-      if (mode === "uses") check(`${tag}: [health-wall] tripwire`, logged("[health-wall] uses/alternatives withheld"), true);
+      if (mode === "uses") check(`${tag}: [health-wall] tripwire`, logged("[health-wall] rek lists withheld"), true);
     }
   }
   // The field case's text never leaves the server.
   ai.next = visionAnswer("supplement", "uses");
   const field = await post({ image: IMAGE });
   check("field-case claim text absent from the response", JSON.stringify(field.json).includes("muscle recovery"), false);
+  check("no Similar text in the response either", JSON.stringify(field.json).includes("Similar 1"), false);
+  check("anchor itself still ships", field.json?.detected_item?.name, "Vitafusion Recovery Gummies");
 
   out("\n2. Health anchor whose Similar list is empty: anchor only, no notice, no 502");
   ai.next = { ...visionAnswer("supplement", "uses"), results: { similar: [], uses: five("Take daily", "supplement"), alternatives: [] } };
@@ -171,28 +173,30 @@ const IMAGE = "data:image/jpeg;base64,AAAA";
     check(`${category}: no [health-wall] line`, logged("[health-wall]"), false);
   }
 
-  out("\n4. Backfill: no use or instead for a health anchor");
+  out("\n4. Backfill: nothing generates for a health anchor");
   const item = { name: "Vitafusion Recovery Gummies", description: "A gummy supplement.", category: "supplement" };
-  for (const mode of ["uses", "alternatives"]) {
+  for (const mode of ["uses", "alternatives", "similar"]) {
     ai.calls = 0;
     const r = await post({ backfill: { detectedItem: item, mode, excludeNames: [], rejectedNames: [], clientId: CLIENT } });
     check(`health backfill ${mode}: 403`, r.status, 403);
     check(`health backfill ${mode}: no OpenAI call`, ai.calls, 0);
   }
-  ai.calls = 0;
-  ai.next = { rek: { name: "Similar 9", description: "Another gummy.", category: "supplement" } };
-  const sim = await post({ backfill: { detectedItem: item, mode: "similar", excludeNames: [], rejectedNames: [], clientId: CLIENT } });
-  check("health backfill similar: 200 (positive control)", sim.status, 200);
-  check("health backfill similar: one OpenAI call", ai.calls, 1);
   ai.next = { rek: { name: "Port pairing", description: "Two sentences.", category: "wine" } };
+  for (const mode of ["similar", "alternatives"]) {
+    const r = await post({ backfill: { detectedItem: { name: "Bonanza Cab", description: "x", category: "wine" }, mode, excludeNames: [], rejectedNames: [], clientId: CLIENT } });
+    check(`wine backfill ${mode}: 200 (positive control)`, r.status, 200);
+  }
   const wine = await post({ backfill: { detectedItem: { name: "Bonanza Cab", description: "x", category: "wine" }, mode: "uses", excludeNames: [], rejectedNames: [], clientId: CLIENT } });
   check("wine backfill uses: 200 (positive control)", wine.status, 200);
 
-  out("\n5. Client source: tabs hidden, lists reset, Similar forced");
+  out("\n5. Client source: tabs hidden, every list emptied, the plain line");
   const src = fs.readFileSync(path.join(ROOT, "src/components/RekSnapResults.tsx"), "utf8");
   check("tab row gated on !anchorIsHealthMedical", /\{!anchorIsHealthMedical && \(\s*<div className="flex justify-center gap-2 mb-3">/.test(src), true);
   check("activeMode forced to similar on health", src.includes('setActiveMode(health ? "similar" : result.mode)'), true);
-  check("uses/alternatives emptied on health", src.includes("{ similar: result.results.similar, uses: [], alternatives: [] }"), true);
+  check("every list emptied on health", src.includes("? { similar: [], uses: [], alternatives: [] }"), true);
+  check("the plain line, exact wording", src.includes(`const HEALTH_ANCHOR_LINE = "Rekomendr doesn't recommend health products.";`), true);
+  check("line shown on the anchor, health only", src.includes("markerLine={anchorIsHealthMedical ? HEALTH_ANCHOR_LINE : undefined}"), true);
+  check("still no Share on health", /const anchorShareable =\s*!anchorIsHealthMedical/.test(src), true);
   check("health test uses the shared category set", /const health = HEALTH_MEDICAL_CATEGORIES\.has\(/.test(src), true);
 
   out(`\n${pass} passed, ${fail} failed.`);
