@@ -21,6 +21,7 @@ import {
   maybeSimulateOpenAIFailure,
   openAIFailureResponse,
 } from "../../../src/lib/openaiFailure";
+import { capGate } from "../../../src/lib/apiUsage";
 
 export const runtime = "nodejs";
 
@@ -1001,6 +1002,18 @@ export async function POST(req: Request) {
 
     const body = await req.json().catch(() => ({}));
 
+    // S3.6: per-client daily caps (Ledger #19). The three text branches
+    // share one key; the vision call has its own. 400 without a client id.
+    const textBranch =
+      (body?.backfill && typeof body.backfill === "object" && body.backfill) ||
+      (body?.anchorDetail && typeof body.anchorDetail === "object" && body.anchorDetail) ||
+      (body?.chain && typeof body.chain === "object" && body.chain) ||
+      null;
+    if (textBranch) {
+      const capped = await capGate(textBranch.clientId, "reksnap-text");
+      if (capped) return capped;
+    }
+
     // Backfill requests are text-only and carry no image.
     if (body?.backfill && typeof body.backfill === "object") {
       return await handleBackfill(body.backfill);
@@ -1021,6 +1034,9 @@ export async function POST(req: Request) {
     if (!image.startsWith("data:image/")) {
       return Response.json({ error: "Missing image" }, { status: 400 });
     }
+
+    const capped = await capGate(body?.clientId, "reksnap-vision");
+    if (capped) return capped;
 
     // Cross-session shading for the vision call: the category is unknown
     // until the model answers, so ALL recent groups ride the user message

@@ -21,6 +21,7 @@ import { getTop5FromDeck } from "./deckSelector";
 // buildMoviePrompt.ts, had zero importers and was retired in Session 0.
 import { rankMovieCandidates } from "./movieProfileScorer";
 import { readServiceFailure, isAIServiceError } from "../lib/aiServiceError";
+import { getAnonymousClientId } from "../lib/clientId";
 // S1.5 — the real-title guard. Movies/TV only; the lookup itself lives
 // server-side (TMDB_API_KEY never reaches the browser, and this engine
 // runs in the browser).
@@ -1061,6 +1062,8 @@ async function generateAIReks(args: {
         body: JSON.stringify({
           prompt,
           ...(args.backfill ? { temperature: 0.5, jsonResponse: true } : {}),
+          // S3.6: the route caps per client and refuses a call without one.
+          clientId: getAnonymousClientId(),
         }),
         ...(controller ? { signal: controller.signal } : {}),
       });
