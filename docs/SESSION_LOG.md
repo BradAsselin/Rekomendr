@@ -446,3 +446,19 @@ Both are additive. Rollback is the `drop table` in each SQL file's BLOCK 5; the 
 **Revert SHAs if needed:** `c302ea5` (S2), `7255623` (S3.6).
 
 **Production test residue:** `anchor_snapshots` holds 4 agent rows (`anon_agent_s2check_*`), all revoked. `api_usage` holds ~370 agent rows (`anon_agent_s36*`, `anon_agent_s16count_*`) that age out of the 24h window by themselves.
+
+---
+
+## Charter amendment §12 (the decision rule) — 2026-10-11 — committed directly to main (charter-only, on Brad's instruction) — no PR
+
+SHIPPED:
+- Charter §12 "The decision rule" appended verbatim to `docs/BUILD_CHARTER.md` (before the closing line). Docs only. §2 untouched.
+
+FOUND, NOT FIXED: nothing.
+
+BRAD MUST: nothing for this entry.
+
+NEXT SESSION SHOULD KNOW:
+- Every open choice in a plan now cites a precedent (§12.2), and anything that changes look or feel ships to a preview with its reasoning for Brad's phone (§12.4).
+
+VALIDATION: none — docs only.

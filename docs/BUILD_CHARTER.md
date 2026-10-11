@@ -248,4 +248,12 @@ Then: the ops dashboard session (SMTP, Supabase tripwire verification, usage ale
 
 ---
 
+## 12. The decision rule (added Oct 11, 2026)
+12.1 The test. Rekomendr exists to get the person — Brad, Katrina, anyone — to a useful result as easily as possible. A useful result is a movie or TV show they want to watch and enjoy, or a wine they will like. Every decision is judged by one question: does this get the person there with less effort and less to learn?
+12.2 Best practice decides. When a choice is open, choose what established, tested practice says works best: known interaction patterns, published usability research, and what proven consumer apps have converged on. Cite the source or precedent in the plan. Don't invent a pattern where a proven one exists.
+12.3 Fewer steps beats more features. Never make a user remember a prerequisite step; collapse it into the action they're already taking.
+12.4 Feel is Brad's. Choices that change how something looks or feels ship to a preview with the reasoning stated, and Brad tests them on his phone. Voice remains a joint session (§5).
+
+---
+
 *Be honest before helpful. Diagnose before fixing. Measure, don't estimate. Bound at the source. Prove the grant, not just the denial. The saved thing must be rich on return — that is the product. And when in doubt about feel: stop, write, and let the founder's ear decide.*
