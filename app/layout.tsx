@@ -24,6 +24,18 @@ function TopBar() {
   );
 }
 
+// TMDb's API terms require this notice wherever the API is used (the
+// real-title guard checks every movie/TV rek against it). Footer, small
+// and quiet — the Letterboxd placement. Grey on both backgrounds, at AA
+// contrast for small text.
+function Attribution() {
+  return (
+    <footer className="mx-auto w-full max-w-3xl px-4 pb-6 pt-10 text-center text-[11px] leading-snug text-gray-400 sm:text-gray-500">
+      This product uses the TMDB API but is not endorsed or certified by TMDB.
+    </footer>
+  );
+}
+
 export default function RootLayout({
   children,
 }: {
@@ -45,6 +57,7 @@ export default function RootLayout({
       <body className="min-h-screen bg-[#0b1725] sm:bg-white">
         <TopBar />
         {children}
+        <Attribution />
       </body>
     </html>
   );
