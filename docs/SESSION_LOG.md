@@ -527,3 +527,55 @@ NEXT SESSION SHOULD KNOW:
 - Health is now a real TMDb signal. `rejected` on production means every movie/TV rek is being dropped (the guard fails closed).
 
 VALIDATION: folded into the combined §10.6 batch at the end of this chain.
+
+---
+
+## Chain close (S2.1 → S2.2 → S2.3) — local agent mode (§11) — 2026-10-11
+
+**Merged (§10.3 + §11.4):** S2.1 health tab wall, PR #9, **`3f5737b`** · S2.2 one-tap Share, PR #10, **`81c2491`** · S2.3 housekeeping, PR #11, **`1dfa054`**. Each reverts on its own: `git revert -m 1 <sha>`.
+**Charter:** §12 "The decision rule" appended, `2e0cf06` (Brad-authorized, charter-only).
+**Carry-forward (§10.2), at start:** s1 50, s15 54, s2 97, s36 59, tsc clean; main preview health `db/tmdb/mint` ok. Brad had already put a working `TMDB_API_KEY` in Production + Preview and `MINT_SIGNING_SECRET` in Production (`vercel env ls`; `a5914c6`); the `.env.local` key now answers 200.
+**§10.5 judgment call, recorded:** S2.1 and S2.2 both list the same carried item (claims in the health Similar list). Read as one finding restated, not two sessions piling up in one file; S2.3 touched different files, so the chain continued. Brad may read it stricter.
+**Open from earlier:** PR #7 (S1.6, VOICE) — its TMDb blocker is gone; the next local session can re-run its counts against the live API.
+
+### Banked for later (Brad's instruction — do not build yet)
+- **Wine anchors and reks missing producer names.** "Primitivo 2023", "Zinfandel 2022": unfindable on a shelf. A wine name without a producer is not a decision. Touches the wine grammar / vision prompt → likely a joint session.
+- **Dependency/security upgrade as its own session.** 28 `npm audit` findings; Next 14. Its own branch, its own plan, full harness + preview regression.
+
+### Found in this run, for Brad
+- **Health anchors' Similar cards still make claims** ("enhanced absorption and immune support", "more potent formula"; the anchor short: "intended to support immune health"). §2.2 says no comparisons on health anchors. Recommendation: anchor-only for health (one line in the S2.1 wall), for the same reason the tabs were hidden — the prompt rule already failed here.
+- TMDb logo (their terms ask for it) — a visual call.
+- Three dead Vercel variables: `SUPABASE_KEY`, `SURVEY_BONUS_TOKENS`, `GLOBAL_DAILY_CAP` (read nowhere).
+
+### Brad's twenty minutes — combined (§10.6), against the main preview
+Main preview: https://rekomendr-git-main-brad-asselins-projects.vercel.app (S0 → S3.6, plus S2.1, S2.2, S2.3).
+
+What to do, in this order:
+1. Open `<main preview>/api/health`. Expect `"db":"ok"`, `"mint":"ok"`, `"tmdb":"ok"` — the TMDb value is now a real check against TMDb, not just "a key is set".
+2. **S2.1:** snap a vitamin or supplement bottle. Only the anchor and one list of similar products; no "Use it for" / "Instead try" pills at all, and no Share.
+3. **S2.1 control:** snap a wine. All three pills are there as before.
+4. **S2.2:** on that wine, without tapping Save, look under the card: **Share** is already there, readable on the dark background. Tap it → the share sheet opens → the bookmark (Save) fills in. Send it to yourself and open it.
+5. **S2.2:** snap a movie and tap **Save** only. Nothing opens; Share is still there if you want it later.
+6. **S2.3:** scroll to the bottom of the home screen: one small grey line about TMDB.
+7. Use the app normally for a few minutes: a search, "+ More like this", a recipe, Show details. Nothing else should feel different.
+
+What it should feel like:
+- [ ] A supplement snap feels calm and plain — nothing that reads like dosing or health advice in the tabs (because there are none).
+- [ ] Share is one tap, from the first second; you never have to think "save first".
+- [ ] After sharing, it's in your saved things without you asking.
+- [ ] Share reads clearly on the phone; it doesn't shout.
+- [ ] The TMDB line is easy to miss, which is the point.
+- [ ] Wine, food and movie snaps are otherwise exactly as before.
+
+What to screenshot if it's wrong:
+- a supplement snap showing pills or a Share;
+- the anchor area before and after tapping Share;
+- the bottom of the home screen;
+- the health JSON if `"tmdb"` isn't `"ok"`.
+
+### Production promotion checklist (§11.8)
+**Production environment variables to add:** none new this run. `MINT_SIGNING_SECRET` and `TMDB_API_KEY` are already in Production (Brad, today; names confirmed with `vercel env ls`, values not read). After promoting, `<production>/api/health` should show `"tmdb":"ok"` — now a real TMDb check.
+**Optional cleanup (Brad):** remove `SUPABASE_KEY`, `SURVEY_BONUS_TOKENS`, `GLOBAL_DAILY_CAP` from every environment — nothing reads them.
+**Migrations this run:** none. Already live from the previous run: `anchor_snapshots` (backup `backups/2026-10-11-1300-s2.sql`), `api_usage` (backup `backups/2026-10-11-1316-s3.6.sql`).
+**Revert SHAs if needed:** `3f5737b` (S2.1), `81c2491` (S2.2), `1dfa054` (S2.3); earlier this day `c302ea5` (S2), `7255623` (S3.6).
+**Production test residue added this run:** `anchor_snapshots` gained agent rows from the browser runs (clients `anon_*` from fresh Playwright contexts: two wine shares made public, two movie saves private) and `api_usage` rows from `anon_agent_s21check_*`; usage rows age out of the 24h window. The two public wine rows are real shared links on the database production also reads — revoke from Supabase if unwanted (`update anchor_snapshots set revoked_at = now() where shared_at > '2026-10-11 19:20' and name ilike 'Sainte Magdeleine%'` — check the rows first).
