@@ -27,6 +27,15 @@ import {
   openAIFailureResponse,
 } from "../../../src/lib/openaiFailure";
 import { capGate } from "../../../src/lib/apiUsage";
+import { mediaKindFor } from "../../../src/lib/snapTitleGuard";
+import { extractCompleteObject } from "../../../src/lib/jsonEarly";
+import {
+  loadMediaBundle,
+  mediaCategoryFor,
+  mediaConfigured,
+  resolveSnappedTitle,
+} from "../../../src/lib/tmdbMedia";
+import { chooseMediaReks, raceTaste } from "../../../src/lib/mediaReks";
 
 export const runtime = "nodejs";
 
@@ -1009,6 +1018,202 @@ async function handleChain(chain: any): Promise<Response> {
   return Response.json({ reks: verified }, { status: 200 });
 }
 
+// ---------------------------------------------------------------------------
+// S3.0 — THE VISION CALL, STREAMED. Same model, prompt, temperature, cap
+// and JSON mode as before; only the transport changed. `detected` resolves
+// as soon as detected_item's closing brace arrives (the prompt's shape puts
+// it first), or with null when the stream ends without one. `stop` aborts
+// the rest; `done` resolves with the full text and usage — the same text
+// the non-streamed call returned. A stream error rejects `done` and lands
+// in POST's outer catch with every named-failure voice intact.
+// ---------------------------------------------------------------------------
+type VisionContent = (
+  | { type: "image_url"; image_url: { url: string } }
+  | { type: "text"; text: string }
+)[];
+
+async function startVisionStream(content: VisionContent) {
+  const controller = new AbortController();
+  const stream = await openai.chat.completions.create(
+    {
+      model: "gpt-4o",
+      temperature: 0.7,
+      // Three lists of five is ~triple the output of the old single list —
+      // raised well above 3x the old 1500 cap so the JSON never truncates.
+      max_tokens: 4000,
+      response_format: { type: "json_object" },
+      stream: true,
+      stream_options: { include_usage: true },
+      messages: [
+        { role: "system", content: SYSTEM_PROMPT },
+        { role: "user", content },
+      ],
+    },
+    { signal: controller.signal }
+  );
+
+  let buf = "";
+  let usage: { prompt_tokens?: number; completion_tokens?: number } | null = null;
+  let stopped = false;
+  let detectedSettled = false;
+  let settle: (v: Record<string, unknown> | null) => void = () => {};
+  const detected = new Promise<Record<string, unknown> | null>((r) => {
+    settle = r;
+  });
+  const settleDetected = (v: Record<string, unknown> | null) => {
+    if (detectedSettled) return;
+    detectedSettled = true;
+    settle(v);
+  };
+
+  const consumed = (async () => {
+    try {
+      for await (const chunk of stream) {
+        buf += chunk.choices?.[0]?.delta?.content ?? "";
+        if (chunk.usage) usage = chunk.usage;
+        if (!detectedSettled) {
+          const d = extractCompleteObject(buf, "detected_item");
+          if (d) settleDetected(d);
+        }
+      }
+    } finally {
+      settleDetected(null);
+    }
+  })();
+  // A deliberate stop is not an error; anything else surfaces via done().
+  consumed.catch(() => {});
+
+  return {
+    detected,
+    stop: () => {
+      stopped = true;
+      controller.abort();
+    },
+    done: async () => {
+      try {
+        await consumed;
+      } catch (err) {
+        if (!stopped) throw err;
+      }
+      return { text: buf, usage };
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// S3.0 — A MOVIE/TV SNAP, TMDb PATH (Brad's architecture, 2026-10-12): the
+// anchor's description is TMDb's overview verbatim; the five reks are
+// chosen from TMDb's recommendations + similar and explained by the
+// chooser (src/lib/mediaReks.ts). Returns null — and the vision path
+// carries on exactly as before — when the item isn't media, the wall
+// claims it, TMDb is off, or TMDb doesn't know the title.
+// ---------------------------------------------------------------------------
+async function tryMediaSnap(
+  early: Record<string, unknown>,
+  clientId: string | null,
+  stopVision: () => void
+): Promise<Response | null> {
+  const name = typeof early.name === "string" ? early.name.trim() : "";
+  const cat = typeof early.category === "string" ? early.category.trim().toLowerCase() : "";
+  const kind = mediaKindFor(cat);
+  if (!name || !kind || !mediaConfigured()) return null;
+  if (isHealthMedical(cat) || healthLabelFromName(name)) return null;
+
+  const started = Date.now();
+  const tasteEarly = kind === "any" ? null : raceTaste(clientId, kind);
+  const hit = await resolveSnappedTitle(name, kind);
+  if (!hit) {
+    console.info("[media-snap] not on TMDb — vision path", { name, category: cat });
+    return null;
+  }
+  const bundle = await loadMediaBundle(hit.kind, hit.id);
+  if (!bundle) {
+    console.warn("[media-snap] resolved but bundle failed — vision path", { name });
+    return null;
+  }
+  // From here the TMDb path owns the answer; the fifteen model-written
+  // reks still streaming are not needed.
+  stopVision();
+
+  const taste =
+    tasteEarly && kind === bundle.kind ? await tasteEarly : await raceTaste(clientId, bundle.kind);
+  const similar = await chooseMediaReks({
+    anchor: { title: bundle.title, year: bundle.year, kind: bundle.kind, overview: bundle.overview },
+    candidates: bundle.candidates,
+    taste,
+    path: "snap",
+  });
+
+  const category = mediaCategoryFor(bundle.kind);
+  const token = clientId
+    ? signAnchor({ name: bundle.title, category, short: bundle.overview, long: null, clientId })
+    : null;
+  console.info("[media-snap] tmdb path", {
+    read: name,
+    title: bundle.title,
+    kind: bundle.kind,
+    reks: similar.length,
+    msAfterRead: Date.now() - started,
+  });
+
+  return Response.json(
+    {
+      detected_item: {
+        name: bundle.title,
+        description: bundle.overview,
+        category,
+        year: bundle.year,
+      },
+      ...(token ? { detected_item_token: token } : {}),
+      mode: "similar",
+      results: { similar, uses: [], alternatives: [] },
+      media: {
+        kind: bundle.kind,
+        id: bundle.id,
+        trailerUrl: bundle.completion.trailerUrl,
+        watch: bundle.completion.watch,
+        availability: bundle.completion.availability,
+      },
+      ...(similar.length === 0 ? { notice: NEW_TO_ME_NOTICE } : {}),
+    },
+    { status: 200 }
+  );
+}
+
+// ---------------------------------------------------------------------------
+// S3.0 — WINE BY NAME: does the typed text name one specific wine, or
+// describe a style/mood? A small classify-first call (the recipe route's
+// precedent). Null = a mood query; the search runs as before.
+// ---------------------------------------------------------------------------
+const TYPED_WINE_CLASSIFIER =
+  "Decide whether the user's text names ONE specific wine a person could buy — a producer, brand, label or bottling (e.g. 'Caymus Cabernet', 'Whispering Angel', 'Meiomi Pinot Noir', 'Bonanza', 'La Crema Chardonnay') — or describes a style, grape, region, price, food or mood ('something bold', 'dry white under $20', 'Pinot Noir', 'Napa cab', 'wine for steak'). A grape, region or style alone is NOT a specific wine.\n" +
+  'Return JSON only: { "specific": true | false, "name": "<the wine as commonly written>" | null }';
+
+async function classifyTypedWine(raw: unknown): Promise<string | null> {
+  const text = typeof raw === "string" ? raw.trim().slice(0, 120) : "";
+  if (!text) return null;
+  const completion = await openai.chat.completions.create({
+    model: "gpt-4o-mini",
+    temperature: 0,
+    max_tokens: 60,
+    response_format: { type: "json_object" },
+    messages: [
+      { role: "system", content: TYPED_WINE_CLASSIFIER },
+      { role: "user", content: text },
+    ],
+  });
+  try {
+    const parsed = JSON.parse(completion.choices?.[0]?.message?.content ?? "");
+    const name = typeof parsed?.name === "string" ? parsed.name.trim() : "";
+    const verdict = parsed?.specific === true && !!name;
+    console.info("[typed-anchor] wine classify", { specific: verdict });
+    return verdict ? name.slice(0, 120) : null;
+  } catch {
+    console.warn("[typed-anchor] wine classifier returned non-JSON — search as before");
+    return null;
+  }
+}
+
 export async function POST(req: Request) {
   try {
     // Dev/preview-only: REKOMENDR_SIMULATE_OPENAI_FAILURE throws the
@@ -1046,13 +1251,20 @@ export async function POST(req: Request) {
       return await handleChain(body.chain);
     }
 
+    // S3.0 — a TYPED wine (or other non-media item) by name: the same
+    // snap prompt, the name in place of the photo. Media titles never come
+    // here (they resolve through /api/anchor against TMDb).
+    const typed =
+      body?.typed && typeof body.typed === "object" ? body.typed : null;
     const image = typeof body?.image === "string" ? body.image : "";
 
-    if (!image.startsWith("data:image/")) {
+    if (!typed && !image.startsWith("data:image/")) {
       return Response.json({ error: "Missing image" }, { status: 400 });
     }
 
-    const capped = await capGate(body?.clientId, "reksnap-vision");
+    const capped = typed
+      ? await capGate(typed.clientId, "reksnap-text")
+      : await capGate(body?.clientId, "reksnap-vision");
     if (capped) return capped;
 
     // Cross-session shading for the vision call: the category is unknown
@@ -1060,32 +1272,54 @@ export async function POST(req: Request) {
     // and the block instructs the model to apply only the matching group.
     // Raced at 200ms and fail-soft — with no history the request is
     // byte-identical to today's.
-    const clientId = cleanClientId(body?.clientId);
+    const clientId = cleanClientId(typed ? typed.clientId : body?.clientId);
     const prior = clientId ? await racePriorDislikes({ clientId }) : null;
     const priorBlock = buildPriorTasteBlock(prior ?? [], true);
 
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o",
-      temperature: 0.7,
-      // Three lists of five is ~triple the output of the old single list —
-      // raised well above 3x the old 1500 cap so the JSON never truncates.
-      max_tokens: 4000,
-      response_format: { type: "json_object" },
-      messages: [
-        { role: "system", content: SYSTEM_PROMPT },
-        {
-          role: "user",
-          content: priorBlock
-            ? [
-                { type: "image_url", image_url: { url: image } },
-                { type: "text", text: priorBlock },
-              ]
-            : [{ type: "image_url", image_url: { url: image } }],
-        },
-      ],
-    });
+    let text = "";
+    let usage: { prompt_tokens?: number; completion_tokens?: number } | null = null;
 
-    const text = completion.choices?.[0]?.message?.content ?? "";
+    if (typed) {
+      const typedName = await classifyTypedWine(typed.text);
+      if (!typedName) {
+        return Response.json({ anchor: null }, { status: 200 });
+      }
+      const completion = await openai.chat.completions.create({
+        model: "gpt-4o",
+        temperature: 0.7,
+        max_tokens: 4000,
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: SYSTEM_PROMPT },
+          {
+            role: "user",
+            content:
+              `No photo this time: the user typed the item's name instead — "${typedName}". Treat that named item as the item in the photo.` +
+              (priorBlock ? `\n${priorBlock}` : ""),
+          },
+        ],
+      });
+      text = completion.choices?.[0]?.message?.content ?? "";
+      usage = completion.usage ?? null;
+      console.info("[typed-anchor] wine by name", { name: typedName });
+    } else {
+      const vision = await startVisionStream(
+        priorBlock
+          ? [
+              { type: "image_url", image_url: { url: image } },
+              { type: "text", text: priorBlock },
+            ]
+          : [{ type: "image_url", image_url: { url: image } }]
+      );
+      // S3.0 — a movie or TV snap takes the TMDb path the moment the
+      // anchor is identified; the rest of the vision output is not needed.
+      const early = await vision.detected;
+      if (early) {
+        const media = await tryMediaSnap(early, clientId, vision.stop);
+        if (media) return media;
+      }
+      ({ text, usage } = await vision.done());
+    }
 
     let parsed: any = null;
     try {
@@ -1244,8 +1478,8 @@ export async function POST(req: Request) {
         similar: similar.length,
         uses: uses.length,
         alternatives: alternatives.length,
-        promptTokens: completion.usage?.prompt_tokens ?? null,
-        completionTokens: completion.usage?.completion_tokens ?? null,
+        promptTokens: usage?.prompt_tokens ?? null,
+        completionTokens: usage?.completion_tokens ?? null,
       });
     }
 

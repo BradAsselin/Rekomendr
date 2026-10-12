@@ -86,7 +86,7 @@ export function tmdbConfigured(): boolean {
 // the two look nothing alike. Sniffing the shape means a key pasted from
 // either half of TMDb's settings page works, instead of failing with an
 // opaque 401.
-function authFor(key: string): { headers: HeadersInit; query: string } {
+export function authFor(key: string): { headers: HeadersInit; query: string } {
   const isV4 = key.startsWith("eyJ"); // a JWT
   return isV4
     ? { headers: { Authorization: `Bearer ${key}` }, query: "" }
@@ -402,7 +402,7 @@ export async function verifyTitles(items: VerifyItem[]): Promise<VerifyOutcome> 
    these?"
 ------------------------------------------------------------------- */
 export function logFakeTitles(args: {
-  path: "search" | "search-freshness" | "mlt" | "search-backfill" | "snap" | "snap-backfill" | "chain";
+  path: "search" | "search-freshness" | "mlt" | "search-backfill" | "snap" | "snap-backfill" | "chain" | "anchor-typed" | "anchor-snap";
   anchor: string;
   category?: string;
   dropped: { title: string; reason?: VerifyReason }[];
