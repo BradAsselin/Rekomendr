@@ -713,3 +713,11 @@ SHIPPED (PR #15):
 ## Charter amendment §12.5 — 2026-10-11 — committed directly to main (charter-only, on Brad's instruction) — no PR
 
 SHIPPED: **BRAD-AUTHORIZED ADDITION (2026-10-11): §12.5 Proportionate effort**: match effort to current scale and real risk; at friends-and-family scale ship the 95% fix, log the rare miss, move on; re-raise the bar when real usage grows. Prompted by S2.7: 28/29 accepted over "zero leaks". §2 untouched. S2.7 merged as `eff6973`.
+
+---
+
+## Charter amendment §2.7 — 2026-10-12 — committed directly to main (charter-only, on Brad's instruction) — no PR
+
+SHIPPED: **BRAD-AUTHORIZED CHANGE (2026-10-12): §2.7** now reads "No platform imports of a user's saved lists. Public recommendation webs (e.g. TMDb recommendations/similar) may be used as candidate pools; Rekomendr picks, ranks and explains." Was: "No platform imports, no aggregating other apps' lists, no rebuilding the Google info page, no licensed review data on cards. Crowd data may be plumbing (quality floor), never surface." Unblocks the S3.0 media-rek architecture (TMDb recommendations + similar as the candidate pool; the model picks five and writes the comparison line).
+
+FOUND, NOT FIXED: nothing. BRAD MUST: nothing. VALIDATION: none — docs only.
