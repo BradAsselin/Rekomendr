@@ -8,9 +8,15 @@ html,
 body {
   padding: 0;
   margin: 0;
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+  /* S3.0 legibility: the platform's own UI font first (SF Pro on iPhone —
+     Apple HIG, Typography), regular weight, and iOS's automatic text
+     inflation off so sizes render as specified. */
+  font-family: -apple-system, BlinkMacSystemFont, system-ui, "Segoe UI",
     Roboto, Oxygen, Ubuntu, Cantarell, "Open Sans", "Helvetica Neue",
     sans-serif;
+  font-weight: 400;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
   background-color: #ffffff;
   color: #111827; /* Tailwind's gray-900 */
 }

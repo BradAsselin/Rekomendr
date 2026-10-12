@@ -57,3 +57,85 @@ export const WhereToWatchVerb: React.FC<{ name: string }> = ({ name }) => {
     </a>
   );
 };
+
+// S3.0 — WHERE TO WATCH, from TMDb's watch/providers (US). Two pieces:
+//   WatchLine — the anchor's one new tap target (charter §2.6): a quiet
+//     line that already answers "where can I watch it?" with the first
+//     services, and opens the full list on tap.
+//   WatchList — the opened list: Stream first, then Rent or buy, each a
+//     direct link, and the JustWatch attribution TMDb's terms require.
+// Firewall (§2.1): services appear where the title actually is, in TMDb /
+// JustWatch's own order. Nothing here knows what any of them pays.
+export type WatchProviderLink = { name: string; url: string };
+export type WatchInfoView = {
+  link: string;
+  stream: WatchProviderLink[];
+  rentBuy: WatchProviderLink[];
+};
+
+const watchSummary = (w: WatchInfoView): string => {
+  const names = (w.stream.length > 0 ? w.stream : w.rentBuy).slice(0, 2).map((p) => p.name);
+  const lead = w.stream.length > 0 ? "Stream on" : "Rent or buy on";
+  const more =
+    (w.stream.length > 0 ? w.stream.length : w.rentBuy.length) > 2 ? " and more" : "";
+  return `${lead} ${names.join(", ")}${more}`;
+};
+
+export const WatchLine: React.FC<{
+  watch: WatchInfoView;
+  open: boolean;
+  onToggle: () => void;
+}> = ({ watch, open, onToggle }) => (
+  <div className="mb-1" onClick={(e) => e.stopPropagation()}>
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-expanded={open}
+      className="text-left text-[15px] text-gray-900 hover:underline"
+    >
+      {watchSummary(watch)} <span aria-hidden="true">{open ? "▴" : "▾"}</span>
+    </button>
+    {open && <WatchList watch={watch} />}
+  </div>
+);
+
+const ProviderRow: React.FC<{ label: string; providers: WatchProviderLink[] }> = ({
+  label,
+  providers,
+}) =>
+  providers.length === 0 ? null : (
+    <div className="mt-1.5 text-[15px] leading-relaxed text-gray-900">
+      <span className="text-gray-600">{label}: </span>
+      {providers.map((p, i) => (
+        <React.Fragment key={p.name}>
+          {i > 0 && <span className="text-gray-600"> · </span>}
+          <a
+            href={p.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="underline decoration-gray-400 underline-offset-2 hover:decoration-gray-900"
+          >
+            {p.name}
+          </a>
+        </React.Fragment>
+      ))}
+    </div>
+  );
+
+export const WatchList: React.FC<{ watch: WatchInfoView }> = ({ watch }) => (
+  <div className="mt-1 mb-1">
+    <ProviderRow label="Stream" providers={watch.stream} />
+    <ProviderRow label="Rent or buy" providers={watch.rentBuy} />
+    <div className="mt-1.5 text-[12px] text-gray-600">
+      via{" "}
+      <a
+        href={watch.link}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="underline underline-offset-2"
+      >
+        JustWatch
+      </a>
+    </div>
+  </div>
+);
