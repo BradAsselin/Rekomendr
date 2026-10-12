@@ -89,9 +89,18 @@ export function mediaConfigured(): boolean {
   return key() !== null;
 }
 
-async function tmdbGet(path: string, params: Record<string, string> = {}): Promise<any | null> {
+// S3.1: every failure carries its reason to the caller (`onFail`), so a
+// lookup that FAILED can never be mistaken for a clean "no such title".
+async function tmdbGet(
+  path: string,
+  params: Record<string, string> = {},
+  onFail?: (reason: string) => void
+): Promise<any | null> {
   const k = key();
-  if (!k) return null;
+  if (!k) {
+    onFail?.("no_key");
+    return null;
+  }
   const auth = authFor(k);
   const qs = Object.entries(params)
     .map(([a, b]) => `${a}=${encodeURIComponent(b)}`)
@@ -106,14 +115,14 @@ async function tmdbGet(path: string, params: Record<string, string> = {}): Promi
     });
     if (!res.ok) {
       console.warn("[tmdb-media] non-OK", { path: path.split("?")[0], status: res.status });
+      onFail?.(`http_${res.status}`);
       return null;
     }
     return await res.json();
   } catch (err) {
-    console.warn("[tmdb-media] request failed", {
-      path: path.split("?")[0],
-      error: err instanceof Error ? err.name : String(err),
-    });
+    const name = err instanceof Error ? err.name : String(err);
+    console.warn("[tmdb-media] request failed", { path: path.split("?")[0], error: name });
+    onFail?.(name === "TimeoutError" || name === "AbortError" ? "timeout" : `network_${name}`);
     return null;
   }
 }
@@ -144,13 +153,21 @@ const rowOriginal = (r: Row, kind: MediaKind) =>
 const rowYear = (r: Row, kind: MediaKind) =>
   yearOf(kind === "movie" ? r.release_date : r.first_air_date);
 
-async function search(kind: MediaKind, query: string): Promise<Row[] | null> {
-  const data = await tmdbGet(`search/${kind}`, {
-    query,
-    include_adult: "false",
-    language: "en-US",
-    page: "1",
-  });
+async function search(
+  kind: MediaKind,
+  query: string,
+  onFail?: (reason: string) => void
+): Promise<Row[] | null> {
+  const data = await tmdbGet(
+    `search/${kind}`,
+    {
+      query,
+      include_adult: "false",
+      language: "en-US",
+      page: "1",
+    },
+    onFail
+  );
   if (!data) return null;
   return Array.isArray(data.results) ? (data.results as Row[]) : [];
 }
@@ -231,14 +248,30 @@ export async function resolveTypedTitle(
   text: string,
   laneKind: MediaKind
 ): Promise<ResolvedTitle | null> {
+  return (await resolveTypedTitleChecked(text, laneKind)).hit;
+}
+
+// S3.1 — the same rule, telling a clean "not a title" apart from a lookup
+// that FAILED (TMDb non-OK, timeout, network, no key). `lookupError` is
+// set only when no title matched AND at least one search failed: the
+// failed search might have held the match, so the caller must say so out
+// loud instead of quietly running the old search.
+export async function resolveTypedTitleChecked(
+  text: string,
+  laneKind: MediaKind
+): Promise<{ hit: ResolvedTitle | null; lookupError: string | null }> {
   const raw = (text ?? "").trim();
-  if (!raw || raw.length > 100 || !key()) return null;
+  if (!raw || raw.length > 100) return { hit: null, lookupError: null };
+  if (!key()) return { hit: null, lookupError: "no_key" };
   const { title, year } = splitTypedYear(raw);
   const wanted = normalizeTitle(title);
-  if (!wanted || GENRE_AND_MOOD.has(wanted)) return null;
+  if (!wanted || GENRE_AND_MOOD.has(wanted)) return { hit: null, lookupError: null };
 
   const kinds: MediaKind[] = ["movie", "tv"];
-  const results = await Promise.all(kinds.map((k) => search(k, title)));
+  const failures: string[] = [];
+  const results = await Promise.all(
+    kinds.map((k) => search(k, title, (reason) => failures.push(`${k}:${reason}`)))
+  );
 
   let best: { row: Row; kind: MediaKind; score: number } | null = null;
   kinds.forEach((kind, i) => {
@@ -255,9 +288,9 @@ export async function resolveTypedTitle(
       if (!best || score > best.score) best = { row, kind, score };
     }
   });
-  if (!best) return null;
+  if (!best) return { hit: null, lookupError: failures.length > 0 ? failures.join(",") : null };
   const hit = best as { row: Row; kind: MediaKind };
-  return toResolved(hit.row, hit.kind);
+  return { hit: toResolved(hit.row, hit.kind), lookupError: null };
 }
 
 /* ------------------------------------------------------------------
