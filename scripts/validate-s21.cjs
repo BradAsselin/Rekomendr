@@ -204,12 +204,15 @@ const IMAGE = "data:image/jpeg;base64,AAAA";
   check("still no Share on health", /const anchorShareable =\s*!anchorIsHealthMedical/.test(src), true);
   check("health test uses the shared category set", /const health = HEALTH_MEDICAL_CATEGORIES\.has\(/.test(src), true);
 
-  out("\n6. S2.5/S2.6: a health anchor's short is its category alone, nothing the model wrote");
+  out("\n6. S2.5–S2.7: a health anchor's short is its mapped category label, nothing the model wrote");
   process.env.MINT_SIGNING_SECRET = "s21-harness-secret";
   const tok = require(path.join(OUT, "src/lib/mintToken.js"));
   const claim = "Provides antioxidant support for immune health, designed to enhance overall wellness.";
   for (const [category, expected] of [
-    ["vitamins", "Vitamins"],
+    ["vitamins", "Supplements"],
+    ["health", "Health"],
+    ["drug", "Medication"],
+    ["lotion", "Skincare"],
     ["medication", "Medication"],
     ["skincare", "Skincare"],
     ["Supplements ", "Supplements"],
@@ -235,7 +238,7 @@ const IMAGE = "data:image/jpeg;base64,AAAA";
   check("wine: no anchor-short tripwire", logged("anchor short replaced"), false);
   // No long tier for a health anchor, even with a valid token.
   ai.calls = 0;
-  const hShort = "Vitamins";
+  const hShort = "Supplements";
   const hTok = tok.signAnchor({ name: "Vitafusion Recovery Gummies", category: "vitamins", short: hShort, long: null, clientId: CLIENT });
   const detail = await post({ anchorDetail: { name: "Vitafusion Recovery Gummies", category: "vitamins", shortDescription: hShort, clientId: CLIENT, token: hTok } });
   check("health Show details: 403", detail.status, 403);
@@ -247,6 +250,23 @@ const IMAGE = "data:image/jpeg;base64,AAAA";
   check("client: no long rendered on health", src.includes("long={anchorIsHealthMedical ? undefined : anchorLong ?? undefined}"), true);
   check("client: no expand affordance on health", src.includes("expandable={!anchorIsHealthMedical}"), true);
   check("client: health anchor save never mints", /itemName === result\.detected_item\.name &&\s*!HEALTH_MEDICAL_CATEGORIES\.has\(/.test(src), true);
+
+  out("\n7. S2.7: every wall word maps onto exactly the four labels");
+  const gates = require(path.join(OUT, "src/lib/categoryGates.js"));
+  const EXPECT = {
+    Medication: ["medication", "medications", "medicine", "medicines", "drug", "drugs", "pharmacy", "prescription", "otc", "antacid", "ointment", "topical"],
+    Supplements: ["vitamin", "vitamins", "supplement", "supplements", "probiotic", "probiotics"],
+    Skincare: ["skincare", "skin care", "cream", "creams", "lotion", "balm", "serum", "sunscreen"],
+  };
+  const expectedFor = (w) => Object.keys(EXPECT).find((k) => EXPECT[k].includes(w)) ?? "Health";
+  let mapped = 0;
+  for (const w of gates.HEALTH_MEDICAL_CATEGORIES) {
+    check(`${JSON.stringify(w)} → ${expectedFor(w)}`, gates.healthAnchorShort(w), expectedFor(w));
+    mapped++;
+  }
+  check("every mapped word is on the wall", Object.values(EXPECT).flat().every((w) => gates.HEALTH_MEDICAL_CATEGORIES.has(w)), true);
+  check("case/whitespace normalised", gates.healthAnchorShort("  Medication "), "Medication");
+  check("the whole wall was walked", mapped, gates.HEALTH_MEDICAL_CATEGORIES.size);
 
   out(`\n${pass} passed, ${fail} failed.`);
   process.exit(fail ? 1 : 0);

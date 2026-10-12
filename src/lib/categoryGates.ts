@@ -133,7 +133,28 @@ export function categoryGetsRecipe(rawCategory: string | undefined): boolean {
 // category alone ("Medication") — the card's title already names the
 // product. The server signs THIS text (so save/backfill/detail attest it);
 // the client renders the same string as a twin against an older server.
+// S2.7 (Brad): the model's category word drifts between snaps of the same
+// bottle ("medication" one run, "health" the next), so the shown word comes
+// from a fixed map onto four labels. Every wall word not listed here reads
+// "Health"; a word added to the wall later inherits that default.
+const HEALTH_LABEL_BY_WORD: Record<string, string> = {
+  // Medication-type (incl. topical medicines: ointment, topical)
+  medication: "Medication", medications: "Medication",
+  medicine: "Medication", medicines: "Medication",
+  drug: "Medication", drugs: "Medication",
+  pharmacy: "Medication", prescription: "Medication", otc: "Medication",
+  antacid: "Medication", ointment: "Medication", topical: "Medication",
+  // Vitamins / supplements
+  vitamin: "Supplements", vitamins: "Supplements",
+  supplement: "Supplements", supplements: "Supplements",
+  probiotic: "Supplements", probiotics: "Supplements",
+  // Creams / lotions / skincare
+  skincare: "Skincare", "skin care": "Skincare",
+  cream: "Skincare", creams: "Skincare", lotion: "Skincare",
+  balm: "Skincare", serum: "Skincare", sunscreen: "Skincare",
+};
+
 export function healthAnchorShort(rawCategory: string): string {
   const c = (rawCategory ?? "").trim().toLowerCase();
-  return c ? c.charAt(0).toUpperCase() + c.slice(1) : "";
+  return HEALTH_LABEL_BY_WORD[c] ?? "Health";
 }
