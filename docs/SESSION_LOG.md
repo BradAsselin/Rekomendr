@@ -671,3 +671,21 @@ VALIDATION ("Brad's twenty minutes", against the main preview after merge):
 - What to do: snap a vitamin, a pain reliever and a skin cream; then a wine.
 - What it should feel like: [ ] each health card shows the product name, the grey line, and one word under it (e.g. "Supplements"); [ ] the name isn't repeated; [ ] wine exactly as before; [ ] your call: is a varying word ("Health" vs "Medication" for the same bottle) fine?
 - What to screenshot if it's wrong: the whole health snap.
+
+---
+
+## Session 2.7 — health-category-map — 2026-10-11 — branch auto/s2.7-health-category-map — PR #15 — BLOCKED, NOT MERGED
+
+Brad's decision (2026-10-11): a fixed map for the health label (medication-type → "Medication", vitamins/supplements → "Supplements", creams/lotions/skincare → "Skincare", everything else on the wall → "Health"), server-side, same path. Acceptance: Tylenol shows "Medication" on 3 snaps in a row.
+
+**§10.2 carry-forward:** S2.6 re-verified: `validate-s21` 166/166 (S2.6 merged `14bb0c4`).
+
+BUILT (on the branch, not merged): `HEALTH_LABEL_BY_WORD` in `src/lib/categoryGates.ts`, with "Health" as the default. My calls: ointment/topical → Medication; cosmetic/beauty/makeup → Health. `validate-s21` 231/231 (full wall walk); regression unchanged; tsc clean.
+
+BLOCKED: acceptance failed on the preview. Tylenol ×3: `medication` → Medication ✅; **`pain relief` → not on the wall, the full health wall bypassed** (claim text, rek lists, pills, Share, Show details 200, and `/api/save` fired → a private snapshot probably minted); `health` → Health. Vitamin → Supplements ✅, skincare → Skincare ✅, wine ✅.
+
+FOUND, NOT FIXED (NEW):
+- **§2.2 breach, pre-existing:** the health wall is an exact-match deny list on the model's free-text category, and `pain relief` falls outside it. Options are on PR #15: add words (quick, whack-a-mole) vs a fixed health class from the vision call (structural, prompt → joint session).
+- **Probable production residue:** one private `anchor_snapshots` row for Tylenol (category `pain relief`, Playwright `anon_*` client, not shared). Unconfirmed, because production DB reads were not permitted this session.
+
+BRAD MUST: choose the leak fix, choose how to handle the label when the model says `health`, and confirm/delete the residue row.
