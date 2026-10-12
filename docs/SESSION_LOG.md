@@ -615,3 +615,36 @@ VALIDATION (verbatim from PR #12's "Brad's twenty minutes", against the main pre
 - What to do: (1) Snap a vitamin or supplement bottle. (2) Snap a wine. (3) Scroll to the bottom of the home screen.
 - What it should feel like: [ ] the supplement shows the anchor and one small grey line — "Rekomendr doesn't recommend health products." — and nothing under it: no pills, no cards, no Share; [ ] the line reads calm and plain, a fact, not an error — your call on the wording; [ ] the wine is exactly as before; [ ] at the bottom, a small TMDB logo beside the grey notice, quieter than the Rekomendr mark.
 - What to screenshot if it's wrong: the whole supplement snap; the bottom of the home screen.
+
+---
+
+## Session 2.5 — health-anchor-short — 2026-10-11 — branch auto/s2.5-health-anchor-short — PR #13 (local agent mode, §11)
+
+Brad's decision (2026-10-11): the code fix for S2.4's NEW found-not-fixed item. A health anchor's description becomes the product name and category only. The S2.4 quiet line stays. No long tier. Gate it on the same server-side category check as the tab wall. The AI instructions stay unchanged. Log the token cost of the three discarded lists for the joint session.
+
+**§10.2 carry-forward:** S2.4 re-verified before building: `validate-s21` 133/133, `validate-s23` 35/35, tsc clean.
+
+SHIPPED:
+- **A health anchor's short is built in code, never taken from the model:** `"<name> · <Category>"` (`healthAnchorShort` in `src/lib/categoryGates.ts`). Example: *"Tylenol Extra Strength Rapid Release Gels · Medication"*. `/api/reksnap` replaces it **before signing**, gated on `anchorIsHealthMedical` (the tab-wall check). So the model's sentence never leaves the server, and the token covers only the replacement: no save, backfill, chain or detail request can bring the model's text back. Tripwire: `[health-wall] anchor short replaced`.
+- **Long tier:** already 403 on the server for health. The client also stops passing `long` to a health card, on top of `expandable=false`.
+- **Save paths:** the snapshot mint was already refused at `/api/save` (403), at completion, at share and on the public read. The client now skips that doomed mint request. A Save still marks the anchor and writes its signal, which holds name and category only.
+- **Client twin:** the card renders the same `healthAnchorShort(...)`, so it holds even against an older server.
+- **Token cost, measured (no estimate):** `[health-wall] rek lists withheld` now carries `promptTokens` and `completionTokens`.
+- `validate-s21` **165/165** (32 new: four health categories × short replaced / claim absent / tripwire / usage logged / token signs the replacement / token refuses the model's sentence; wine positive control; Show details 403 with no OpenAI call; four client-source asserts). Regression: s1 50, s15 54, s2 97, s23 35, s36 59. tsc clean.
+- **Preview, real browser, real photos: 45/45.** Vitamin (*Sundance Vitamin C 1000 mg with Rose Hips · Supplements*), pain reliever (*Tylenol Extra Strength Rapid Release Gels · Medication*), skincare (*Nivea Creme · Skincare*). Each one: health category; the server short is exactly name · Category; it is on screen; the quiet line shows once; no Show details; no rek cards, pills or Share; Save marks the anchor and sends no `/api/save`; no detail request ever; a direct detail probe with the anchor's own valid token → 403. Wine control (Sainte Magdeleine): the model's own sentence, three pills, cards, Share, Show details, no line.
+
+**For the joint session — the three wasted lists (measured on the preview, 3 health snaps):** every health snap is **5,083 prompt tokens + 819–994 completion tokens** on the vision call (gpt-4o). The server throws away 15 reks. The prompt tokens get paid either way, because the image and the system prompt are needed to identify the item. The skippable part is almost all of the completion: roughly 750–930 of those tokens are the three lists (the anchor's name, category and description are a few dozen). Skipping them is a prompt change (a "health → detected_item only" instruction), so it stays in the joint session. It would also shorten health-snap latency.
+
+FOUND, NOT FIXED (NEW): nothing.
+- Observation, not a defect (Brad's feel call, §12.4): on screen the card now shows the name twice, as the title and again in the short ("Tylenol … Gels" / "Tylenol … Gels · Medication"). That is literally "product name and category". If it reads redundant on the phone, the one-line alternative is to show just the category (e.g. "Medication") in the short slot.
+
+BRAD MUST: look at one health snap on the phone and judge the name-twice point above.
+
+NEXT SESSION SHOULD KNOW:
+- A health anchor's text is now the code's, end to end: `healthAnchorShort` is the only short a health anchor can carry, because the token signs it. Any new surface that shows anchor text inherits it for free. Don't read `detected.description` directly for a health anchor.
+- On Windows the `validate-*.cjs` harnesses call `npx` without a shell and fail with `spawnSync npx ENOENT`. Run them with a preload that sets `shell: true` (`node -r <shim> scripts/validate-*.cjs`). The scripts themselves weren't changed.
+
+VALIDATION ("Brad's twenty minutes", against the main preview after merge):
+- What to do: (1) Snap a vitamin or supplement. (2) Snap a pain reliever (Tylenol, Advil). (3) Snap a skin cream. (4) On one of them, tap Save. (5) Snap a wine.
+- What it should feel like: [ ] each health snap shows its name, the grey line, and under it only "<name> · <category>" — no sentence about what it does; [ ] no "Show details", no cards, no pills, no Share; [ ] Save fills in quietly and nothing else happens; [ ] the wine is exactly as before, with its own description and Show details; [ ] your call: is the name appearing twice fine, or should the short be just the category?
+- What to screenshot if it's wrong: the whole health snap; any health card that shows a sentence.
