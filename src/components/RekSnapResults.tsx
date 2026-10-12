@@ -1325,15 +1325,12 @@ const RekSnapResults: React.FC<Props> = ({
         <RekCard
           accent
           title={result.detected_item.name}
-          /* S2.5: a health anchor shows its name and category only — the
+          /* S2.5/S2.6: a health anchor shows its category only — the
              twin of the server's replacement, holding even against an older
              server that still sent the model's sentence. */
           short={
             anchorIsHealthMedical
-              ? healthAnchorShort(
-                  result.detected_item.name,
-                  result.detected_item.category
-                )
+              ? healthAnchorShort(result.detected_item.category)
               : result.detected_item.description
           }
           /* Media titles link out — same anchorIsMedia gate as the media
