@@ -13,9 +13,36 @@ export const metadata = {
   manifest: "/manifest.json",
 };
 
+// S3.1 — iPhone safe area. The installed app draws under the status bar
+// (black-translucent), so the bar is pushed below the inset, and a fixed
+// navy strip the height of the inset stays behind the clock while the page
+// scrolls — nothing (the Share pill included) slides under it.
+export const viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+};
+
+function StatusBarShield() {
+  return (
+    <div
+      aria-hidden="true"
+      className="pointer-events-none fixed inset-x-0 top-0 z-50 bg-[#0b1725]"
+      style={{ height: "env(safe-area-inset-top)" }}
+    />
+  );
+}
+
 function TopBar() {
   return (
-    <div className="w-full border-b border-white/10 bg-[#0b1725]">
+    <div
+      className="w-full border-b border-white/10 bg-[#0b1725]"
+      style={{
+        paddingTop: "env(safe-area-inset-top)",
+        paddingLeft: "env(safe-area-inset-left)",
+        paddingRight: "env(safe-area-inset-right)",
+      }}
+    >
       <div className="mx-auto flex h-12 w-full max-w-3xl items-center justify-end gap-2 px-4">
         <ShareButton />
         <InstallButton />
@@ -59,6 +86,7 @@ export default function RootLayout({
         <link rel="apple-touch-icon" sizes="120x120" href="/rekomendr_icon_blue_120.png" />
       </head>
       <body className="min-h-screen bg-[#0b1725] sm:bg-white">
+        <StatusBarShield />
         <TopBar />
         {children}
         <Attribution />
