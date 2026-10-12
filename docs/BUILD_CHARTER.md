@@ -222,7 +222,7 @@ Then: the ops dashboard session (SMTP, Supabase tripwire verification, usage ale
 
 **10.4 What may never self-merge.** Anything touching prompt text, voice, register, or the feel of output (§3.9, §5) — those PRs stay open, labeled VOICE — joint session required. Anything requiring a migration Brad has not yet run. Anything that changes this charter's §2 invariants. And never, under any circumstance, a merge into release/v2: production promotion is Brad's alone, by a PR he opens.
 
-**10.5 Stop conditions for a chain.** Halt the chain, write, and end the run if: any session hits BLOCKED:; two consecutive sessions list found-not-fixed items in the same file; a session's plan would require crossing an invariant; or a pending migration blocks a later session's acceptance.
+**10.5 Stop conditions for a chain.** Halt the chain, write, and end the run if: any session hits BLOCKED:; two consecutive sessions logging NEW found-not-fixed items in the same file; a session's plan would require crossing an invariant; or a pending migration blocks a later session's acceptance.
 
 **10.6 One validation batch.** At the end of a chain, append a combined "Brad's twenty minutes" to the final PR and the log, written against the main preview URL, covering every session in the run in the order he should check them.
 
@@ -245,6 +245,15 @@ Then: the ops dashboard session (SMTP, Supabase tripwire verification, usage ale
 11.7 Additional stop conditions (on top of §10.5): the backup fails or comes out empty; a migration is destructive to user data (DROP, DELETE, a narrowing ALTER TYPE, TRUNCATE), so stop and present it for Brad's approval; a usage limit is reached, so commit working state and log where to resume.
 
 11.8 Reporting. Every run ends with the §10.6 combined validation batch plus a Production promotion checklist: the Production environment variables to add (names only, with how to generate each), the migrations already live with their backup files, and the merge SHAs to revert if needed.
+
+---
+
+## 12. The decision rule (added Oct 11, 2026)
+12.1 The test. Rekomendr exists to get the person — Brad, Katrina, anyone — to a useful result as easily as possible. A useful result is a movie or TV show they want to watch and enjoy, or a wine they will like. Every decision is judged by one question: does this get the person there with less effort and less to learn?
+12.2 Best practice decides. When a choice is open, choose what established, tested practice says works best: known interaction patterns, published usability research, and what proven consumer apps have converged on. Cite the source or precedent in the plan. Don't invent a pattern where a proven one exists.
+12.3 Fewer steps beats more features. Never make a user remember a prerequisite step; collapse it into the action they're already taking.
+12.4 Feel is Brad's. Choices that change how something looks or feels ship to a preview with the reasoning stated, and Brad tests them on his phone. Voice remains a joint session (§5).
+12.5 Proportionate effort. Match effort to current scale and real risk. At friends-and-family scale, good enough beats perfect: ship the 95% fix, log the rare miss, move on. Re-raise the bar when real usage grows.
 
 ---
 

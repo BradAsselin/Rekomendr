@@ -446,3 +446,270 @@ Both are additive. Rollback is the `drop table` in each SQL file's BLOCK 5; the 
 **Revert SHAs if needed:** `c302ea5` (S2), `7255623` (S3.6).
 
 **Production test residue:** `anchor_snapshots` holds 4 agent rows (`anon_agent_s2check_*`), all revoked. `api_usage` holds ~370 agent rows (`anon_agent_s36*`, `anon_agent_s16count_*`) that age out of the 24h window by themselves.
+
+---
+
+## Charter amendment §12 (the decision rule) — 2026-10-11 — committed directly to main (charter-only, on Brad's instruction) — no PR
+
+SHIPPED:
+- Charter §12 "The decision rule" appended verbatim to `docs/BUILD_CHARTER.md` (before the closing line). Docs only. §2 untouched.
+
+FOUND, NOT FIXED: nothing.
+
+BRAD MUST: nothing for this entry.
+
+NEXT SESSION SHOULD KNOW:
+- Every open choice in a plan now cites a precedent (§12.2), and anything that changes look or feel ships to a preview with its reasoning for Brad's phone (§12.4).
+
+VALIDATION: none — docs only.
+
+---
+
+## Session 2.1 — health-tab-wall — 2026-10-11 — branch auto/s2.1-health-tab-wall — PR #9 (local agent mode, §11)
+
+SHIPPED:
+- **A health, medical or supplement snap shows only Similar.** "Use it for" and "Instead try" are gone for those anchors, and so is the toggle row (one pill is not a choice). Field case: Vitafusion → "take after exercising to support muscle recovery".
+- **Why hide rather than neutralize (§12):** there is no neutral "Use it for" a supplement — any answer is a use instruction, i.e. the claim. A prompt rule only makes a claim less likely (the existing "never imply efficacy" rule let the field case through), and the FTC's Health Products Compliance Guidance (2022) holds benefit claims to scientific substantiation that a generated sentence never has. Precedents: the app's own anchor wall removes rather than weakens; the hide-vs-disable rule (NN/g): a control that can never be available in this context is removed.
+- **Structural, server-first:** `/api/reksnap` empties `uses`/`alternatives` for a health anchor before the response leaves the server (`[health-wall] uses/alternatives withheld` tripwire), and the mode falls to `similar`. Backfill for those two modes on a health anchor → 403, no OpenAI call. Client twin in `RekSnapResults.tsx` (no tab row, Similar forced, the other lists emptied). Same gate as the anchor wall: `HEALTH_MEDICAL_CATEGORIES`.
+- Edge fixed: the S1.5 "This one's new to me" notice now reads the title guard's own output, so a wall-emptied supplement never gets that voice.
+- `validate-s21` **126/126**; regression s15 54, s2 97, s36 59; tsc clean. **Preview by machine: 19/19** — three real vitamin snaps (categories `vitamins`, `supplements`, `vitamins`) each 5/0/0, mode similar, no notice; backfill uses/alternatives 403, similar 200; wine control 5/5/5.
+
+FOUND, NOT FIXED:
+- The Similar list on a health anchor still runs on the existing conservative-health prompt rule. If a claim shows up there, the cure is a prompt change (joint session).
+
+BRAD MUST: nothing (no env, no migration).
+
+NEXT SESSION SHOULD KNOW:
+- Any new list or surface on a snap result inherits this: health anchors get Similar only. Gate on `HEALTH_MEDICAL_CATEGORIES`, server first.
+
+VALIDATION: folded into the combined §10.6 batch at the end of this chain.
+
+---
+
+## Session 2.2 — one-tap-share — 2026-10-11 — branch auto/s2.2-one-tap-share — PR #10 (local agent mode, §11)
+
+SHIPPED:
+- **Share is on every shareable anchor from the start.** Tapping it on an unsaved anchor saves it (same `handleSave`: mark, signal, mint), then opens the share sheet; the Save mark lights up, because sharing is keeping (the snapshot is the save, Ledger #18). Save alone still works and opens nothing. Health anchors still have no Share. Still one new tap target (`src/components/RekSnapResults.tsx`: `anchorShareable` no longer needs `savedNames`; `handleShareAnchor` saves first, after the `working` guard so a double tap can't save twice; the existing pending-mint await means one mint).
+- **Why (§12):** §12.3 — Share used to appear only after Save, a prerequisite the user had to discover. §12.2 precedent: Share sits on the item itself in Spotify, YouTube, Apple/Google Photos, Google Docs and Notion, none of which require a prior save; Docs/Notion create the link on demand, which is what minting on the tap is.
+- **Share is readable on the phone.** It was `#1E3A8A` on the phone's `#0b1725` background (~1.5:1; WCAG AA asks 4.5:1) — nearly invisible in the screenshot. Now light blue on mobile, unchanged on the white desktop layout. Pre-existing from S2; it mattered once Share was always on screen.
+- **Real browser on the preview (Playwright, bypass header, `navigator.share` captured): 14/14.** Wine: Share visible before Save → one tap → one `/api/save` + one `/api/share` → sheet gets `/a/<uuid>` on the preview origin → anchor marked Saved → page 200; second tap re-sends the same link, no new mint. Movie: Save alone → mint only, no sheet, Share still there. Vitamin: no Share, no "Use it for"/"Instead try". Regression s2 97, s21 126; tsc clean.
+
+FOUND, NOT FIXED:
+- **Health anchors' Similar cards still make benefit and comparison claims.** Live vitamin snap on the preview: "enhanced absorption and immune support", "a more comprehensive antioxidant effect", "a slightly more potent formula"; the anchor short itself says "intended to support immune health". §2.2 says health anchors get "no comparisons". The cure is either code (health anchors show the anchor only, no list — one line in the S2.1 wall) or prompt (joint session). Brad's call; recommendation: anchor-only, for the same reason S2.1 hid the tabs — a prompt rule already failed here.
+
+BRAD MUST: nothing (no env, no migration). Test the feel on the phone (§12.4).
+
+NEXT SESSION SHOULD KNOW:
+- The anchor's Share is now always on screen for non-health attested anchors; any future anchor affordance shares that row.
+- The browser driver (Playwright, bypass header via `extraHTTPHeaders`, `navigator.share` stubbed in an init script, `setInputFiles` on the hidden snap input) lived in the session scratchpad. The header has its own app-level "Share" button with a `title`; target the anchor's with `button:not([title])`.
+
+VALIDATION: folded into the combined §10.6 batch at the end of this chain.
+
+---
+
+## Session 2.3 — housekeeping — 2026-10-11 — branch auto/s2.3-housekeeping — PR #11 (local agent mode, §11)
+
+SHIPPED:
+- **`/api/health` now asks TMDb whether the key works**, instead of checking that one is set. `tmdb`: `ok` | `disabled` | `rejected` (401/403) | `unreachable` (network/timeout/5xx). One call to TMDb's `/3/authentication`, cached per process 10 min (1 min when unreachable), concurrent probes share one request, a changed key re-probes at once, `no-store` fetch, key never logged; tripwire `[health] tmdb key probe {state, status}` (`probeTmdbKey`, `src/lib/tmdbVerify.ts`). HTTP status and `ok` still mean "database reachable" — the keep-warm ping's contract. Real TMDb API: the current key → `ok`; bogus v4 and v3 keys → `rejected`. Preview: `"tmdb":"ok"`.
+- **TMDb attribution**: "This product uses the TMDB API but is not endorsed or certified by TMDB." — small grey footer on every page (root layout), AA contrast on both backgrounds (gray-400 on the phone's dark, gray-500 on desktop white). Precedent: Letterboxd's footer credit.
+- `validate-s23` **32/32**; regression s1 50, s15 54, s2 97, s36 59, s21 126; tsc + lint clean.
+
+REPORT (no Vercel change): `SUPABASE_KEY` and `SURVEY_BONUS_TOKENS` are read nowhere and never appear in git history. `GLOBAL_DAILY_CAP` is read nowhere; its last reader was a site-wide cap in `pages_backup`, deleted 2026-01-03 (`ff08321`); S3.6's per-client caps replace it. All three are set in Development, Preview and Production and are dead.
+
+FOUND, NOT FIXED:
+- TMDb's terms also ask for their logo, less prominent than ours. A visual choice → Brad (§12.4).
+- `TMDB_API_KEY` is set for Production and Preview but not Development (`vercel env ls`). Only `vercel dev` would notice. §11.3 lets a session add it; not in this run's ask.
+- Option for Brad: make `tmdb: "rejected"` turn health red, so the external ping alerts on a dead key. Left off because it would also wake him for a DB-unrelated blip.
+
+BRAD MUST: nothing required. Optional: delete the three dead variables in Vercel; decide the logo.
+
+NEXT SESSION SHOULD KNOW:
+- Health is now a real TMDb signal. `rejected` on production means every movie/TV rek is being dropped (the guard fails closed).
+
+VALIDATION: folded into the combined §10.6 batch at the end of this chain.
+
+---
+
+## Chain close (S2.1 → S2.2 → S2.3) — local agent mode (§11) — 2026-10-11
+
+**Merged (§10.3 + §11.4):** S2.1 health tab wall, PR #9, **`3f5737b`** · S2.2 one-tap Share, PR #10, **`81c2491`** · S2.3 housekeeping, PR #11, **`1dfa054`**. Each reverts on its own: `git revert -m 1 <sha>`.
+**Charter:** §12 "The decision rule" appended, `2e0cf06` (Brad-authorized, charter-only).
+**Carry-forward (§10.2), at start:** s1 50, s15 54, s2 97, s36 59, tsc clean; main preview health `db/tmdb/mint` ok. Brad had already put a working `TMDB_API_KEY` in Production + Preview and `MINT_SIGNING_SECRET` in Production (`vercel env ls`; `a5914c6`); the `.env.local` key now answers 200.
+**§10.5 judgment call, recorded:** S2.1 and S2.2 both list the same carried item (claims in the health Similar list). Read as one finding restated, not two sessions piling up in one file; S2.3 touched different files, so the chain continued. Brad may read it stricter.
+**Open from earlier:** PR #7 (S1.6, VOICE) — its TMDb blocker is gone; the next local session can re-run its counts against the live API.
+
+### Banked for later (Brad's instruction — do not build yet)
+- **Wine anchors and reks missing producer names.** "Primitivo 2023", "Zinfandel 2022": unfindable on a shelf. A wine name without a producer is not a decision. Touches the wine grammar / vision prompt → likely a joint session.
+- **Dependency/security upgrade as its own session.** 28 `npm audit` findings; Next 14. Its own branch, its own plan, full harness + preview regression.
+
+### Found in this run, for Brad
+- **Health anchors' Similar cards still make claims** ("enhanced absorption and immune support", "more potent formula"; the anchor short: "intended to support immune health"). §2.2 says no comparisons on health anchors. Recommendation: anchor-only for health (one line in the S2.1 wall), for the same reason the tabs were hidden — the prompt rule already failed here.
+- TMDb logo (their terms ask for it) — a visual call.
+- Three dead Vercel variables: `SUPABASE_KEY`, `SURVEY_BONUS_TOKENS`, `GLOBAL_DAILY_CAP` (read nowhere).
+
+### Brad's twenty minutes — combined (§10.6), against the main preview
+Main preview: https://rekomendr-git-main-brad-asselins-projects.vercel.app (S0 → S3.6, plus S2.1, S2.2, S2.3).
+
+What to do, in this order:
+1. Open `<main preview>/api/health`. Expect `"db":"ok"`, `"mint":"ok"`, `"tmdb":"ok"` — the TMDb value is now a real check against TMDb, not just "a key is set".
+2. **S2.1:** snap a vitamin or supplement bottle. Only the anchor and one list of similar products; no "Use it for" / "Instead try" pills at all, and no Share.
+3. **S2.1 control:** snap a wine. All three pills are there as before.
+4. **S2.2:** on that wine, without tapping Save, look under the card: **Share** is already there, readable on the dark background. Tap it → the share sheet opens → the bookmark (Save) fills in. Send it to yourself and open it.
+5. **S2.2:** snap a movie and tap **Save** only. Nothing opens; Share is still there if you want it later.
+6. **S2.3:** scroll to the bottom of the home screen: one small grey line about TMDB.
+7. Use the app normally for a few minutes: a search, "+ More like this", a recipe, Show details. Nothing else should feel different.
+
+What it should feel like:
+- [ ] A supplement snap feels calm and plain — nothing that reads like dosing or health advice in the tabs (because there are none).
+- [ ] Share is one tap, from the first second; you never have to think "save first".
+- [ ] After sharing, it's in your saved things without you asking.
+- [ ] Share reads clearly on the phone; it doesn't shout.
+- [ ] The TMDB line is easy to miss, which is the point.
+- [ ] Wine, food and movie snaps are otherwise exactly as before.
+
+What to screenshot if it's wrong:
+- a supplement snap showing pills or a Share;
+- the anchor area before and after tapping Share;
+- the bottom of the home screen;
+- the health JSON if `"tmdb"` isn't `"ok"`.
+
+### Production promotion checklist (§11.8)
+**Production environment variables to add:** none new this run. `MINT_SIGNING_SECRET` and `TMDB_API_KEY` are already in Production (Brad, today; names confirmed with `vercel env ls`, values not read). After promoting, `<production>/api/health` should show `"tmdb":"ok"` — now a real TMDb check.
+**Optional cleanup (Brad):** remove `SUPABASE_KEY`, `SURVEY_BONUS_TOKENS`, `GLOBAL_DAILY_CAP` from every environment — nothing reads them.
+**Migrations this run:** none. Already live from the previous run: `anchor_snapshots` (backup `backups/2026-10-11-1300-s2.sql`), `api_usage` (backup `backups/2026-10-11-1316-s3.6.sql`).
+**Revert SHAs if needed:** `3f5737b` (S2.1), `81c2491` (S2.2), `1dfa054` (S2.3); earlier this day `c302ea5` (S2), `7255623` (S3.6).
+**Production test residue added this run:** `anchor_snapshots` gained 6 agent rows from three browser runs (fresh Playwright `anon_*` clients): three Sainte Magdeleine wine shares — **all three revoked after the run** (the link now 404s, checked) — and three private Winchester '73 saves. `api_usage` gained rows from the preview checks; they age out of the 24h window.
+
+---
+
+## Charter amendment §10.5 — 2026-10-11 — committed directly to main (charter-only, on Brad's instruction) — no PR
+
+SHIPPED:
+- **BRAD-AUTHORIZED CHANGE (2026-10-11): §10.5** stop condition now reads "two consecutive sessions logging NEW found-not-fixed items in the same file". A carried item restated in a later session no longer halts a chain. Settles the judgment call recorded in the S2.1→S2.3 chain close. §2 untouched.
+
+FOUND, NOT FIXED: nothing. BRAD MUST: nothing. VALIDATION: none — docs only.
+
+---
+
+## Session 2.4 — health-anchor-only — 2026-10-11 — branch auto/s2.4-health-anchor-only — PR #12 (local agent mode, §11)
+
+Brad's decisions (2026-10-11): (1) health anchors show no rek list, one quiet plain-voice line instead — Brad tests the wording; (2) TMDb logo beside the footer attribution; (3) TMDb status stays out of the alerting `ok` flag — no code; (4) §10.5 amended — on main, `f03880f`.
+
+SHIPPED:
+- **A health, medical or supplement snap shows the anchor and nothing under it**: no pills (S2.1), no cards, no Share. One grey line under the title: *"Rekomendr doesn't recommend health products."* It rides the anchor card's existing `markerLine` slot (the S1 quiet line: no chrome, no tap target), so it reads as a fact about the app, not an error or a badge (§12.2: the app's own precedent). Save and thumbs on the anchor are unchanged.
+- **Server first:** `/api/reksnap` withholds `similar` too (all three lists empty for a health anchor; tripwire `[health-wall] rek lists withheld`); backfill refuses every mode for a health anchor (403, no OpenAI call). The "new to me" notice still never shows on a supplement. Client twin empties every list.
+- **TMDb logo** beside the footer notice: TMDb's official "blue_short" SVG (themoviedb.org/about/logos-attribution), `public/tmdb-logo.svg`, 2 KB, inspected before it went in (shapes, one gradient, internal reference only; no script, no external link). 10 px tall — less prominent than ours, per their terms — and not a link.
+- `validate-s21` updated to the decision, **133/133**; `validate-s23` **35/35** (logo asserted); regression s1 50, s15 54, s2 97, s36 59; tsc clean. **Preview, real browser: 31/31** — three real vitamin snaps (`health`, `supplements`, `vitamins`): server sent 0/0/0, the line on screen once, only the anchor card, no pills, no Share, no notice; wine control: three pills, cards, Share, no line; logo loads at 77×10 on phone and desktop, no link.
+
+FOUND, NOT FIXED (NEW):
+- **The health anchor's own short profile still makes benefit claims.** Live snap: "providing antioxidant support for immune health… designed to enhance overall wellness". The vision prompt's EXCEPTION asks for "one plain, factual identifying sentence only" (`app/api/reksnap/route.ts`, the SYSTEM_PROMPT health EXCEPTION line); the model writes two sentences of claims. The cure is prompt text → joint session (§2.3/§5), or a code option for Brad: replace a health anchor's short with the product name and category only.
+- The vision call still generates three lists for a health snap that the server then discards (token cost only). Skipping it is a prompt change.
+
+BRAD MUST: test the line's wording on the phone (§12.4).
+
+NEXT SESSION SHOULD KNOW:
+- A health anchor now has no rek surface anywhere. Any new surface on a snap result inherits that: gate on `HEALTH_MEDICAL_CATEGORIES`, server first.
+- Long branch names get shortened in Vercel's alias (`…-git-auto-s24-health-anc-e99917-…`); read the preview URL from the Vercel bot's PR comment rather than building it.
+
+VALIDATION (verbatim from PR #12's "Brad's twenty minutes", against the main preview after merge):
+- What to do: (1) Snap a vitamin or supplement bottle. (2) Snap a wine. (3) Scroll to the bottom of the home screen.
+- What it should feel like: [ ] the supplement shows the anchor and one small grey line — "Rekomendr doesn't recommend health products." — and nothing under it: no pills, no cards, no Share; [ ] the line reads calm and plain, a fact, not an error — your call on the wording; [ ] the wine is exactly as before; [ ] at the bottom, a small TMDB logo beside the grey notice, quieter than the Rekomendr mark.
+- What to screenshot if it's wrong: the whole supplement snap; the bottom of the home screen.
+
+---
+
+## Session 2.5 — health-anchor-short — 2026-10-11 — branch auto/s2.5-health-anchor-short — PR #13 (local agent mode, §11)
+
+Brad's decision (2026-10-11): the code fix for S2.4's NEW found-not-fixed item. A health anchor's description becomes the product name and category only. The S2.4 quiet line stays. No long tier. Gate it on the same server-side category check as the tab wall. The AI instructions stay unchanged. Log the token cost of the three discarded lists for the joint session.
+
+**§10.2 carry-forward:** S2.4 re-verified before building: `validate-s21` 133/133, `validate-s23` 35/35, tsc clean.
+
+SHIPPED:
+- **A health anchor's short is built in code, never taken from the model:** `"<name> · <Category>"` (`healthAnchorShort` in `src/lib/categoryGates.ts`). Example: *"Tylenol Extra Strength Rapid Release Gels · Medication"*. `/api/reksnap` replaces it **before signing**, gated on `anchorIsHealthMedical` (the tab-wall check). So the model's sentence never leaves the server, and the token covers only the replacement: no save, backfill, chain or detail request can bring the model's text back. Tripwire: `[health-wall] anchor short replaced`.
+- **Long tier:** already 403 on the server for health. The client also stops passing `long` to a health card, on top of `expandable=false`.
+- **Save paths:** the snapshot mint was already refused at `/api/save` (403), at completion, at share and on the public read. The client now skips that doomed mint request. A Save still marks the anchor and writes its signal, which holds name and category only.
+- **Client twin:** the card renders the same `healthAnchorShort(...)`, so it holds even against an older server.
+- **Token cost, measured (no estimate):** `[health-wall] rek lists withheld` now carries `promptTokens` and `completionTokens`.
+- `validate-s21` **165/165** (32 new: four health categories × short replaced / claim absent / tripwire / usage logged / token signs the replacement / token refuses the model's sentence; wine positive control; Show details 403 with no OpenAI call; four client-source asserts). Regression: s1 50, s15 54, s2 97, s23 35, s36 59. tsc clean.
+- **Preview, real browser, real photos: 45/45.** Vitamin (*Sundance Vitamin C 1000 mg with Rose Hips · Supplements*), pain reliever (*Tylenol Extra Strength Rapid Release Gels · Medication*), skincare (*Nivea Creme · Skincare*). Each one: health category; the server short is exactly name · Category; it is on screen; the quiet line shows once; no Show details; no rek cards, pills or Share; Save marks the anchor and sends no `/api/save`; no detail request ever; a direct detail probe with the anchor's own valid token → 403. Wine control (Sainte Magdeleine): the model's own sentence, three pills, cards, Share, Show details, no line.
+
+**For the joint session — the three wasted lists (measured on the preview, 3 health snaps):** every health snap is **5,083 prompt tokens + 819–994 completion tokens** on the vision call (gpt-4o). The server throws away 15 reks. The prompt tokens get paid either way, because the image and the system prompt are needed to identify the item. The skippable part is almost all of the completion: roughly 750–930 of those tokens are the three lists (the anchor's name, category and description are a few dozen). Skipping them is a prompt change (a "health → detected_item only" instruction), so it stays in the joint session. It would also shorten health-snap latency.
+
+FOUND, NOT FIXED (NEW): nothing.
+- Observation, not a defect (Brad's feel call, §12.4): on screen the card now shows the name twice, as the title and again in the short ("Tylenol … Gels" / "Tylenol … Gels · Medication"). That is literally "product name and category". If it reads redundant on the phone, the one-line alternative is to show just the category (e.g. "Medication") in the short slot.
+
+BRAD MUST: look at one health snap on the phone and judge the name-twice point above.
+
+NEXT SESSION SHOULD KNOW:
+- A health anchor's text is now the code's, end to end: `healthAnchorShort` is the only short a health anchor can carry, because the token signs it. Any new surface that shows anchor text inherits it for free. Don't read `detected.description` directly for a health anchor.
+- On Windows the `validate-*.cjs` harnesses call `npx` without a shell and fail with `spawnSync npx ENOENT`. Run them with a preload that sets `shell: true` (`node -r <shim> scripts/validate-*.cjs`). The scripts themselves weren't changed.
+
+VALIDATION ("Brad's twenty minutes", against the main preview after merge):
+- What to do: (1) Snap a vitamin or supplement. (2) Snap a pain reliever (Tylenol, Advil). (3) Snap a skin cream. (4) On one of them, tap Save. (5) Snap a wine.
+- What it should feel like: [ ] each health snap shows its name, the grey line, and under it only "<name> · <category>" — no sentence about what it does; [ ] no "Show details", no cards, no pills, no Share; [ ] Save fills in quietly and nothing else happens; [ ] the wine is exactly as before, with its own description and Show details; [ ] your call: is the name appearing twice fine, or should the short be just the category?
+- What to screenshot if it's wrong: the whole health snap; any health card that shows a sentence.
+
+---
+
+## Session 2.6 — health-anchor-category — 2026-10-11 — branch auto/s2.6-health-anchor-category — PR #14 (local agent mode, §11)
+
+Brad's decision (2026-10-11): under the title, a health anchor shows only its category ("Medication", "Supplements", "Skincare"), not "name · category". The title already names the product. Same server-side path.
+
+**§10.2 carry-forward:** S2.5 re-verified first: `validate-s21` 165/165. S2.5 merged as `89b742e`.
+
+SHIPPED:
+- `healthAnchorShort(category)` returns the capitalized category alone. The server path is unchanged from S2.5: the short is replaced in `/api/reksnap` before `signAnchor`, gated on `anchorIsHealthMedical`, and the token signs the category text. The client twin calls the same helper.
+- `validate-s21` **166/166** (S2.5 expectations updated, plus one assert that the name isn't repeated). Regression: s1 50, s15 54, s2 97, s23 35, s36 59. tsc clean.
+- **Preview, real browser, real photos: 45/45.** Vitamin → "Supplements"; Tylenol → "Health"; Nivea → "Skincare". Each: the short is the category alone, no name repeated, the line once, no Show details / cards / pills / Share, Save sends no `/api/save`, a detail probe with a valid token → 403. Wine control unchanged.
+
+FOUND, NOT FIXED (NEW): nothing.
+- Observation for Brad (feel, §12.4): the word shown is the vision model's own category, and it varies between snaps of the same item. Tylenol came back "medication" in S2.5 and "health" in this run, so the card said "Health" this time. It is still always a word on the health wall, never a claim. If you want a steadier label, a small display map (e.g. medication/drug/otc → "Medication", vitamin/supplement → "Supplements", skincare/cream/lotion → "Skincare", the rest → "Health") is a code-only follow-up.
+
+BRAD MUST: nothing beyond the phone check below.
+
+VALIDATION ("Brad's twenty minutes", against the main preview after merge):
+- What to do: snap a vitamin, a pain reliever and a skin cream; then a wine.
+- What it should feel like: [ ] each health card shows the product name, the grey line, and one word under it (e.g. "Supplements"); [ ] the name isn't repeated; [ ] wine exactly as before; [ ] your call: is a varying word ("Health" vs "Medication" for the same bottle) fine?
+- What to screenshot if it's wrong: the whole health snap.
+
+---
+
+## Session 2.7 — health-category-map — 2026-10-11 — branch auto/s2.7-health-category-map — PR #15 — BLOCKED, NOT MERGED
+
+Brad's decision (2026-10-11): a fixed map for the health label (medication-type → "Medication", vitamins/supplements → "Supplements", creams/lotions/skincare → "Skincare", everything else on the wall → "Health"), server-side, same path. Acceptance: Tylenol shows "Medication" on 3 snaps in a row.
+
+**§10.2 carry-forward:** S2.6 re-verified: `validate-s21` 166/166 (S2.6 merged `14bb0c4`).
+
+BUILT (on the branch, not merged): `HEALTH_LABEL_BY_WORD` in `src/lib/categoryGates.ts`, with "Health" as the default. My calls: ointment/topical → Medication; cosmetic/beauty/makeup → Health. `validate-s21` 231/231 (full wall walk); regression unchanged; tsc clean.
+
+BLOCKED: acceptance failed on the preview. Tylenol ×3: `medication` → Medication ✅; **`pain relief` → not on the wall, the full health wall bypassed** (claim text, rek lists, pills, Share, Show details 200, and `/api/save` fired → a private snapshot probably minted); `health` → Health. Vitamin → Supplements ✅, skincare → Skincare ✅, wine ✅.
+
+FOUND, NOT FIXED (NEW):
+- **§2.2 breach, pre-existing:** the health wall is an exact-match deny list on the model's free-text category, and `pain relief` falls outside it. Options are on PR #15: add words (quick, whack-a-mole) vs a fixed health class from the vision call (structural, prompt → joint session).
+- **Probable production residue:** one private `anchor_snapshots` row for Tylenol (category `pain relief`, Playwright `anon_*` client, not shared). Unconfirmed, because production DB reads were not permitted this session.
+
+BRAD MUST: choose the leak fix, choose how to handle the label when the model says `health`, and confirm/delete the residue row.
+
+### S2.7 update — 2026-10-11 — unblocked by Brad's scope change, merged per §10.3
+
+Brad's decisions: the health check moves from exact words to stems, fail-closed, with a named allow-list for food false positives; cosmetic/beauty/makeup get the "Beauty" label; the health_class enum is built as S2.8 (PR #16). Then the scope changed: **28/29 with zero false walls is good enough at current scale** ("zero leaks" was too high a bar). PR #15 merges on these results; health_class stays parked.
+
+SHIPPED (PR #15):
+- **Stem wall** (`isHealthMedical` / `healthLabel` in `categoryGates.ts`), the one test behind every gate: vision, backfill, chain, Show details, save, share, completion, public read, client twins and the recipe deny. Substring stems (pain, relief, analges, medic, drug, pharma, vitamin, supplement, mineral, probiotic, allerg, antihist, sleep, melatonin, cold, cough, antacid, laxative, ointment, topical, health, wellness…), short whole-word tokens (rx, otc, flu, cbd, spf), phrases (first aid, skin care…). Allow-list: ice/sour/whipped/heavy/Irish cream, cream cheese/liqueur/sherry/soda/ale, cream of, crème brûlée/fraîche/de, cold brew/cuts/drink/beverage/coffee/press/smoked, mineral water, healthy, paint*, spain/spanish, creamer/creamy/creamery, sleepwear, comedic. Walled on purpose (fail-closed): wellness tea, health food, hemp seeds, probiotic drink, vitamin water, lemon balm.
+- **Name backstop:** only unambiguous drug/supplement nouns (cough, lozenge, ibuprofen, aspirin, vitamin, melatonin…). Never cold, pain, sleep or medic, which appear in movie and wine names.
+- **A walled anchor's category is canonicalized to its label word before signing**, so downstream gates hold even when the model's category or name drifts.
+- **Labels:** Supplements > Medication > Skincare > Beauty > Health.
+- `validate-s21` **364/364**; regression s1 50, s15 54, s2 97, s23 35, s36 59; tsc clean.
+
+**Preview acceptance (29 real health photos + 12 controls, Wikimedia Commons):** health **28/29 walled**, and every walled token was refused by backfill and Show details (403/403). Controls **12/12 clean, zero false walls**, including the bait items (Baileys "Irish cream", ice cream, cold brew, Perrier). **Known miss:** an unwrapped Halls fruit drop photo, which the model identifies as "Starburst candy", category "snacks". Nothing in its output says health, so no category or name check can catch it.
+
+**Parked: S2.8 health_class (PR #16, draft, unmerged).** It adds a fixed `health_class` enum to the vision output, trusted over the category, with these backstops kept. Preview before parking: **29/29 walled (including the Halls miss), 12/12 controls clean.** It touches the vision prompt → Brad merges.
+
+**Not done (scope change):** the authorized cleanup of the probable private Tylenol `anchor_snapshots` row from the first S2.7 run is still outstanding.
+**Token cost (unchanged, for the joint session):** a health snap costs 5,083 prompt + ~800–1,000 completion tokens, and the three lists are discarded.
+
+---
+
+## Charter amendment §12.5 — 2026-10-11 — committed directly to main (charter-only, on Brad's instruction) — no PR
+
+SHIPPED: **BRAD-AUTHORIZED ADDITION (2026-10-11): §12.5 Proportionate effort**: match effort to current scale and real risk; at friends-and-family scale ship the 95% fix, log the rare miss, move on; re-raise the bar when real usage grows. Prompted by S2.7: 28/29 accepted over "zero leaks". §2 untouched. S2.7 merged as `eff6973`.

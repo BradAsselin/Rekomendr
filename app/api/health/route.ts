@@ -9,6 +9,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { runEnvCheck } from "../../../src/lib/envCheck";
+import { probeTmdbKey } from "../../../src/lib/tmdbVerify";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -44,13 +45,18 @@ export async function GET() {
   // cron already pings every 12 hours. "disabled" here means fabricated
   // movie/TV titles can ship; it is deliberately visible from outside the
   // log so the failure has somewhere to show up on its own.
-  const tmdb = process.env.TMDB_API_KEY?.trim() ? "ok" : "disabled";
+  // S2.3 — validity, not presence: "rejected" = TMDb refuses the key (the
+  // guard fails closed and every movie rek drops); "unreachable" = TMDb
+  // didn't answer. A real call, cached 10 min (1 min when unreachable),
+  // started here so it runs alongside the DB read.
+  const tmdbPromise = probeTmdbKey();
   // S2 — "disabled" means saves don't mint snapshots and Share never
   // renders (MINT_SIGNING_SECRET missing). Same surface, same reason.
   const mint = process.env.MINT_SIGNING_SECRET?.trim() ? "ok" : "disabled";
 
   const client = await getServerClient();
   if (!client) {
+    const tmdb = await tmdbPromise;
     console.error(
       "[health] db unconfigured — SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY missing or client failed to load"
     );
@@ -62,6 +68,7 @@ export async function GET() {
     .select("client_id")
     .limit(1);
   const latencyMs = Date.now() - started;
+  const tmdb = await tmdbPromise;
 
   if (error) {
     console.error("[health] db error", {

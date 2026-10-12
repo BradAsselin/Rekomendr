@@ -1,7 +1,12 @@
 import OpenAI from "openai";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { HEALTH_MEDICAL_CATEGORIES } from "../../../src/lib/categoryGates";
+import {
+  isHealthMedical,
+  healthAnchorShort,
+  healthLabel,
+  healthLabelFromName,
+} from "../../../src/lib/categoryGates";
 // S1.5 — the real-title guard, snap side. The helpers live in a lib
 // rather than here because a Next route module may only export route
 // handlers and route config; anything else belongs outside it (and is
@@ -268,6 +273,18 @@ async function handleBackfill(backfill: any): Promise<Response> {
   const clientId = cleanClientId(backfill?.clientId);
   const unattested = refuseUnattested("backfill", item, clientId, backfill?.token);
   if (unattested) return unattested;
+
+  // Belt-and-braces twin of the vision response's wall: a health anchor
+  // has no rek list (S2.4), so no backfill may generate one for it.
+  const backfillCategory =
+    typeof item.category === "string" ? item.category.trim().toLowerCase() : "";
+  if (isHealthMedical(backfillCategory)) {
+    return Response.json(
+      { error: "Not available for this category" },
+      { status: 403 }
+    );
+  }
+
   const prior = clientId
     ? await racePriorDislikes({
         clientId,
@@ -404,7 +421,7 @@ async function handleAnchorDetail(anchorDetail: any): Promise<Response> {
 
   // Belt-and-braces twin of the client gate: health/medical anchors stay
   // structurally thin — no request path may generate a rich profile for them.
-  if (HEALTH_MEDICAL_CATEGORIES.has(category)) {
+  if (isHealthMedical(category)) {
     return Response.json(
       { error: "Detail not available for this category" },
       { status: 403 }
@@ -787,7 +804,7 @@ async function handleChain(chain: any): Promise<Response> {
   // chain may generate for a health/medical anchor.
   const category =
     typeof item.category === "string" ? item.category.trim().toLowerCase() : "";
-  if (HEALTH_MEDICAL_CATEGORIES.has(category)) {
+  if (isHealthMedical(category)) {
     return Response.json(
       { error: "Chaining not available for this category" },
       { status: 403 }
@@ -803,7 +820,7 @@ async function handleChain(chain: any): Promise<Response> {
       : "";
   // Belt-and-braces twin of the anchor gate above: a chain PURSUING a
   // health/medical direction is gated the same way.
-  if (HEALTH_MEDICAL_CATEGORIES.has(chainedCategory)) {
+  if (isHealthMedical(chainedCategory)) {
     return Response.json(
       { error: "Chaining not available for this category" },
       { status: 403 }
@@ -1100,10 +1117,25 @@ export async function POST(req: Request) {
 
     // Anchor category, normalized once — the response's detected_item value
     // and the per-rek floor in cleanList ("unknown" floor, as before).
-    const anchorCategory =
+    const rawAnchorCategory =
       typeof detected.category === "string" && detected.category.trim()
         ? normalize(detected.category)
         : "unknown";
+    // S2.7 — a health anchor's category is CANONICALIZED to its label word
+    // ("pain relief" → "medication"; "snacks" + name "cough drop" →
+    // "medication"). The token signs this word, so every downstream gate
+    // (backfill, chain, Show details, save, share, completion, public read,
+    // client twins) sees a wall word whatever the model wrote, and the name
+    // backstop can't be lost after this response.
+    const wallLabel =
+      healthLabel(rawAnchorCategory) ?? healthLabelFromName(detected.name);
+    if (wallLabel && !isHealthMedical(rawAnchorCategory)) {
+      console.info("[health-wall] walled by name", {
+        rawCategory: rawAnchorCategory,
+        label: wallLabel,
+      });
+    }
+    const anchorCategory = wallLabel ? wallLabel.toLowerCase() : rawAnchorCategory;
 
     // Clean a single list: drop the detected item, drop intra-list dupes,
     // cap at 5, and normalise the rek shape.
@@ -1189,10 +1221,38 @@ export async function POST(req: Request) {
     const reRank = <T extends { rank: number }>(list: T[]): T[] =>
       list.map((r, i) => ({ ...r, rank: i + 1 }));
 
+    // Health wall on the result tabs (charter §2.2). "Use it for" on a
+    // supplement is a dosing/timing/benefit slot by construction (field
+    // case: Vitafusion → "take after exercising to support muscle
+    // recovery"), and "Instead try" frames a substitute as a remedy. A
+    // prompt rule cannot guarantee a model writes no claim into a slot
+    // built to hold one, so the slots themselves are withheld here,
+    // before anything reaches the client.
+    // S2.4 (Brad, 2026-10-11): Similar goes too. On a live vitamin snap it
+    // carried "enhanced absorption and immune support" and "a slightly
+    // more potent formula" — comparisons §2.2 forbids on health anchors,
+    // through the same conservative-health prompt rule that already
+    // failed. A health anchor ships with no rek list at all; the client
+    // shows one plain line in its place.
+    const anchorIsHealthMedical = isHealthMedical(anchorCategory);
+    if (anchorIsHealthMedical) {
+      // The usage rides this line so the cost of the three discarded lists
+      // can be measured, not estimated (the prompt-side skip is a joint
+      // session).
+      console.info("[health-wall] rek lists withheld", {
+        anchorCategory,
+        similar: similar.length,
+        uses: uses.length,
+        alternatives: alternatives.length,
+        promptTokens: completion.usage?.prompt_tokens ?? null,
+        completionTokens: completion.usage?.completion_tokens ?? null,
+      });
+    }
+
     const cleaned = {
-      similar: reRank(similar),
-      uses: reRank(uses),
-      alternatives: reRank(alternatives),
+      similar: anchorIsHealthMedical ? [] : reRank(similar),
+      uses: anchorIsHealthMedical ? [] : reRank(uses),
+      alternatives: anchorIsHealthMedical ? [] : reRank(alternatives),
     };
 
     // The guard emptied everything. NOT a 502 and NOT "Could not read
@@ -1200,10 +1260,12 @@ export async function POST(req: Request) {
     // the slots with fiction. The anchor still ships, with plain-voice
     // honesty in place of the invented five (charter §2.4: honest-short
     // over canned-full).
+    // Read from the guard's own output, before the health wall: a wall
+    // that leaves a supplement with no list is not "new to me".
     const guardEmptiedAll =
-      cleaned.similar.length === 0 &&
-      cleaned.uses.length === 0 &&
-      cleaned.alternatives.length === 0;
+      similar.length === 0 &&
+      uses.length === 0 &&
+      alternatives.length === 0;
 
     const allowedModes = ["similar", "uses", "alternatives"] as const;
     let mode: (typeof allowedModes)[number] = allowedModes.includes(parsed?.mode)
@@ -1219,8 +1281,17 @@ export async function POST(req: Request) {
     // what later lets /api/save persist THIS text and nothing else, and
     // what the text-only paths verify before they generate. Omitted when
     // tokens are off or the snap carried no client id.
-    const shortText =
-      typeof detected.description === "string" ? detected.description : "";
+    // S2.5/S2.6: a health anchor's short is its category alone, built here —
+    // the model's own sentence never leaves the server, and the token signs
+    // the replacement, so no later path can carry the model's text.
+    const shortText = anchorIsHealthMedical
+      ? healthAnchorShort(anchorCategory)
+      : typeof detected.description === "string"
+        ? detected.description
+        : "";
+    if (anchorIsHealthMedical) {
+      console.info("[health-wall] anchor short replaced", { anchorCategory });
+    }
     const detectedItemToken = clientId
       ? signAnchor({
           name: detected.name,
