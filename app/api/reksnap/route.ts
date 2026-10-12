@@ -2,7 +2,7 @@ import OpenAI from "openai";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import {
-  HEALTH_MEDICAL_CATEGORIES,
+  isHealthMedical,
   healthAnchorShort,
 } from "../../../src/lib/categoryGates";
 // S1.5 — the real-title guard, snap side. The helpers live in a lib
@@ -276,7 +276,7 @@ async function handleBackfill(backfill: any): Promise<Response> {
   // has no rek list (S2.4), so no backfill may generate one for it.
   const backfillCategory =
     typeof item.category === "string" ? item.category.trim().toLowerCase() : "";
-  if (HEALTH_MEDICAL_CATEGORIES.has(backfillCategory)) {
+  if (isHealthMedical(backfillCategory)) {
     return Response.json(
       { error: "Not available for this category" },
       { status: 403 }
@@ -419,7 +419,7 @@ async function handleAnchorDetail(anchorDetail: any): Promise<Response> {
 
   // Belt-and-braces twin of the client gate: health/medical anchors stay
   // structurally thin — no request path may generate a rich profile for them.
-  if (HEALTH_MEDICAL_CATEGORIES.has(category)) {
+  if (isHealthMedical(category)) {
     return Response.json(
       { error: "Detail not available for this category" },
       { status: 403 }
@@ -802,7 +802,7 @@ async function handleChain(chain: any): Promise<Response> {
   // chain may generate for a health/medical anchor.
   const category =
     typeof item.category === "string" ? item.category.trim().toLowerCase() : "";
-  if (HEALTH_MEDICAL_CATEGORIES.has(category)) {
+  if (isHealthMedical(category)) {
     return Response.json(
       { error: "Chaining not available for this category" },
       { status: 403 }
@@ -818,7 +818,7 @@ async function handleChain(chain: any): Promise<Response> {
       : "";
   // Belt-and-braces twin of the anchor gate above: a chain PURSUING a
   // health/medical direction is gated the same way.
-  if (HEALTH_MEDICAL_CATEGORIES.has(chainedCategory)) {
+  if (isHealthMedical(chainedCategory)) {
     return Response.json(
       { error: "Chaining not available for this category" },
       { status: 403 }
@@ -1217,7 +1217,7 @@ export async function POST(req: Request) {
     // through the same conservative-health prompt rule that already
     // failed. A health anchor ships with no rek list at all; the client
     // shows one plain line in its place.
-    const anchorIsHealthMedical = HEALTH_MEDICAL_CATEGORIES.has(anchorCategory);
+    const anchorIsHealthMedical = isHealthMedical(anchorCategory);
     if (anchorIsHealthMedical) {
       // The usage rides this line so the cost of the three discarded lists
       // can be measured, not estimated (the prompt-side skip is a joint

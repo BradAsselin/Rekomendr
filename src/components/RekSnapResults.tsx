@@ -4,7 +4,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { Camera, ChevronRight, Plus } from "lucide-react";
 
 import {
-  HEALTH_MEDICAL_CATEGORIES,
+  isHealthMedical,
   MEDIA_CATEGORIES,
   categoryGetsRecipe,
   healthAnchorShort,
@@ -241,7 +241,7 @@ const RekSnapResults: React.FC<Props> = ({
       // Health wall (charter §2.2): a health anchor has no rek list at
       // all (S2.4; S2.1 removed the tabs). The server already withholds
       // every list; this twin holds even against an older server.
-      const health = HEALTH_MEDICAL_CATEGORIES.has(
+      const health = isHealthMedical(
         (result.detected_item.category ?? "").trim().toLowerCase()
       );
       setActiveMode(health ? "similar" : result.mode);
@@ -501,7 +501,7 @@ const RekSnapResults: React.FC<Props> = ({
     // twin just doesn't send the doomed request.
     if (
       itemName === result.detected_item.name &&
-      !HEALTH_MEDICAL_CATEGORIES.has(
+      !isHealthMedical(
         (result.detected_item.category ?? "").trim().toLowerCase()
       )
     ) {
@@ -1247,7 +1247,7 @@ const RekSnapResults: React.FC<Props> = ({
   const detectedCategory = (result.detected_item.category ?? "")
     .trim()
     .toLowerCase();
-  const anchorIsHealthMedical = HEALTH_MEDICAL_CATEGORIES.has(detectedCategory);
+  const anchorIsHealthMedical = isHealthMedical(detectedCategory);
   // S2 — Share exists only for a server-attested, non-health anchor.
   // S2.2: no longer waits for Save — tapping Share saves first (§12.3).
   const anchorShareable =
