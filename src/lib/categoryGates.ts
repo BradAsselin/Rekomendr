@@ -290,6 +290,38 @@ export function healthLabelFromName(rawName: string | null | undefined): HealthL
   return null;
 }
 
+// S2.8 — THE HEALTH CLASS. The vision call returns a fixed enum next to its
+// free-text category; the server trusts it OVER the category (a cough drop
+// filed as "snacks" still says "medication" here). Missing or invalid ⇒
+// null, and the stem + name backstops decide alone.
+export const HEALTH_CLASSES = ["none", "medication", "supplement", "skincare", "other_health"] as const;
+export type HealthClass = (typeof HEALTH_CLASSES)[number];
+
+export function cleanHealthClass(raw: unknown): HealthClass | null {
+  const c = typeof raw === "string" ? raw.trim().toLowerCase() : "";
+  return (HEALTH_CLASSES as readonly string[]).includes(c) ? (c as HealthClass) : null;
+}
+
+// The wall label for an anchor: the class decides when it says health
+// (other_health keeps a stem-derived label such as Beauty, else Health);
+// when the class says none, or is missing, the stem wall and the name
+// backstop still wall anything they catch (fail-closed — a class of
+// "none" never un-walls).
+export function anchorWallLabel(
+  healthClass: HealthClass | null,
+  category: string | null | undefined,
+  name: string | null | undefined
+): HealthLabel | null {
+  const backstop = healthLabel(category) ?? healthLabelFromName(name);
+  switch (healthClass) {
+    case "medication": return "Medication";
+    case "supplement": return "Supplements";
+    case "skincare": return "Skincare";
+    case "other_health": return backstop ?? "Health";
+    default: return backstop;
+  }
+}
+
 // THE wall test. Every health gate (vision response, backfill, chain,
 // Show details, save, share, completion, public read, client twins, the
 // recipe deny) calls this one function.
