@@ -76,16 +76,29 @@ const fakeSupabase = { from: () => query() };
 
 /* Stub OpenAI: answers with whatever the case scripted. */
 const ai = { calls: 0, next: null };
+// S3.0: the vision call is streamed. A `stream: true` request gets the same
+// reply as chunks (the real SDK's shape), split in three so the early
+// detected_item read is exercised, then a usage-only chunk.
+const asStream = (reply) => {
+  const content = reply?.choices?.[0]?.message?.content ?? "";
+  const n = Math.ceil(content.length / 3) || 1;
+  const pieces = [content.slice(0, n), content.slice(n, 2 * n), content.slice(2 * n)];
+  return (async function* () {
+    for (const p of pieces) yield { choices: [{ delta: { content: p } }] };
+    yield { choices: [], usage: reply?.usage ?? null };
+  })();
+};
 class FakeOpenAI {
   constructor() {
     this.chat = {
       completions: {
-        create: async () => {
+        create: async (req) => {
           ai.calls++;
-          return {
+          const reply = {
             choices: [{ message: { content: JSON.stringify(ai.next) } }],
             usage: { prompt_tokens: 1234, completion_tokens: 567 },
           };
+          return req?.stream ? asStream(reply) : reply;
         },
       },
     };
@@ -197,7 +210,15 @@ const IMAGE = "data:image/jpeg;base64,AAAA";
 
   out("\n5. Client source: tabs hidden, every list emptied, the plain line");
   const src = fs.readFileSync(path.join(ROOT, "src/components/RekSnapResults.tsx"), "utf8");
-  check("tab row gated on !anchorIsHealthMedical", /\{!anchorIsHealthMedical && \(\s*<div className="flex justify-center gap-2 mb-3">/.test(src), true);
+  // S3.0: the gate gained a second condition (TMDb-path media anchors show
+  // Similar only) and moved into one named flag; the health half is
+  // asserted on the flag, and the row on the flag.
+  check(
+    "tab row gated on !anchorIsHealthMedical",
+    /const showModePills = !anchorIsHealthMedical && [^;]+;/.test(src) &&
+      /\{showModePills && \(\s*<div className="flex justify-center gap-2 mb-3">/.test(src),
+    true
+  );
   check("activeMode forced to similar on health", src.includes('setActiveMode(health ? "similar" : result.mode)'), true);
   check("every list emptied on health", src.includes("? { similar: [], uses: [], alternatives: [] }"), true);
   check("the plain line, exact wording", src.includes(`const HEALTH_ANCHOR_LINE = "Rekomendr doesn't recommend health products.";`), true);

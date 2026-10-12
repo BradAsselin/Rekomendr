@@ -4,7 +4,10 @@ import React, { useEffect, useRef, useState } from "react";
 import SearchBar from "../src/components/SearchBar";
 import ResultsV4 from "../src/components/ResultsV4";
 import RekSnapButton from "../src/components/RekSnapButton";
-import RekSnapResults, { type SnapResult } from "../src/components/RekSnapResults";
+import RekSnapResults, {
+  type SnapRek,
+  type SnapResult,
+} from "../src/components/RekSnapResults";
 import RecipeModal from "../src/components/RecipeModal";
 import AuthControl from "../src/components/AuthControl";
 import { getTop5FromEngine, type Rek } from "../src/engine/rekomendrEngine";
@@ -61,6 +64,93 @@ function loadingLabelFromQuery(query: string, cat: Category): string {
   if (clarifier) return `Reks Ray™ is finding ${cat} reks for ${clarifier}…`;
 
   return "Reks Ray™ is finding fresh reks for you…";
+}
+
+// S3.0 — the typed text of a query ("Movies||lane||Lioness||mode:ai"), or
+// "" for lane/vibe/Play searches, which never name a title.
+function typedTextFromQuery(query: string): string {
+  const parts = (query || "").includes("||") ? query.split("||") : query.split("|");
+  if ((parts[3] || "").trim().toLowerCase() === "mode:pool") return "";
+  return (parts[2] || "").trim();
+}
+
+function laneFromQuery(query: string): string | null {
+  const parts = (query || "").includes("||") ? query.split("||") : query.split("|");
+  return (parts[1] || "").trim() || null;
+}
+
+// S3.0 — does the typed text name one specific title (movies/TV, against
+// TMDb) or one specific wine? Null = not a title; the search runs as
+// before. A media lookup that fails is treated as "not a title" (the
+// server logs it); a wine whose generation fails speaks its failure.
+async function resolveTypedAnchor(text: string, category: Category): Promise<SnapResult | null> {
+  const clientId = getAnonymousClientId();
+  if (category === "Movies" || category === "TV Shows") {
+    try {
+      const res = await fetch("/api/anchor", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "resolve", text, category, clientId }),
+      });
+      if (!res.ok) return null;
+      const data = await res.json().catch(() => null);
+      return data?.anchor?.detected_item ? (data.anchor as SnapResult) : null;
+    } catch {
+      return null;
+    }
+  }
+  if (category === "Wine") {
+    const res = await fetch("/api/reksnap", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ typed: { text, clientId } }),
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok && typeof data?.reason === "string" && typeof data?.error === "string") {
+      throw new AIServiceError(data.error, data.reason);
+    }
+    if (!res.ok) throw new Error(data?.error || "Typed wine failed");
+    if (data?.detected_item && Array.isArray(data?.results?.similar)) return data as SnapResult;
+    return null;
+  }
+  return null;
+}
+
+async function fetchTypedReks(
+  media: NonNullable<SnapResult["media"]>,
+  lane: string | null
+): Promise<{ reks: SnapRek[]; notice?: string }> {
+  try {
+    const res = await fetch("/api/anchor", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "reks",
+        kind: media.kind,
+        id: media.id,
+        lane,
+        clientId: getAnonymousClientId(),
+      }),
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok) {
+      // A named service failure speaks plainly; anything else keeps the
+      // one Reks Ray failure voice.
+      return {
+        reks: [],
+        notice:
+          typeof data?.reason === "string" && typeof data?.error === "string"
+            ? data.error
+            : AI_SEARCH_FAILED_MSG,
+      };
+    }
+    return {
+      reks: Array.isArray(data?.reks) ? (data.reks as SnapRek[]) : [],
+      notice: typeof data?.notice === "string" ? data.notice : undefined,
+    };
+  } catch {
+    return { reks: [], notice: AI_SEARCH_FAILED_MSG };
+  }
 }
 
 // Soft session limit on RekSnaps; count lives in sessionStorage so it
@@ -149,6 +239,9 @@ export default function Page() {
   const [snapResult, setSnapResult] = useState<SnapResult | null>(null);
   const [snapError, setSnapError] = useState<string | null>(null);
   const [snapLimitReached, setSnapLimitReached] = useState(false);
+  // S3.0 — a typed media anchor's reks, fetched after the anchor shows.
+  const [reksPending, setReksPending] = useState(false);
+  const [lateReks, setLateReks] = useState<{ reks: SnapRek[]; notice?: string } | null>(null);
   // True once this session has at least one successful snap; hides the hero
   // button. Set in an effect so server and first client render stay in sync.
   const [hasSnapped, setHasSnapped] = useState(false);
@@ -217,6 +310,8 @@ export default function Page() {
     lastActivityRef.current = Date.now();
     setSnapError(null);
     setSnapResult(null);
+    setReksPending(false);
+    setLateReks(null);
     setSnapLoading(true);
 
     try {
@@ -273,6 +368,8 @@ export default function Page() {
     setSnapLoading(false);
     setSnapLimitReached(false);
     setSearchError(null);
+    setReksPending(false);
+    setLateReks(null);
 
     const nextCategory = categoryFromQuery(query);
 
@@ -282,8 +379,34 @@ export default function Page() {
     setLoadingLabel(loadingLabelFromQuery(query, nextCategory));
 
     try {
-      const prefs = await loadPrefsForCategory(nextCategory);
+      // S3.0 — a typed TITLE lands as the anchor (the "what's that show?"
+      // flow). The detection runs beside the prefs read, so a mood query
+      // pays nothing extra; anything that isn't a title searches as before.
+      const typedText = typedTextFromQuery(query);
+      const [prefs, typedAnchor] = await Promise.all([
+        loadPrefsForCategory(nextCategory),
+        typedText ? resolveTypedAnchor(typedText, nextCategory) : Promise.resolve(null),
+      ]);
       if (searchId !== searchIdRef.current) return;
+
+      if (typedAnchor) {
+        const snapId = snapIdRef.current;
+        setSnapResult(typedAnchor);
+        setLateReks(null);
+        // Media anchors arrive without reks (TMDb only, no model call) and
+        // fetch them next; a typed wine arrives whole.
+        const needsReks = !!typedAnchor.media && typedAnchor.results.similar.length === 0;
+        setReksPending(needsReks);
+        setLoading(false);
+        if (needsReks && typedAnchor.media) {
+          const lane = laneFromQuery(query);
+          const late = await fetchTypedReks(typedAnchor.media, lane);
+          if (searchId !== searchIdRef.current || snapId !== snapIdRef.current) return;
+          setLateReks(late);
+          setReksPending(false);
+        }
+        return;
+      }
 
       setPersistedLikedTitles(prefs.likedTitles);
       setPersistedDislikedTitles(prefs.dislikedTitles);
@@ -402,6 +525,8 @@ export default function Page() {
     setSnapResult(null);
     setSnapError(null);
     setSnapLimitReached(false);
+    setReksPending(false);
+    setLateReks(null);
     setHasSnapped(false); // re-show the hero snap button
     setActiveRecipe(null);
     setCategory("Movies");
@@ -462,6 +587,8 @@ export default function Page() {
               limitReached={snapLimitReached}
               onSnapAgain={openSnapPicker}
               onOpenRecipe={(r) => setActiveRecipe(r)}
+              reksPending={reksPending}
+              lateReks={lateReks}
             />
           ) : !hasSearched && !loading ? (
             !hasSnapped && (

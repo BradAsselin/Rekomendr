@@ -114,9 +114,22 @@ const fakeSupabase = { from: (t) => query(t) };
 
 /* Stub OpenAI: counts calls; answers any chat with an empty JSON list. */
 const ai = { calls: 0 };
+
+// S3.0: the vision call is streamed. A `stream: true` request gets the same
+// reply as chunks (the real SDK's shape), split in three so the early
+// detected_item read is exercised, then a usage-only chunk.
+const asStream = (reply) => {
+  const content = reply?.choices?.[0]?.message?.content ?? "";
+  const n = Math.ceil(content.length / 3) || 1;
+  const pieces = [content.slice(0, n), content.slice(n, 2 * n), content.slice(2 * n)];
+  return (async function* () {
+    for (const p of pieces) yield { choices: [{ delta: { content: p } }] };
+    yield { choices: [], usage: reply?.usage ?? null };
+  })();
+};
 class FakeOpenAI {
   constructor() {
-    this.chat = { completions: { create: async () => { ai.calls++; return { choices: [{ message: { content: JSON.stringify({ items: [] }) } }] }; } } };
+    this.chat = { completions: { create: async (req) => { ai.calls++; const reply = { choices: [{ message: { content: JSON.stringify({ items: [] }) } }] }; return req?.stream ? asStream(reply) : reply; } } };
     this.moderations = { create: async () => ({ results: [{ flagged: false }] }) };
   }
 }

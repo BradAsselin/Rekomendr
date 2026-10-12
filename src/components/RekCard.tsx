@@ -55,6 +55,10 @@ type Props = {
   // which renders independently of the title. Unset = the original
   // title-as-toggle (or plain span) behavior, untouched.
   titleHref?: string;
+  // S3.0 — an always-visible line under the description (the media
+  // anchor's "where to watch" answer). Rendered between the read moment
+  // and the verb row; unset on every other card.
+  infoSlot?: React.ReactNode;
   // Highlight state, split so a card can be thumbed AND saved at once:
   // thumbs are one-active-within-thumbs, Save is independent.
   thumbSignal?: "like" | "dislike" | null;
@@ -101,6 +105,7 @@ const RekCard: React.FC<Props> = ({
   detailsOpen,
   onToggleDetails,
   titleHref,
+  infoSlot,
   thumbSignal,
   saved,
   onThumbUp,
@@ -190,7 +195,7 @@ const RekCard: React.FC<Props> = ({
           onClick={(e) => e.stopPropagation()}
         >
           {rank != null && (
-            <span className="text-xs text-gray-400 font-medium mr-1">
+            <span className="text-xs text-gray-600 font-medium mr-1">
               #{rank}
             </span>
           )}
@@ -215,13 +220,13 @@ const RekCard: React.FC<Props> = ({
       {/* S1 — the resurfacing marker. One quiet grey line under the title,
           no chrome of its own (charter §7 call #2, marked: default). */}
       {markerLine && (
-        <div className="-mt-1 mb-2 text-[13px] text-gray-500">{markerLine}</div>
+        <div className="-mt-1 mb-2 text-[13px] text-gray-600">{markerLine}</div>
       )}
 
       {/* SHORT DESCRIPTION + EXPAND (expand when a long body exists, or when
           the parent lazy-loads one on first expand) */}
       <p
-        className={`${accent ? "text-base text-gray-800" : "text-[15px] text-gray-700"} mb-2 leading-relaxed`}
+        className={`${accent ? "text-base" : "text-[15px]"} font-normal text-gray-900 mb-2 leading-relaxed`}
       >
         {short}
         {(long || expandable) && (
@@ -234,7 +239,7 @@ const RekCard: React.FC<Props> = ({
                 e.stopPropagation();
                 onToggleDetails?.();
               }}
-              className={`text-xs ${accent ? "text-gray-600" : "text-gray-500"} hover:underline`}
+              className="text-xs text-gray-600 hover:underline"
             >
               {detailsOpen ? "Hide details" : "Show details"}
             </button>
@@ -259,7 +264,7 @@ const RekCard: React.FC<Props> = ({
           less weight than the teaser. */}
       {long && detailsOpen && !detailsLoading && (
         <p
-          className={`${accent ? "text-base text-gray-800" : "text-[15px] text-gray-700"} leading-relaxed mb-3`}
+          className={`${accent ? "text-base" : "text-[15px]"} font-normal text-gray-900 leading-relaxed mb-3`}
         >
           {long}
         </p>
@@ -274,12 +279,14 @@ const RekCard: React.FC<Props> = ({
         </div>
       )}
 
+      {infoSlot}
+
       {/* COMPLETION VERBS — three fixed zones. A grid keeps each verb's
           position stable when neighbors are empty; the row disappears
           entirely only when all three are (health/medical: zero verbs). */}
       {(verbLeft || verbMiddle || verbRight) && (
         <div
-          className="mt-3 grid grid-cols-3 items-center text-sm text-gray-700"
+          className="mt-3 grid grid-cols-3 items-center text-sm text-gray-800"
           onClick={(e) => e.stopPropagation()}
         >
           <div className="flex justify-start">{verbLeft}</div>

@@ -14,7 +14,13 @@ import { compensatedCommit } from "../lib/scrollCompensation";
 import { getAnonymousClientId } from "../lib/userPrefs";
 import { isAIServiceError, readServiceFailure } from "../lib/aiServiceError";
 import { shareOrCopy } from "../lib/shareLink";
-import { TrailerVerb, WhereToWatchVerb, titleInfoUrl } from "./MediaVerbs";
+import {
+  TrailerVerb,
+  WatchLine,
+  WhereToWatchVerb,
+  titleInfoUrl,
+  type WatchInfoView,
+} from "./MediaVerbs";
 import RekCard from "./RekCard";
 import RekSkeleton, { RekSkeletonCard } from "./RekSkeleton";
 import RekTrail, { TrailRow } from "./RekTrail";
@@ -27,6 +33,10 @@ export type SnapRek = {
   // anchor's detected category.
   category?: string;
   rank: number;
+  // S3.0 — TMDb-path media reks: the card's short is the chooser's
+  // comparison line and `long` is TMDb's overview ("Show details").
+  long?: string;
+  year?: number | null;
 };
 
 // S2 — the server's HMAC attestation of the anchor (Ledger #19). Opaque to
@@ -36,7 +46,13 @@ export type SnapRek = {
 export type AnchorToken = { sig: string; issued_at: number };
 
 export type SnapResult = {
-  detected_item: { name: string; description: string; category: string };
+  detected_item: {
+    name: string;
+    description: string;
+    category: string;
+    // S3.0 — TMDb-resolved media anchors carry their year.
+    year?: number | null;
+  };
   detected_item_token?: AnchorToken;
   mode: SnapMode;
   results: Record<SnapMode, SnapRek[]>;
@@ -44,6 +60,16 @@ export type SnapResult = {
   // guard dropped every rek the model offered. The anchor still ships;
   // this stands where the five cards would have been.
   notice?: string;
+  // S3.0 — present when the anchor is a TMDb-resolved movie/show (snapped
+  // or typed): its official trailer and US watch providers.
+  media?: {
+    kind: "movie" | "tv";
+    id: number;
+    trailerUrl: string | null;
+    watch: WatchInfoView | null;
+    // No US service lists it yet: the release window, plain text.
+    availability?: string | null;
+  };
 };
 
 // Graduation upward: a marked card (thumbed-up or saved) LEAVES the five
@@ -72,6 +98,12 @@ type Props = {
   // Opens the recipe modal (state lives in the page). Only food "uses" cards
   // call this; passes the tapped dish + the detected item it came from.
   onOpenRecipe?: (recipe: { dish: string; detectedItem: string }) => void;
+  // S3.0 — a TYPED media anchor shows first; its five reks follow from a
+  // second request. While it runs the list shows the skeleton; when it
+  // lands it fills Similar in place (no reset — a Save or Share tapped
+  // on the anchor meanwhile stands).
+  reksPending?: boolean;
+  lateReks?: { reks: SnapRek[]; notice?: string } | null;
 };
 
 // One failure voice, shared verbatim with the search lane's AI misses.
@@ -103,6 +135,8 @@ const RekSnapResults: React.FC<Props> = ({
   limitReached,
   onSnapAgain,
   onOpenRecipe,
+  reksPending,
+  lateReks,
 }) => {
   // Thumb marks and saves are independent per item name (a card can be
   // thumbed-up AND saved). Thumbs are one-active-within-thumbs and toggle on
@@ -142,6 +176,11 @@ const RekSnapResults: React.FC<Props> = ({
   // inline failure notice (chain failures only).
   const [chainingMode, setChainingMode] = useState<SnapMode | null>(null);
   const [chainError, setChainError] = useState<string | null>(null);
+  // S3.0 — one open rek card at a time (the search lane's rule), the
+  // anchor's where-to-watch list, and a late-arriving honest notice.
+  const [openRek, setOpenRek] = useState<string | null>(null);
+  const [watchOpen, setWatchOpen] = useState(false);
+  const [lateNotice, setLateNotice] = useState<string | null>(null);
 
   // Anchor long tier — lazy-loaded on first "Show details" tap, then cached
   // for the life of the snap (re-toggles are local, no re-fetch).
@@ -284,8 +323,22 @@ const RekSnapResults: React.FC<Props> = ({
       setAnchorLongToken(null);
       mintRef.current = null;
       setShare({ status: "idle" });
+      setOpenRek(null);
+      setWatchOpen(false);
+      setLateNotice(null);
     }
   }, [result]);
+
+  // S3.0 — the typed anchor's reks land into Similar in place. Only into
+  // an empty list: if the user already re-rolled the anchor, theirs wins.
+  useEffect(() => {
+    if (!lateReks || !resultRef.current) return;
+    const current = listsRef.current;
+    if (current && current.similar.length > 0) return;
+    setLists((prev) => (prev ? { ...prev, similar: lateReks.reks } : prev));
+    lateReks.reks.forEach((r) => everShownRef.current.add(r.name));
+    setLateNotice(lateReks.reks.length === 0 ? lateReks.notice ?? null : null);
+  }, [lateReks]);
 
   const switchMode = (mode: SnapMode) => {
     if (!result || mode === activeMode) return;
@@ -1253,6 +1306,10 @@ const RekSnapResults: React.FC<Props> = ({
   const anchorShareable =
     !anchorIsHealthMedical && !!result.detected_item_token;
   const anchorIsMedia = MEDIA_CATEGORIES.has(detectedCategory);
+  const anchorWatch = anchorIsMedia ? result.media?.watch ?? null : null;
+  // TMDb-path media anchors offer Similar only; a row with one pill is not
+  // a choice (the S2.1 precedent).
+  const showModePills = !anchorIsHealthMedical && !result.media;
 
   // "uses"-mode cards push through to a recipe only when the anchor is
   // actually something you eat or drink. S1.5 flipped this from a
@@ -1325,6 +1382,7 @@ const RekSnapResults: React.FC<Props> = ({
         <RekCard
           accent
           title={result.detected_item.name}
+          year={result.detected_item.year ?? undefined}
           /* S2.5/S2.6: a health anchor shows its category only — the
              twin of the server's replacement, holding even against an older
              server that still sent the model's sentence. */
@@ -1341,6 +1399,22 @@ const RekSnapResults: React.FC<Props> = ({
           long={anchorIsHealthMedical ? undefined : anchorLong ?? undefined}
           expandable={!anchorIsHealthMedical}
           markerLine={anchorIsHealthMedical ? HEALTH_ANCHOR_LINE : undefined}
+          /* S3.0 — the "where can I watch it?" answer, visible collapsed:
+             one quiet line, one tap target (§2.6), opening the direct
+             links. The expanded row's Watch opens the same list. */
+          infoSlot={
+            anchorWatch ? (
+              <WatchLine
+                watch={anchorWatch}
+                open={watchOpen}
+                onToggle={() => setWatchOpen((o) => !o)}
+              />
+            ) : anchorIsMedia && result.media?.availability ? (
+              <div className="mb-1 text-[15px] text-gray-900">
+                {result.media.availability}
+              </div>
+            ) : undefined
+          }
           detailsLoading={anchorLoading}
           detailsOpen={anchorOpen}
           onToggleDetails={toggleAnchorDetails}
@@ -1366,7 +1440,10 @@ const RekSnapResults: React.FC<Props> = ({
              snapped subject, so its verbs never flip with the pills. */
           verbLeft={
             anchorIsHealthMedical ? undefined : anchorIsMedia ? (
-              <TrailerVerb name={result.detected_item.name} />
+              <TrailerVerb
+                name={result.detected_item.name}
+                href={result.media?.trailerUrl ?? undefined}
+              />
             ) : anchorOpen ? (
               showMeVerb
             ) : undefined
@@ -1374,7 +1451,17 @@ const RekSnapResults: React.FC<Props> = ({
           verbMiddle={
             anchorIsHealthMedical ? undefined : anchorIsMedia ? (
               anchorOpen ? (
-                <WhereToWatchVerb name={result.detected_item.name} />
+                anchorWatch ? (
+                  <button
+                    type="button"
+                    onClick={() => setWatchOpen((o) => !o)}
+                    className="hover:underline"
+                  >
+                    Watch
+                  </button>
+                ) : (
+                  <WhereToWatchVerb name={result.detected_item.name} />
+                )
               ) : undefined
             ) : usesGetRecipes ? (
               recipeButton(result.detected_item.name)
@@ -1466,7 +1553,15 @@ const RekSnapResults: React.FC<Props> = ({
               >
                 <RekCard
                   title={entry.rek.name}
+                  year={entry.rek.year ?? undefined}
                   short={entry.rek.description}
+                  long={entry.rek.long || undefined}
+                  detailsOpen={openRek === entry.rek.name}
+                  onToggleDetails={() =>
+                    setOpenRek((cur) =>
+                      cur === entry.rek.name ? null : entry.rek.name
+                    )
+                  }
                   titleHref={
                     anchorIsMedia ? titleInfoUrl(entry.rek.name) : undefined
                   }
@@ -1522,7 +1617,7 @@ const RekSnapResults: React.FC<Props> = ({
         {/* Mode toggle — all three lists are preloaded, so this is instant.
             Health anchors get no toggle at all: their only list is Similar,
             and a row with one pill is not a choice. */}
-        {!anchorIsHealthMedical && (
+        {showModePills && (
         <div className="flex justify-center gap-2 mb-3">
           {MODE_TABS.map(({ mode, label }) => {
             const active = mode === activeMode;
@@ -1551,9 +1646,11 @@ const RekSnapResults: React.FC<Props> = ({
               to exist. Plain voice (machinery, not Reks Ray) standing
               exactly where the five cards would have been — the charter's
               honest-short over canned-full, made visible. */}
-          {result.notice && (lists?.[activeMode] ?? []).length === 0 && (
+          {(result.notice || lateNotice) &&
+            !reksPending &&
+            (lists?.[activeMode] ?? []).length === 0 && (
             <div className="bg-white border border-amber-300 rounded-2xl p-4 shadow-sm">
-              <div className="text-sm text-gray-800">{result.notice}</div>
+              <div className="text-sm text-gray-900">{result.notice || lateNotice}</div>
             </div>
           )}
 
@@ -1572,8 +1669,14 @@ const RekSnapResults: React.FC<Props> = ({
             >
               <RekCard
                 title={rek.name}
+                year={rek.year ?? undefined}
                 rank={rek.rank}
                 short={rek.description}
+                long={rek.long || undefined}
+                detailsOpen={openRek === rek.name}
+                onToggleDetails={() =>
+                  setOpenRek((cur) => (cur === rek.name ? null : rek.name))
+                }
                 titleHref={anchorIsMedia ? titleInfoUrl(rek.name) : undefined}
                 // Swipe grammar (touch only): a committed swipe in either
                 // direction dismisses + backfills (thumbs-down). Liked or
@@ -1627,7 +1730,8 @@ const RekSnapResults: React.FC<Props> = ({
               same five-skeleton wait treatment as a fresh generation.
               Renders only on the chaining mode's list, so pill flips
               mid-chain still show the other lists intact. */}
-          {chainingMode === activeMode && (
+          {(chainingMode === activeMode ||
+            (reksPending && (lists?.[activeMode] ?? []).length === 0)) && (
             <RekSkeleton label="Reks Ray™ is finding your reks…" count={5} />
           )}
           {/* One inline pulse per in-flight backfill for the visible mode —
