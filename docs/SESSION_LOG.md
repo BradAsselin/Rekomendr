@@ -648,3 +648,26 @@ VALIDATION ("Brad's twenty minutes", against the main preview after merge):
 - What to do: (1) Snap a vitamin or supplement. (2) Snap a pain reliever (Tylenol, Advil). (3) Snap a skin cream. (4) On one of them, tap Save. (5) Snap a wine.
 - What it should feel like: [ ] each health snap shows its name, the grey line, and under it only "<name> · <category>" — no sentence about what it does; [ ] no "Show details", no cards, no pills, no Share; [ ] Save fills in quietly and nothing else happens; [ ] the wine is exactly as before, with its own description and Show details; [ ] your call: is the name appearing twice fine, or should the short be just the category?
 - What to screenshot if it's wrong: the whole health snap; any health card that shows a sentence.
+
+---
+
+## Session 2.6 — health-anchor-category — 2026-10-11 — branch auto/s2.6-health-anchor-category — PR #14 (local agent mode, §11)
+
+Brad's decision (2026-10-11): under the title, a health anchor shows only its category ("Medication", "Supplements", "Skincare"), not "name · category". The title already names the product. Same server-side path.
+
+**§10.2 carry-forward:** S2.5 re-verified first: `validate-s21` 165/165. S2.5 merged as `89b742e`.
+
+SHIPPED:
+- `healthAnchorShort(category)` returns the capitalized category alone. The server path is unchanged from S2.5: the short is replaced in `/api/reksnap` before `signAnchor`, gated on `anchorIsHealthMedical`, and the token signs the category text. The client twin calls the same helper.
+- `validate-s21` **166/166** (S2.5 expectations updated, plus one assert that the name isn't repeated). Regression: s1 50, s15 54, s2 97, s23 35, s36 59. tsc clean.
+- **Preview, real browser, real photos: 45/45.** Vitamin → "Supplements"; Tylenol → "Health"; Nivea → "Skincare". Each: the short is the category alone, no name repeated, the line once, no Show details / cards / pills / Share, Save sends no `/api/save`, a detail probe with a valid token → 403. Wine control unchanged.
+
+FOUND, NOT FIXED (NEW): nothing.
+- Observation for Brad (feel, §12.4): the word shown is the vision model's own category, and it varies between snaps of the same item. Tylenol came back "medication" in S2.5 and "health" in this run, so the card said "Health" this time. It is still always a word on the health wall, never a claim. If you want a steadier label, a small display map (e.g. medication/drug/otc → "Medication", vitamin/supplement → "Supplements", skincare/cream/lotion → "Skincare", the rest → "Health") is a code-only follow-up.
+
+BRAD MUST: nothing beyond the phone check below.
+
+VALIDATION ("Brad's twenty minutes", against the main preview after merge):
+- What to do: snap a vitamin, a pain reliever and a skin cream; then a wine.
+- What it should feel like: [ ] each health card shows the product name, the grey line, and one word under it (e.g. "Supplements"); [ ] the name isn't repeated; [ ] wine exactly as before; [ ] your call: is a varying word ("Health" vs "Medication" for the same bottle) fine?
+- What to screenshot if it's wrong: the whole health snap.
