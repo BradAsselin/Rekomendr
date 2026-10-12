@@ -1264,11 +1264,11 @@ export async function POST(req: Request) {
     // what later lets /api/save persist THIS text and nothing else, and
     // what the text-only paths verify before they generate. Omitted when
     // tokens are off or the snap carried no client id.
-    // S2.5: a health anchor's short is the name and category, built here —
+    // S2.5/S2.6: a health anchor's short is its category alone, built here —
     // the model's own sentence never leaves the server, and the token signs
     // the replacement, so no later path can carry the model's text.
     const shortText = anchorIsHealthMedical
-      ? healthAnchorShort(detected.name, anchorCategory)
+      ? healthAnchorShort(anchorCategory)
       : typeof detected.description === "string"
         ? detected.description
         : "";

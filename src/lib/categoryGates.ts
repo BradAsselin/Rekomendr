@@ -129,12 +129,11 @@ export function categoryGetsRecipe(rawCategory: string | undefined): boolean {
 // taken from the model. The vision prompt asks for one plain identifying
 // sentence and the model writes benefit claims anyway ("antioxidant support
 // for immune health"), so the description is replaced outright: the
-// product's name and its category, nothing a model wrote about it. The
-// server signs THIS text (so save/backfill/detail attest it); the client
-// renders the same string as a twin against an older server.
-export function healthAnchorShort(name: string, rawCategory: string): string {
+// product's category, nothing a model wrote about it. S2.6 (Brad): the
+// category alone ("Medication") — the card's title already names the
+// product. The server signs THIS text (so save/backfill/detail attest it);
+// the client renders the same string as a twin against an older server.
+export function healthAnchorShort(rawCategory: string): string {
   const c = (rawCategory ?? "").trim().toLowerCase();
-  const label = c ? c.charAt(0).toUpperCase() + c.slice(1) : "";
-  const n = (name ?? "").trim();
-  return label ? `${n} · ${label}` : n;
+  return c ? c.charAt(0).toUpperCase() + c.slice(1) : "";
 }
