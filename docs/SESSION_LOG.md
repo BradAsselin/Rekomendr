@@ -762,3 +762,35 @@ VALIDATION ("Brad's twenty minutes", against the main preview after merge):
 - What to do: (1) Movies → type "Sing Street" → GO. (2) TV Shows → type "Lioness" → GO; tap the "Stream on…" line; tap a service; tap Trailer. (3) Movies → "The Odyssey". (4) Movies → "something clever". (5) On Lioness tap Share, text yourself, open signed-out. (6) Snap a DVD or poster. (7) Wine → type a wine you know by name.
 - What it should feel like: [ ] each title appears itself, on top, almost instantly, with its real synopsis; [ ] five similar titles fill in a few seconds later, each with a one-line reason; [ ] the where-to-watch line answers the question before you tap anything; [ ] the trailer is the official one; [ ] "something clever" behaves as before; [ ] the shared page shows the trailer and the services; [ ] a poster snap comes back in about five seconds; [ ] text reads crisp and dark (your call vs the before screenshots).
 - What to screenshot if it's wrong: the whole anchor card; any rek line that invents a plot; the shared page.
+
+---
+
+## Session 3.1 — prod-anchor-fallback — 2026-10-12 — branch auto/s3.1-prod-anchor-fallback — PR (see below) (local agent mode, §11)
+
+Brad's report: on production (deploy 8fd4f62 = main 11482bf) typing "Lioness" (TV or Movies) ran the old search instead of landing the anchor; preview had passed 19/19. Plus: the Share pill overlaps the iPhone status bar after scrolling.
+
+**§10.2 carry-forward:** S3.0 re-verified: s30 64/64 before changes; regression suites green.
+
+DIAGNOSIS:
+- Reproduced against production at 16:12 UTC: `/api/anchor` resolve answers correctly for Lioness (TV and Movies) and Sing Street; `/api/health` all ok. A fresh WebKit iPhone session on www.rekomendr.ai landed the Lioness anchor. **Production server code works.**
+- **Production logs NOT read:** `vercel logs --environment production …` and `vercel ls --prod` were refused by this session's permission policy, so which branch fired at 15:55–16:05 is unconfirmed from logs.
+- **Most likely cause: build skew on the phone.** The app runs as an installed PWA (`black-translucent` status bar — the same fact behind the overlap bug). A PWA resumed after a promotion keeps executing the bundle it loaded; the pre-S3.0 bundle never calls `/api/anchor`, so the old search runs — exactly the reported symptom, with server and health fine. The S0 staleness guard resets *state* but never reloads *code*.
+- Second, smaller hole found in code: a failed TMDb search (non-OK / timeout / network) was reported as a clean "not a title" (`[typed-anchor] not a title`, info level) — a real failure could hide.
+- Not a Production env var: TMDB_API_KEY and MINT_SIGNING_SECRET are present and working in Production.
+
+SHIPPED:
+- **Build-skew reload:** `/api/version` returns the deployment id baked at build (`NEXT_PUBLIC_BUILD_ID` from `VERCEL_DEPLOYMENT_ID`); on resume (`pageshow`/visible) the page compares and, if a newer build is live and nothing is in flight, reloads once (never twice per build). Tripwire `[build-skew]`.
+- **Loud fallback:** `resolveTypedTitleChecked` separates a failed lookup from a miss; `/api/anchor` logs `[typed-anchor] FALLBACK lookup failed | bundle failed | disabled | route error — search ran instead` at **error** level with the reason (`http_429`, `timeout`, `network_*`, `no_key`) and returns `fallback: <reason>`; the client also warns.
+- **Safe area:** `viewport-fit=cover`; the top bar is padded by `env(safe-area-inset-*)`; a fixed navy strip the height of the inset sits behind the status bar so nothing scrolls under the clock.
+- `validate-s30` **69/69** (5 new: failed lookup named and error-logged, not logged as "not a title"; clean miss quiet; missing key named). s21 364, s1 50, s15 54, s2 97, s23 35, s36 59. tsc clean.
+- **Preview (rekomendr-f9vbvn53y), real WebKit: 9/9** — Lioness (TV), Lioness (Movies), Sing Street land as anchors (0.36–0.48 s); `/api/version` answers; same build → no reload; newer build → exactly one reload; no second reload; viewport-fit=cover; insets applied.
+
+FOUND, NOT FIXED (NEW):
+- Playwright can't intercept requests on pages controlled by the service worker (WebKit): my first production probe meant to stub writes did NOT — it made one real resolve, one reks call (one `api_usage` row, one gpt-4o-mini call) and one prefs read on production as a fresh `anon_*` client. Test with `serviceWorkers: 'block'` from now on.
+- Vercel still builds no previews from git pushes; previews deployed via CLI.
+
+BRAD MUST:
+- After promoting: **force-quit the installed Rekomendr app once and reopen it** (the bundle now on your phone predates the reload guard; every later deploy updates itself).
+- If you want the 15:55 field miss confirmed: run `! vercel logs --environment production --since 2026-10-12T15:50:00Z --until 2026-10-12T16:10:00Z --query "typed-anchor"` — no `[typed-anchor]` lines at all confirms the old bundle; a `not a title` line would point at TMDb.
+
+VALIDATION: see the combined batch in the S3.1 PR and the final report.
