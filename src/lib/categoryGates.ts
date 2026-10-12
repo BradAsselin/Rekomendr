@@ -262,6 +262,34 @@ export function healthLabel(rawCategory: string | null | undefined): HealthLabel
   return null;
 }
 
+// NAME BACKSTOP (S2.7). The category can drift entirely out of the health
+// domain: a Halls cough drop came back category "snacks", name "cough
+// drop". A product NAME is a much noisier field than a category (movies and
+// wines are named "Cold Mountain", "Pain & Gain", "Sleeping Giant",
+// "Medicine Man"), so it gets only unambiguous drug / supplement nouns —
+// never cold, pain, sleep, relief, medic or health.
+const HEALTH_NAME_GROUPS: { label: HealthLabel; stems: string[] }[] = [
+  { label: "Supplements", stems: ["vitamin", "supplement", "melatonin", "probiotic"] },
+  {
+    label: "Medication",
+    stems: [
+      "cough", "lozenge", "ibuprofen", "acetaminophen", "paracetamol",
+      "aspirin", "naproxen", "antacid", "antihist", "allergy", "decongest",
+      "laxative", "hydrocort", "ointment", "caplet", "gelcap",
+    ],
+  },
+  { label: "Skincare", stems: ["sunscreen"] },
+];
+
+export function healthLabelFromName(rawName: string | null | undefined): HealthLabel | null {
+  const n = ` ${normalizeCategory(rawName)} `;
+  if (!n.trim()) return null;
+  for (const g of HEALTH_NAME_GROUPS) {
+    if (g.stems.some((stem) => n.includes(stem))) return g.label;
+  }
+  return null;
+}
+
 // THE wall test. Every health gate (vision response, backfill, chain,
 // Show details, save, share, completion, public read, client twins, the
 // recipe deny) calls this one function.

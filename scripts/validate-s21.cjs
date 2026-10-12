@@ -328,6 +328,42 @@ const IMAGE = "data:image/jpeg;base64,AAAA";
   check("save/share twin leaves wine alone", snapsLib.isHealthCategory("wine"), false);
   delete process.env.MINT_SIGNING_SECRET;
 
+  out("\n10. S2.7: name backstop + canonical category");
+  process.env.MINT_SIGNING_SECRET = "s21-harness-secret";
+  logs = [];
+  ai.next = { ...visionAnswer("snacks", "similar"), detected_item: { name: "Halls cough drop", description: "Sweet and soothing, with menthol to ease the throat.", category: "snacks" } };
+  const hd = await post({ image: IMAGE });
+  check("cough drop filed as snacks: walled", [hd.json?.results?.similar?.length, hd.json?.results?.uses?.length, hd.json?.results?.alternatives?.length], [0, 0, 0]);
+  check("cough drop: short is Medication", hd.json?.detected_item?.description, "Medication");
+  check("cough drop: category canonicalized to medication", hd.json?.detected_item?.category, "medication");
+  check("cough drop: claim absent", JSON.stringify(hd.json).includes("throat"), false);
+  check("cough drop: [health-wall] walled by name tripwire", logged("[health-wall] walled by name"), true);
+  const hdTok = hd.json?.detected_item_token;
+  check("cough drop: token signs the canonical category", tok.verifyAnchor({ name: "Halls cough drop", category: "medication", short: "Medication", long: null, clientId: CLIENT }, hdTok), true);
+  check("cough drop: token refuses the model's category", tok.verifyAnchor({ name: "Halls cough drop", category: "snacks", short: "Medication", long: null, clientId: CLIENT }, hdTok), false);
+  ai.calls = 0;
+  const hdItem = { name: "Halls cough drop", category: "medication", description: "Medication" };
+  const hdBf = await post({ backfill: { detectedItem: hdItem, mode: "similar", excludeNames: [], rejectedNames: [], clientId: CLIENT, token: hdTok } });
+  check("cough drop: downstream backfill 403, no OpenAI call", [hdBf.status, ai.calls], [403, 0]);
+  logs = [];
+  ai.next = { ...visionAnswer("pain relief", "similar"), detected_item: { name: "Tylenol", description: "x", category: "pain relief" } };
+  const pc = await post({ image: IMAGE });
+  check("drifted category canonicalized ('pain relief' → medication)", pc.json?.detected_item?.category, "medication");
+  check("category-walled snap does not log walled-by-name", logged("walled by name"), false);
+  for (const [name, category] of [["Cold Mountain", "movie"], ["Pain & Gain", "movies"], ["Medicine Man", "movie"], ["Sleeping Giant Pinot Noir", "wine"], ["Stumptown Cold Brew", "coffee"], ["Relief Ale", "beer"], ["Health Warrior Chia Bar", "snacks"]]) {
+    logs = [];
+    ai.next = { ...visionAnswer(category, "similar"), detected_item: { name, description: "A description.", category } };
+    const r = await post({ image: IMAGE });
+    check(`name control ${JSON.stringify(name)} (${category}): not walled`, [r.json?.results?.similar?.length > 0, r.json?.detected_item?.category], [true, category]);
+  }
+  for (const [name, label] of [["Halls Cough Drops", "Medication"], ["Ricola lozenges", "Medication"], ["Advil Liqui-Gels ibuprofen", "Medication"], ["Bayer Aspirin", "Medication"], ["Nature Made Vitamin D3", "Supplements"], ["Claritin Allergy", "Medication"], ["Vitaminwater", "Supplements"]]) {
+    check(`name ${JSON.stringify(name)} → ${label}`, gates.healthLabelFromName(name), label);
+  }
+  for (const name of ["Cold Mountain", "Pain & Gain", "Medicine Man", "Sleeping Giant", "Painted Wolf Pinotage", "Relief Ale", "Healthy Choice", "Sainte Magdeleine"]) {
+    check(`name ${JSON.stringify(name)} not walled by name`, gates.healthLabelFromName(name), null);
+  }
+  delete process.env.MINT_SIGNING_SECRET;
+
   out(`\n${pass} passed, ${fail} failed.`);
   process.exit(fail ? 1 : 0);
 })().catch((err) => {

@@ -4,6 +4,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   isHealthMedical,
   healthAnchorShort,
+  healthLabel,
+  healthLabelFromName,
 } from "../../../src/lib/categoryGates";
 // S1.5 — the real-title guard, snap side. The helpers live in a lib
 // rather than here because a Next route module may only export route
@@ -1115,10 +1117,25 @@ export async function POST(req: Request) {
 
     // Anchor category, normalized once — the response's detected_item value
     // and the per-rek floor in cleanList ("unknown" floor, as before).
-    const anchorCategory =
+    const rawAnchorCategory =
       typeof detected.category === "string" && detected.category.trim()
         ? normalize(detected.category)
         : "unknown";
+    // S2.7 — a health anchor's category is CANONICALIZED to its label word
+    // ("pain relief" → "medication"; "snacks" + name "cough drop" →
+    // "medication"). The token signs this word, so every downstream gate
+    // (backfill, chain, Show details, save, share, completion, public read,
+    // client twins) sees a wall word whatever the model wrote, and the name
+    // backstop can't be lost after this response.
+    const wallLabel =
+      healthLabel(rawAnchorCategory) ?? healthLabelFromName(detected.name);
+    if (wallLabel && !isHealthMedical(rawAnchorCategory)) {
+      console.info("[health-wall] walled by name", {
+        rawCategory: rawAnchorCategory,
+        label: wallLabel,
+      });
+    }
+    const anchorCategory = wallLabel ? wallLabel.toLowerCase() : rawAnchorCategory;
 
     // Clean a single list: drop the detected item, drop intra-list dupes,
     // cap at 5, and normalise the rek shape.
