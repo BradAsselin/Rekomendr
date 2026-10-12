@@ -1,7 +1,10 @@
 import OpenAI from "openai";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { HEALTH_MEDICAL_CATEGORIES } from "../../../src/lib/categoryGates";
+import {
+  HEALTH_MEDICAL_CATEGORIES,
+  healthAnchorShort,
+} from "../../../src/lib/categoryGates";
 // S1.5 — the real-title guard, snap side. The helpers live in a lib
 // rather than here because a Next route module may only export route
 // handlers and route config; anything else belongs outside it (and is
@@ -1216,11 +1219,16 @@ export async function POST(req: Request) {
     // shows one plain line in its place.
     const anchorIsHealthMedical = HEALTH_MEDICAL_CATEGORIES.has(anchorCategory);
     if (anchorIsHealthMedical) {
+      // The usage rides this line so the cost of the three discarded lists
+      // can be measured, not estimated (the prompt-side skip is a joint
+      // session).
       console.info("[health-wall] rek lists withheld", {
         anchorCategory,
         similar: similar.length,
         uses: uses.length,
         alternatives: alternatives.length,
+        promptTokens: completion.usage?.prompt_tokens ?? null,
+        completionTokens: completion.usage?.completion_tokens ?? null,
       });
     }
 
@@ -1256,8 +1264,17 @@ export async function POST(req: Request) {
     // what later lets /api/save persist THIS text and nothing else, and
     // what the text-only paths verify before they generate. Omitted when
     // tokens are off or the snap carried no client id.
-    const shortText =
-      typeof detected.description === "string" ? detected.description : "";
+    // S2.5: a health anchor's short is the name and category, built here —
+    // the model's own sentence never leaves the server, and the token signs
+    // the replacement, so no later path can carry the model's text.
+    const shortText = anchorIsHealthMedical
+      ? healthAnchorShort(detected.name, anchorCategory)
+      : typeof detected.description === "string"
+        ? detected.description
+        : "";
+    if (anchorIsHealthMedical) {
+      console.info("[health-wall] anchor short replaced", { anchorCategory });
+    }
     const detectedItemToken = clientId
       ? signAnchor({
           name: detected.name,
