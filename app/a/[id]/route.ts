@@ -19,6 +19,10 @@
 // strict Content-Security-Policy forbids scripts outright.
 
 import { MEDIA_CATEGORIES } from "../../../src/lib/categoryGates";
+// S3.0 — trailer + where-to-watch for a shared movie/show. A TMDb read
+// (no model, no token): the posture below still holds — nothing here
+// reaches OpenAI (validate-s2 walks this import graph).
+import { completionForSaved, type MediaCompletion } from "../../../src/lib/tmdbMedia";
 import {
   firstSentence,
   loadPublicSnapshot,
@@ -48,7 +52,7 @@ const googleSearch = (q: string) => `https://www.google.com/search?q=${encodeURI
 // 3px frame #1E3A8A (RekCard accent), brand blue #2D5AB5.
 const STYLE = `
 *{box-sizing:border-box}
-body{margin:0;background:#0b1725;font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:#111827;-webkit-font-smoothing:antialiased}
+body{margin:0;background:#0b1725;font-family:-apple-system,BlinkMacSystemFont,system-ui,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;font-weight:400;color:#111827;-webkit-text-size-adjust:100%;text-size-adjust:100%}
 header{border-bottom:1px solid rgba(255,255,255,.1);height:48px;display:flex;align-items:center;justify-content:center}
 header a{color:rgba(255,255,255,.9);font-weight:700;text-decoration:none;font-size:15px}
 main{max-width:36rem;margin:0 auto;padding:24px 16px 56px}
@@ -56,12 +60,17 @@ main{max-width:36rem;margin:0 auto;padding:24px 16px 56px}
 .cat{font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:#2D5AB5;margin-bottom:4px}
 h1{font-size:18px;font-weight:600;margin:0 0 8px}
 h1 a{color:inherit;text-decoration:none}
-p{font-size:16px;line-height:1.625;color:#1f2937;margin:0 0 8px}
+p{font-size:16px;line-height:1.625;font-weight:400;color:#111827;margin:0 0 8px}
 .verbs{display:grid;grid-template-columns:1fr 1fr 1fr;margin-top:12px;font-size:14px}
-.verbs a{color:#374151;text-decoration:none}
+.verbs a{color:#1f2937;text-decoration:none}
+.watch{margin-top:12px;font-size:15px;line-height:1.6;color:#111827}
+.watch .k{color:#4b5563}
+.watch a{color:#111827;text-decoration:underline;text-decoration-color:#9ca3af;text-underline-offset:2px}
+.watch .src{margin-top:4px;font-size:12px;color:#4b5563}
+.watch .src a{color:#4b5563}
 .verbs a:hover,h1 a:hover,.cta a:hover{text-decoration:underline}
 .v2{text-align:center}
-.notice{background:#fff;border:1px solid #fcd34d;border-radius:16px;padding:16px;font-size:14px;color:#1f2937}
+.notice{background:#fff;border:1px solid #fcd34d;border-radius:16px;padding:16px;font-size:14px;color:#111827}
 .cta{margin-top:20px;text-align:center;font-size:14px;color:rgba(255,255,255,.8)}
 .cta a{color:#fff;font-weight:500;text-decoration:none}
 `;
@@ -113,7 +122,22 @@ function notFoundPage(): Response {
   );
 }
 
-function cardPage(row: SnapshotRow, origin: string): Response {
+// How long the page waits on TMDb before rendering without the media
+// block — a slow lookup must never hold a share open. Hang protection.
+const COMPLETION_BUDGET_MS = 2500;
+
+async function mediaCompletion(row: SnapshotRow): Promise<MediaCompletion | null> {
+  try {
+    return await Promise.race([
+      completionForSaved(row.item_name, row.item_category),
+      new Promise<null>((r) => setTimeout(() => r(null), COMPLETION_BUDGET_MS)),
+    ]);
+  } catch {
+    return null;
+  }
+}
+
+function cardPage(row: SnapshotRow, origin: string, media: MediaCompletion | null): Response {
   const name = row.item_name;
   const category = row.item_category.trim().toLowerCase();
   const isMedia = MEDIA_CATEGORIES.has(category);
@@ -145,9 +169,15 @@ function cardPage(row: SnapshotRow, origin: string): Response {
   // searches the app's own verbs use (MediaVerbs.tsx, the snap Buy verb).
   const link = (href: string, label: string) =>
     `<a href="${esc(href)}" target="_blank" rel="noopener noreferrer">${label}</a>`;
+  // S3.0: the official trailer and TMDb's watch page when TMDb knows the
+  // title; the neutral searches otherwise.
+  const trailerHref =
+    media?.trailerUrl ??
+    `https://www.youtube.com/results?search_query=${encodeURIComponent(`${name} trailer`)}`;
+  const watchHref = media?.watch?.link ?? googleSearch(`where to watch ${name}`);
   const verbs = isMedia
-    ? `<div>${link(`https://www.youtube.com/results?search_query=${encodeURIComponent(`${name} trailer`)}`, "▶ Trailer")}</div>` +
-      `<div class="v2">${link(googleSearch(`where to watch ${name}`), "Watch")}</div><div></div>`
+    ? `<div>${link(trailerHref, "▶ Trailer")}</div>` +
+      `<div class="v2">${link(watchHref, "Watch")}</div><div></div>`
     : `<div></div><div class="v2">${link(`https://www.google.com/search?tbm=shop&q=${encodeURIComponent(name)}`, "Buy")}</div><div></div>`;
 
   const heading = isMedia
@@ -162,10 +192,35 @@ function cardPage(row: SnapshotRow, origin: string): Response {
     heading +
     `<p>${esc(row.short_description)}</p>` +
     (row.long_description ? `<p>${esc(row.long_description)}</p>` : "") +
+    (isMedia && media?.watch
+      ? watchBlock(media.watch, link)
+      : isMedia && media?.availability
+        ? `<div class="watch">${esc(media.availability)}</div>`
+        : "") +
     `<div class="verbs">${verbs}</div>` +
     `</article>`;
 
   return htmlResponse(shell({ head, body }), 200);
+}
+
+// Stream first, then rent or buy; each provider a direct link; the
+// JustWatch attribution TMDb's terms require. Firewall (§2.1): TMDb /
+// JustWatch's own order, nothing ranked by us.
+function watchBlock(
+  watch: NonNullable<MediaCompletion["watch"]>,
+  link: (href: string, label: string) => string
+): string {
+  const row = (label: string, ps: { name: string; url: string }[]) =>
+    ps.length === 0
+      ? ""
+      : `<div><span class="k">${label}: </span>${ps.map((p) => link(p.url, esc(p.name))).join(" · ")}</div>`;
+  return (
+    `<div class="watch">` +
+    row("Stream", watch.stream) +
+    row("Rent or buy", watch.rentBuy) +
+    `<div class="src">via ${link(watch.link, "JustWatch")}</div>` +
+    `</div>`
+  );
 }
 
 // Absolute origin of THIS request, so a preview's page points at the
@@ -184,5 +239,7 @@ export async function GET(
 ): Promise<Response> {
   const row = await loadPublicSnapshot(params.id);
   if (!row) return notFoundPage();
-  return cardPage(row, originOf(req));
+  const isMedia = MEDIA_CATEGORIES.has(row.item_category.trim().toLowerCase());
+  const media = isMedia ? await mediaCompletion(row) : null;
+  return cardPage(row, originOf(req), media);
 }

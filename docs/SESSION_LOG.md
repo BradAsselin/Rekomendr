@@ -713,3 +713,52 @@ SHIPPED (PR #15):
 ## Charter amendment §12.5 — 2026-10-11 — committed directly to main (charter-only, on Brad's instruction) — no PR
 
 SHIPPED: **BRAD-AUTHORIZED ADDITION (2026-10-11): §12.5 Proportionate effort**: match effort to current scale and real risk; at friends-and-family scale ship the 95% fix, log the rare miss, move on; re-raise the bar when real usage grows. Prompted by S2.7: 28/29 accepted over "zero leaks". §2 untouched. S2.7 merged as `eff6973`.
+
+---
+
+## Charter amendment §2.7 — 2026-10-12 — committed directly to main (charter-only, on Brad's instruction) — no PR
+
+SHIPPED: **BRAD-AUTHORIZED CHANGE (2026-10-12): §2.7** now reads "No platform imports of a user's saved lists. Public recommendation webs (e.g. TMDb recommendations/similar) may be used as candidate pools; Rekomendr picks, ranks and explains." Was: "No platform imports, no aggregating other apps' lists, no rebuilding the Google info page, no licensed review data on cards. Crowd data may be plumbing (quality floor), never surface." Unblocks the S3.0 media-rek architecture (TMDb recommendations + similar as the candidate pool; the model picks five and writes the comparison line).
+
+FOUND, NOT FIXED: nothing. BRAD MUST: nothing. VALIDATION: none — docs only.
+
+---
+
+## Session 3.0 — typed-title-anchor — 2026-10-12 — branch auto/s3.0-typed-title-anchor — PR #18 (local agent mode, §11)
+
+Brad's instructions (2026-10-12): typed title lands as the anchor; Trailer + Where to watch from TMDb; legibility; plus the media-rek architecture (TMDb overview as the anchor description; TMDb recommendations + similar as candidates; the model picks five and writes one comparison line each; one verified wildcard; wine unchanged; measure time-to-first-card). §2.7 amended first (e0cc2b5).
+
+**§10.2 carry-forward:** S2.7 re-verified before building: s21 364, s1 50, s15 54, s2 97, s23 35, s36 59, all green.
+
+SHIPPED:
+- **Typing a movie or show's name shows that title as the anchor**, like a snap: TMDb's overview verbatim, year, Save, Share from the first second (signed at resolve), Trailer, where to watch, and five reks below. Mood queries ("something clever") are untouched. Detection = exact name match against TMDb (≥25 votes, not a genre/mood word the app offers, lane kind ×3) — the "top result" pattern (Google Knowledge Panel, Spotify/Apple Music, NN/g). `src/lib/tmdbMedia.ts`, `app/api/anchor/route.ts`.
+- **Typing a specific wine's name** (Wine lane) shows it as the anchor: a gpt-4o-mini classify-first call, then the unchanged snap prompt with the name in place of the photo. `/api/reksnap` `typed` branch.
+- **Media reks come from TMDb's recommendation web**: ≤40 candidates (recommendations first, then similar; anchor, no-overview and <20-vote rows out); disliked / watched / already-liked removed before the model sees the pool (§2.12 guarantee); gpt-4o-mini picks five and writes one grounded comparison line each (card short) — TMDb's overview is the card's Show details; one wildcard from the model's own knowledge, checked against TMDb (title + year ±1) or dropped and logged `[fake-title]`. `src/lib/mediaReks.ts`; tripwires `[media-reks]`, `[typed-anchor]`, `[media-snap]`.
+- **Movie/TV snaps**: the vision call is streamed (same model, prompt, params); once `detected_item` arrives and TMDb knows the title, the stream stops and the TMDb path answers. Anything else (wine, products, health, media TMDb can't place) keeps the vision path byte-for-byte.
+- **Trailer + Where to watch** on media anchors and the shared page: the official YouTube trailer from TMDb videos; US providers grouped Stream, then Rent or buy, each a direct link, "via JustWatch"; TMDb/JustWatch's own order (§2.1). No providers → the honest release window ("In theaters — on digital Nov 17, 2026"). One new tap target on the anchor: the where-to-watch line (§2.6).
+- **Legibility**: `-apple-system` first, weight 400, card body text #111827 (17.7:1), secondary text ≥ #4b5563 (7.6:1; the rank was #9ca3af, 2.5:1 — failed AA). WCAG 2.2 SC 1.4.3; Apple HIG Typography. Screenshots `docs/screenshots/s30-{before,after}-{snap,typed,share}.png` (WebKit, iPhone 13).
+- **Time to first card** (local prod build, 2 rounds): typed titles 11.7–15.2 s → **0.15–0.34 s** (first rek 3.1–4.2 s); poster snaps 10.6–15.2 s → **4.5–5.5 s**; mood query 14.2–14.7 s → 13.7–14.2 s (unchanged path). Preview: anchors 0.4–1.0 s, five reks 2.8–4.4 s.
+- `validate-s30` **64/64** (new); s21 364, s1 50, s15 54, s2 97, s23 35, s36 59 (stubs in s2/s21/s36 now answer `stream: true`; one s21 source assertion follows the renamed pill gate, health half still asserted). tsc clean.
+- **Preview acceptance, real WebKit browser (rekomendr-ara1cnh11): 19/19** — Lioness, The Odyssey, Sing Street each land as the anchor with the right overview, a working youtube.com/watch trailer, real providers (Odyssey: the release window — no US provider exists yet) and five reks; "something clever" shows no anchor and five search cards; Lioness shared (snapshot `99a1a2a4-9b13-4e9e-b45c-f43de15f82f0`, left live for Brad's production check) and the link opens signed-out with trailer, Stream / Rent or buy and JustWatch.
+
+FOUND, NOT FIXED (NEW):
+- Dismiss-backfill, + More like this and re-roll on a TMDb-path anchor still generate from model recall in the old 3-sentence voice (guarded by S1.5) — a set can mix voices after a dismiss. Next: draw from the unused TMDb pool (`src/components/RekSnapResults.tsx` backfill/chain handlers, `app/api/reksnap/route.ts` handleBackfill/handleChain).
+- Vercel did not build previews for today's pushes (main e0cc2b5, this branch); the preview was deployed from the CLI. Git integration may be disconnected or rate-limited — check Vercel → Settings → Git.
+- PR #7 (S1.6 anchor grounding, VOICE) is superseded for movies/TV TMDb can resolve; still relevant for books and unresolvable titles.
+
+**Charter note (§10.4):** this PR adds new prompt text (the chooser and the wine classifier) and replaces the media rek card voice with one comparison line. Merged on Brad's explicit architecture instruction of 2026-10-12 ("the model's job = choose the best 5 … and write one comparison line each") and "Merge per §10.3". The vision `SYSTEM_PROMPT`, `DIFFERENTIATOR_VOICE`, `USES_VOICE`, wine grammar and search prompt are byte-identical. The line's wording is for the joint voice session.
+
+BRAD MUST:
+- Promote `main → release/v2`, then open `https://<production>/a/99a1a2a4-9b13-4e9e-b45c-f43de15f82f0` signed-out: Lioness with trailer, Stream / Rent or buy, via JustWatch.
+- Judge the legibility screenshots and the comparison-line voice on the phone (§12.4).
+- No new env vars, no migrations.
+
+NEXT SESSION SHOULD KNOW:
+- The TMDb bundle is cached per process for an hour; the share page re-resolves saved media by name (no tmdb id stored — no schema change).
+- Shell heredocs in this environment mangle `\n` and some quoting; write edit scripts with the Write tool.
+- Next session (separate, not started): model pilot — native Anthropic SDK with streaming behind an env flag, counted comparison vs current model.
+
+VALIDATION ("Brad's twenty minutes", against the main preview after merge):
+- What to do: (1) Movies → type "Sing Street" → GO. (2) TV Shows → type "Lioness" → GO; tap the "Stream on…" line; tap a service; tap Trailer. (3) Movies → "The Odyssey". (4) Movies → "something clever". (5) On Lioness tap Share, text yourself, open signed-out. (6) Snap a DVD or poster. (7) Wine → type a wine you know by name.
+- What it should feel like: [ ] each title appears itself, on top, almost instantly, with its real synopsis; [ ] five similar titles fill in a few seconds later, each with a one-line reason; [ ] the where-to-watch line answers the question before you tap anything; [ ] the trailer is the official one; [ ] "something clever" behaves as before; [ ] the shared page shows the trailer and the services; [ ] a poster snap comes back in about five seconds; [ ] text reads crisp and dark (your call vs the before screenshots).
+- What to screenshot if it's wrong: the whole anchor card; any rek line that invents a plot; the shared page.
