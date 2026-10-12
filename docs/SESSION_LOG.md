@@ -707,3 +707,9 @@ SHIPPED (PR #15):
 
 **Not done (scope change):** the authorized cleanup of the probable private Tylenol `anchor_snapshots` row from the first S2.7 run is still outstanding.
 **Token cost (unchanged, for the joint session):** a health snap costs 5,083 prompt + ~800–1,000 completion tokens, and the three lists are discarded.
+
+---
+
+## Charter amendment §12.5 — 2026-10-11 — committed directly to main (charter-only, on Brad's instruction) — no PR
+
+SHIPPED: **BRAD-AUTHORIZED ADDITION (2026-10-11): §12.5 Proportionate effort**: match effort to current scale and real risk; at friends-and-family scale ship the 95% fix, log the rare miss, move on; re-raise the bar when real usage grows. Prompted by S2.7: 28/29 accepted over "zero leaks". §2 untouched. S2.7 merged as `eff6973`.

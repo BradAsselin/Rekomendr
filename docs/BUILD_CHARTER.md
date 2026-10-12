@@ -253,6 +253,7 @@ Then: the ops dashboard session (SMTP, Supabase tripwire verification, usage ale
 12.2 Best practice decides. When a choice is open, choose what established, tested practice says works best: known interaction patterns, published usability research, and what proven consumer apps have converged on. Cite the source or precedent in the plan. Don't invent a pattern where a proven one exists.
 12.3 Fewer steps beats more features. Never make a user remember a prerequisite step; collapse it into the action they're already taking.
 12.4 Feel is Brad's. Choices that change how something looks or feels ship to a preview with the reasoning stated, and Brad tests them on his phone. Voice remains a joint session (§5).
+12.5 Proportionate effort. Match effort to current scale and real risk. At friends-and-family scale, good enough beats perfect: ship the 95% fix, log the rare miss, move on. Re-raise the bar when real usage grows.
 
 ---
 
