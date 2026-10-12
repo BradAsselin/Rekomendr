@@ -689,3 +689,21 @@ FOUND, NOT FIXED (NEW):
 - **Probable production residue:** one private `anchor_snapshots` row for Tylenol (category `pain relief`, Playwright `anon_*` client, not shared). Unconfirmed, because production DB reads were not permitted this session.
 
 BRAD MUST: choose the leak fix, choose how to handle the label when the model says `health`, and confirm/delete the residue row.
+
+### S2.7 update — 2026-10-11 — unblocked by Brad's scope change, merged per §10.3
+
+Brad's decisions: the health check moves from exact words to stems, fail-closed, with a named allow-list for food false positives; cosmetic/beauty/makeup get the "Beauty" label; the health_class enum is built as S2.8 (PR #16). Then the scope changed: **28/29 with zero false walls is good enough at current scale** ("zero leaks" was too high a bar). PR #15 merges on these results; health_class stays parked.
+
+SHIPPED (PR #15):
+- **Stem wall** (`isHealthMedical` / `healthLabel` in `categoryGates.ts`), the one test behind every gate: vision, backfill, chain, Show details, save, share, completion, public read, client twins and the recipe deny. Substring stems (pain, relief, analges, medic, drug, pharma, vitamin, supplement, mineral, probiotic, allerg, antihist, sleep, melatonin, cold, cough, antacid, laxative, ointment, topical, health, wellness…), short whole-word tokens (rx, otc, flu, cbd, spf), phrases (first aid, skin care…). Allow-list: ice/sour/whipped/heavy/Irish cream, cream cheese/liqueur/sherry/soda/ale, cream of, crème brûlée/fraîche/de, cold brew/cuts/drink/beverage/coffee/press/smoked, mineral water, healthy, paint*, spain/spanish, creamer/creamy/creamery, sleepwear, comedic. Walled on purpose (fail-closed): wellness tea, health food, hemp seeds, probiotic drink, vitamin water, lemon balm.
+- **Name backstop:** only unambiguous drug/supplement nouns (cough, lozenge, ibuprofen, aspirin, vitamin, melatonin…). Never cold, pain, sleep or medic, which appear in movie and wine names.
+- **A walled anchor's category is canonicalized to its label word before signing**, so downstream gates hold even when the model's category or name drifts.
+- **Labels:** Supplements > Medication > Skincare > Beauty > Health.
+- `validate-s21` **364/364**; regression s1 50, s15 54, s2 97, s23 35, s36 59; tsc clean.
+
+**Preview acceptance (29 real health photos + 12 controls, Wikimedia Commons):** health **28/29 walled**, and every walled token was refused by backfill and Show details (403/403). Controls **12/12 clean, zero false walls**, including the bait items (Baileys "Irish cream", ice cream, cold brew, Perrier). **Known miss:** an unwrapped Halls fruit drop photo, which the model identifies as "Starburst candy", category "snacks". Nothing in its output says health, so no category or name check can catch it.
+
+**Parked: S2.8 health_class (PR #16, draft, unmerged).** It adds a fixed `health_class` enum to the vision output, trusted over the category, with these backstops kept. Preview before parking: **29/29 walled (including the Halls miss), 12/12 controls clean.** It touches the vision prompt → Brad merges.
+
+**Not done (scope change):** the authorized cleanup of the probable private Tylenol `anchor_snapshots` row from the first S2.7 run is still outstanding.
+**Token cost (unchanged, for the joint session):** a health snap costs 5,083 prompt + ~800–1,000 completion tokens, and the three lists are discarded.
