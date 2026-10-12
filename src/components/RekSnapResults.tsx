@@ -7,6 +7,7 @@ import {
   HEALTH_MEDICAL_CATEGORIES,
   MEDIA_CATEGORIES,
   categoryGetsRecipe,
+  healthAnchorShort,
 } from "../lib/categoryGates";
 import { recordSnapSignal, type SnapMode } from "../lib/reksnapSignals";
 import { compensatedCommit } from "../lib/scrollCompensation";
@@ -496,7 +497,14 @@ const RekSnapResults: React.FC<Props> = ({
     // S2 mint (#18): the ANCHOR's save also mints a private snapshot. Rek
     // cards never mint. Fire-and-forget: a mint failure never blocks or
     // unmarks the save, and the signal write above is untouched.
-    if (itemName === result.detected_item.name) {
+    // Never for a health anchor: /api/save refuses it (403) anyway; this
+    // twin just doesn't send the doomed request.
+    if (
+      itemName === result.detected_item.name &&
+      !HEALTH_MEDICAL_CATEGORIES.has(
+        (result.detected_item.category ?? "").trim().toLowerCase()
+      )
+    ) {
       mintRef.current = {
         forResult: result,
         promise: mintAnchorSnapshot(result),
@@ -1317,13 +1325,23 @@ const RekSnapResults: React.FC<Props> = ({
         <RekCard
           accent
           title={result.detected_item.name}
-          short={result.detected_item.description}
+          /* S2.5: a health anchor shows its name and category only — the
+             twin of the server's replacement, holding even against an older
+             server that still sent the model's sentence. */
+          short={
+            anchorIsHealthMedical
+              ? healthAnchorShort(
+                  result.detected_item.name,
+                  result.detected_item.category
+                )
+              : result.detected_item.description
+          }
           /* Media titles link out — same anchorIsMedia gate as the media
              verbs; expand stays reachable via "Show details". */
           titleHref={
             anchorIsMedia ? titleInfoUrl(result.detected_item.name) : undefined
           }
-          long={anchorLong ?? undefined}
+          long={anchorIsHealthMedical ? undefined : anchorLong ?? undefined}
           expandable={!anchorIsHealthMedical}
           markerLine={anchorIsHealthMedical ? HEALTH_ANCHOR_LINE : undefined}
           detailsLoading={anchorLoading}

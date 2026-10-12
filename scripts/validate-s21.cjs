@@ -6,8 +6,10 @@
 // OpenAI (a scripted vision answer) and an in-memory Supabase stand-in. No
 // keys, no network. Proves: a health anchor ships NO rek list (S2.1 took the
 // tabs, S2.4 took Similar), whatever mode the model inferred, and no backfill
-// can generate one for it; every non-health anchor is unchanged. The client
-// half is asserted from source (tab row, list reset, the plain line).
+// can generate one for it; every non-health anchor is unchanged. S2.5: the
+// health anchor's own short is the name and category, built in code and
+// signed as such; no long tier generates. The client half is asserted from
+// source (tab row, list reset, the plain line, the short twin).
 //
 //   node scripts/validate-s21.cjs
 //
@@ -79,7 +81,10 @@ class FakeOpenAI {
       completions: {
         create: async () => {
           ai.calls++;
-          return { choices: [{ message: { content: JSON.stringify(ai.next) } }] };
+          return {
+            choices: [{ message: { content: JSON.stringify(ai.next) } }],
+            usage: { prompt_tokens: 1234, completion_tokens: 567 },
+          };
         },
       },
     };
@@ -198,6 +203,49 @@ const IMAGE = "data:image/jpeg;base64,AAAA";
   check("line shown on the anchor, health only", src.includes("markerLine={anchorIsHealthMedical ? HEALTH_ANCHOR_LINE : undefined}"), true);
   check("still no Share on health", /const anchorShareable =\s*!anchorIsHealthMedical/.test(src), true);
   check("health test uses the shared category set", /const health = HEALTH_MEDICAL_CATEGORIES\.has\(/.test(src), true);
+
+  out("\n6. S2.5: a health anchor's short is its name and category, nothing the model wrote");
+  process.env.MINT_SIGNING_SECRET = "s21-harness-secret";
+  const tok = require(path.join(OUT, "src/lib/mintToken.js"));
+  const claim = "Provides antioxidant support for immune health, designed to enhance overall wellness.";
+  for (const [category, expected] of [
+    ["vitamins", "Vitafusion Recovery Gummies · Vitamins"],
+    ["medication", "Vitafusion Recovery Gummies · Medication"],
+    ["skincare", "Vitafusion Recovery Gummies · Skincare"],
+    ["Supplements ", "Vitafusion Recovery Gummies · Supplements"],
+  ]) {
+    logs = [];
+    ai.next = { ...visionAnswer(category, "similar"), detected_item: { name: "Vitafusion Recovery Gummies", description: claim, category } };
+    const r = await post({ image: IMAGE });
+    const tag = JSON.stringify(category);
+    check(`${tag}: short replaced`, r.json?.detected_item?.description, expected);
+    check(`${tag}: model's claim absent from the response`, JSON.stringify(r.json).includes("antioxidant"), false);
+    check(`${tag}: [health-wall] anchor short replaced tripwire`, logged("[health-wall] anchor short replaced"), true);
+    check(`${tag}: token usage on the withheld line`, logged('"promptTokens":1234') && logged('"completionTokens":567'), true);
+    const t = r.json?.detected_item_token;
+    const att = { name: "Vitafusion Recovery Gummies", category: r.json?.detected_item?.category, long: null, clientId: CLIENT };
+    check(`${tag}: token signs the replacement`, tok.verifyAnchor({ ...att, short: expected }, t), true);
+    check(`${tag}: token refuses the model's sentence`, tok.verifyAnchor({ ...att, short: claim }, t), false);
+  }
+  // Positive control: a wine's short is the model's own, untouched.
+  logs = [];
+  ai.next = { ...visionAnswer("wine", "similar"), detected_item: { name: "Bonanza Cab", description: "Plush, dark-fruited Cabernet.", category: "wine" } };
+  const wineSnap = await post({ image: IMAGE });
+  check("wine: short is the model's own", wineSnap.json?.detected_item?.description, "Plush, dark-fruited Cabernet.");
+  check("wine: no anchor-short tripwire", logged("anchor short replaced"), false);
+  // No long tier for a health anchor, even with a valid token.
+  ai.calls = 0;
+  const hShort = "Vitafusion Recovery Gummies · Vitamins";
+  const hTok = tok.signAnchor({ name: "Vitafusion Recovery Gummies", category: "vitamins", short: hShort, long: null, clientId: CLIENT });
+  const detail = await post({ anchorDetail: { name: "Vitafusion Recovery Gummies", category: "vitamins", shortDescription: hShort, clientId: CLIENT, token: hTok } });
+  check("health Show details: 403", detail.status, 403);
+  check("health Show details: no OpenAI call", ai.calls, 0);
+  delete process.env.MINT_SIGNING_SECRET;
+
+  check("client: short twin renders healthAnchorShort on health", /short=\{\s*anchorIsHealthMedical\s*\?\s*healthAnchorShort\(/.test(src), true);
+  check("client: no long rendered on health", src.includes("long={anchorIsHealthMedical ? undefined : anchorLong ?? undefined}"), true);
+  check("client: no expand affordance on health", src.includes("expandable={!anchorIsHealthMedical}"), true);
+  check("client: health anchor save never mints", /itemName === result\.detected_item\.name &&\s*!HEALTH_MEDICAL_CATEGORIES\.has\(/.test(src), true);
 
   out(`\n${pass} passed, ${fail} failed.`);
   process.exit(fail ? 1 : 0);
