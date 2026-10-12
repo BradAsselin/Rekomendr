@@ -23,7 +23,7 @@ import {
   loadMediaBundle,
   mediaCategoryFor,
   mediaConfigured,
-  resolveTypedTitle,
+  resolveTypedTitleChecked,
   type MediaKind,
 } from "../../../src/lib/tmdbMedia";
 import { chooseMediaReks, raceTaste } from "../../../src/lib/mediaReks";
@@ -57,25 +57,35 @@ async function resolve(body: any): Promise<Response> {
   if (!text || !laneKind) return Response.json({ anchor: null }, { status: 200 });
   if (!mediaConfigured()) {
     // Loud, never quiet (S1.5 posture): the typed-title anchor is off.
-    console.warn("[typed-anchor] disabled — TMDB_API_KEY missing");
-    return Response.json({ anchor: null }, { status: 200 });
+    console.error("[typed-anchor] FALLBACK disabled — TMDB_API_KEY missing; search ran instead");
+    return Response.json({ anchor: null, fallback: "disabled" }, { status: 200 });
   }
 
   const started = Date.now();
-  const hit = await resolveTypedTitle(text, laneKind);
+  const { hit, lookupError } = await resolveTypedTitleChecked(text, laneKind);
+  if (!hit && lookupError) {
+    // S3.1: a FAILED lookup is not "not a title". Error level, with the
+    // reason, so a field miss can always be told apart in the logs.
+    console.error("[typed-anchor] FALLBACK lookup failed — search ran instead", {
+      reason: lookupError,
+      lane: laneKind,
+      chars: text.length,
+      ms: Date.now() - started,
+    });
+    return Response.json({ anchor: null, fallback: "lookup_failed" }, { status: 200 });
+  }
   if (!hit) {
     console.info("[typed-anchor] not a title — search as before", { ms: Date.now() - started });
     return Response.json({ anchor: null }, { status: 200 });
   }
   const bundle = await loadMediaBundle(hit.kind, hit.id);
   if (!bundle) {
-    // Resolved but the details call failed: the search runs as before,
-    // and the log says why the anchor didn't show.
-    console.warn("[typed-anchor] resolved but bundle failed — search as before", {
+    console.error("[typed-anchor] FALLBACK resolved but bundle failed — search ran instead", {
       title: hit.title,
       kind: hit.kind,
+      ms: Date.now() - started,
     });
-    return Response.json({ anchor: null }, { status: 200 });
+    return Response.json({ anchor: null, fallback: "bundle_failed" }, { status: 200 });
   }
 
   const category = mediaCategoryFor(bundle.kind);
@@ -173,7 +183,7 @@ export async function POST(req: Request): Promise<Response> {
   } catch (err) {
     const failure = openAIFailureResponse("anchor", err);
     if (failure) return failure;
-    console.error("[typed-anchor] route error:", err);
+    console.error("[typed-anchor] FALLBACK route error — search ran instead:", err);
     return Response.json({ error: "Server error" }, { status: 500 });
   }
 }

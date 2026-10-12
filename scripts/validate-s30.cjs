@@ -312,6 +312,24 @@ const chooserPicks = (nums, wildcard = null) => ({
   const r3 = await call(anchorRoute, { action: "resolve", text: "Lioness", category: "Wine", clientId: CLIENT });
   check("non-media lane → anchor null", r3.json, { anchor: null });
 
+  out("\n4b. S3.1 — a FAILED lookup is loud, never a quiet 'not a title'");
+  logs = [];
+  tmdb.down = true;
+  const f1 = await call(anchorRoute, { action: "resolve", text: "Some Unseen Title", category: "Movies", clientId: CLIENT });
+  tmdb.down = false;
+  check("TMDb down → fallback named lookup_failed", f1.json, { anchor: null, fallback: "lookup_failed" });
+  check("…logged at error level with the reason", logged("[typed-anchor] FALLBACK lookup failed") && logged("network_"), true);
+  check("…and NOT logged as 'not a title'", logged("[typed-anchor] not a title"), false);
+  logs = [];
+  const f2 = await call(anchorRoute, { action: "resolve", text: "something clever", category: "Movies", clientId: CLIENT });
+  check("clean miss stays quiet (no fallback field)", [f2.json, logged("FALLBACK")], [{ anchor: null }, false]);
+  const savedKey = process.env.TMDB_API_KEY;
+  delete process.env.TMDB_API_KEY;
+  logs = [];
+  const f3 = await call(anchorRoute, { action: "resolve", text: "Lioness", category: "TV Shows", clientId: CLIENT });
+  process.env.TMDB_API_KEY = savedKey;
+  check("no key → fallback named disabled, error-level log", [f3.json, logged("[typed-anchor] FALLBACK disabled")], [{ anchor: null, fallback: "disabled" }, true]);
+
   out("\n5. /api/anchor reks — the chooser picks from TMDb's web");
   taste.likes = [{ title: "Candidate 6", action: "like" }, { title: "Disliked Show", action: "dislike" }, { title: "Watched Show", action: "watched" }];
   taste.signals = [];

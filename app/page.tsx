@@ -92,10 +92,21 @@ async function resolveTypedAnchor(text: string, category: Category): Promise<Sna
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "resolve", text, category, clientId }),
       });
-      if (!res.ok) return null;
       const data = await res.json().catch(() => null);
+      // S3.1: the server logs every failed lookup at error level; the
+      // client says so too, so a fallback is visible from either side.
+      if (!res.ok || data?.fallback) {
+        console.warn("[typed-anchor] fallback to search", {
+          status: res.status,
+          reason: data?.fallback ?? null,
+        });
+      }
+      if (!res.ok) return null;
       return data?.anchor?.detected_item ? (data.anchor as SnapResult) : null;
-    } catch {
+    } catch (err) {
+      console.warn("[typed-anchor] fallback to search — resolve request failed", {
+        error: err instanceof Error ? err.message : String(err),
+      });
       return null;
     }
   }
@@ -273,6 +284,10 @@ export default function Page() {
   // resume. resetToHome is reached through a ref so the mount-once effect
   // never closes over a stale render's instance.
   const lastActivityRef = useRef(Date.now());
+  // S3.1 — true while a search, snap or typed-reks request is in flight;
+  // the build-skew reload never interrupts one.
+  const busyRef = useRef(false);
+  busyRef.current = loading || snapLoading || reksPending;
   const resetToHomeRef = useRef<() => void>(() => {});
   useEffect(() => {
     const maybeReset = () => {
@@ -282,13 +297,44 @@ export default function Page() {
         resetToHomeRef.current();
       }
     };
-    const onVisible = () => {
-      if (document.visibilityState === "visible") maybeReset();
+    // S3.1 — build-skew guard. An installed PWA resumed after a deploy
+    // keeps running the bundle it loaded (field case 2026-10-12: typed
+    // "Lioness" on the phone ran the pre-S3.0 search). On resume, ask
+    // which build is live; if it isn't ours and nothing is in flight,
+    // reload once — the same moment the stale-session guard comes home.
+    const checkBuild = async () => {
+      const mine = process.env.NEXT_PUBLIC_BUILD_ID;
+      if (!mine) return;
+      try {
+        const res = await fetch("/api/version", { cache: "no-store" });
+        const live = (await res.json().catch(() => null))?.build;
+        if (typeof live !== "string" || !live || live === mine) return;
+        // Never reload twice for the same live build (a CDN serving two
+        // builds mid-rollout must not loop).
+        const key = "rekomendr.reloaded_for_build";
+        if (sessionStorage.getItem(key) === live) return;
+        if (busyRef.current) return;
+        sessionStorage.setItem(key, live);
+        console.info("[build-skew] live build changed — reloading", { mine, live });
+        window.location.reload();
+      } catch {
+        // Offline or blocked: keep running what we have.
+      }
     };
-    window.addEventListener("pageshow", maybeReset);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") {
+        maybeReset();
+        void checkBuild();
+      }
+    };
+    const onPageShow = () => {
+      maybeReset();
+      void checkBuild();
+    };
+    window.addEventListener("pageshow", onPageShow);
     document.addEventListener("visibilitychange", onVisible);
     return () => {
-      window.removeEventListener("pageshow", maybeReset);
+      window.removeEventListener("pageshow", onPageShow);
       document.removeEventListener("visibilitychange", onVisible);
     };
   }, []);
