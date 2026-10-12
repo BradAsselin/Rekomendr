@@ -28,6 +28,7 @@ execFileSync(
   [
     "tsc",
     "app/api/reksnap/route.ts",
+    "src/lib/anchorSnapshots.ts",
     "--outDir", OUT,
     "--rootDir", ".",
     "--module", "commonjs",
@@ -202,14 +203,18 @@ const IMAGE = "data:image/jpeg;base64,AAAA";
   check("the plain line, exact wording", src.includes(`const HEALTH_ANCHOR_LINE = "Rekomendr doesn't recommend health products.";`), true);
   check("line shown on the anchor, health only", src.includes("markerLine={anchorIsHealthMedical ? HEALTH_ANCHOR_LINE : undefined}"), true);
   check("still no Share on health", /const anchorShareable =\s*!anchorIsHealthMedical/.test(src), true);
-  check("health test uses the shared category set", /const health = HEALTH_MEDICAL_CATEGORIES\.has\(/.test(src), true);
+  check("health test uses the shared wall function", /const health = isHealthMedical\(/.test(src), true);
+  check("client never uses an exact-match health set", src.includes("HEALTH_MEDICAL_CATEGORIES"), false);
 
-  out("\n6. S2.5/S2.6: a health anchor's short is its category alone, nothing the model wrote");
+  out("\n6. S2.5–S2.7: a health anchor's short is its mapped category label, nothing the model wrote");
   process.env.MINT_SIGNING_SECRET = "s21-harness-secret";
   const tok = require(path.join(OUT, "src/lib/mintToken.js"));
   const claim = "Provides antioxidant support for immune health, designed to enhance overall wellness.";
   for (const [category, expected] of [
-    ["vitamins", "Vitamins"],
+    ["vitamins", "Supplements"],
+    ["health", "Health"],
+    ["drug", "Medication"],
+    ["lotion", "Skincare"],
     ["medication", "Medication"],
     ["skincare", "Skincare"],
     ["Supplements ", "Supplements"],
@@ -235,7 +240,7 @@ const IMAGE = "data:image/jpeg;base64,AAAA";
   check("wine: no anchor-short tripwire", logged("anchor short replaced"), false);
   // No long tier for a health anchor, even with a valid token.
   ai.calls = 0;
-  const hShort = "Vitamins";
+  const hShort = "Supplements";
   const hTok = tok.signAnchor({ name: "Vitafusion Recovery Gummies", category: "vitamins", short: hShort, long: null, clientId: CLIENT });
   const detail = await post({ anchorDetail: { name: "Vitafusion Recovery Gummies", category: "vitamins", shortDescription: hShort, clientId: CLIENT, token: hTok } });
   check("health Show details: 403", detail.status, 403);
@@ -246,7 +251,118 @@ const IMAGE = "data:image/jpeg;base64,AAAA";
   check("client: the product name is not repeated in the short", /healthAnchorShort\([^)]*detected_item\.name/.test(src), false);
   check("client: no long rendered on health", src.includes("long={anchorIsHealthMedical ? undefined : anchorLong ?? undefined}"), true);
   check("client: no expand affordance on health", src.includes("expandable={!anchorIsHealthMedical}"), true);
-  check("client: health anchor save never mints", /itemName === result\.detected_item\.name &&\s*!HEALTH_MEDICAL_CATEGORIES\.has\(/.test(src), true);
+  check("client: health anchor save never mints", /itemName === result\.detected_item\.name &&\s*!isHealthMedical\(/.test(src), true);
+
+  out("\n7. S2.7: every pre-S2.7 wall word still walls, onto its label");
+  const gates = require(path.join(OUT, "src/lib/categoryGates.js"));
+  const EXPECT = {
+    Medication: ["medication", "medications", "medicine", "medicines", "drug", "drugs", "pharmacy", "prescription", "otc", "antacid", "ointment", "topical", "medical"],
+    Supplements: ["vitamin", "vitamins", "supplement", "supplements", "probiotic", "probiotics"],
+    Skincare: ["skincare", "skin care", "cream", "creams", "lotion", "balm", "serum", "sunscreen"],
+    Beauty: ["cosmetic", "cosmetics", "beauty", "makeup"],
+  };
+  const expectedFor = (w) => Object.keys(EXPECT).find((k) => EXPECT[k].includes(w)) ?? "Health";
+  for (const w of gates.LEGACY_HEALTH_WORDS) {
+    check(`legacy ${JSON.stringify(w)} walls → ${expectedFor(w)}`, [gates.isHealthMedical(w), gates.healthAnchorShort(w)], [true, expectedFor(w)]);
+  }
+  check("every expected word is a legacy word", Object.values(EXPECT).flat().every((w) => gates.LEGACY_HEALTH_WORDS.includes(w)), true);
+  check("case/whitespace normalised", gates.healthAnchorShort("  Medication "), "Medication");
+
+  out("\n8. S2.7: the stem wall catches drifted categories (fail-closed)");
+  const LEAKERS = [
+    ["pain relief", "Medication"], ["Pain Reliever", "Medication"], ["painkiller", "Medication"],
+    ["analgesic", "Medication"], ["allergy relief", "Medication"], ["Allergy & Sinus", "Medication"],
+    ["antihistamine", "Medication"], ["sleep aid", "Medication"], ["cold & flu", "Medication"],
+    ["flu", "Medication"], ["cough syrup", "Medication"], ["cough drops", "Medication"],
+    ["laxative", "Medication"], ["Rx", "Medication"], ["OTC medicine", "Medication"],
+    ["pharmaceuticals", "Medication"], ["eye drops", "Medication"], ["nasal spray", "Medication"],
+    ["hydrocortisone", "Medication"], ["antiseptic", "Medication"], ["decongestant", "Medication"],
+    ["multivitamin", "Supplements"], ["mineral supplement", "Supplements"], ["melatonin", "Supplements"],
+    ["dietary supplements", "Supplements"], ["collagen", "Supplements"],
+    ["hand cream", "Skincare"], ["Crème hydratante", "Skincare"], ["moisturizer", "Skincare"],
+    ["body lotion", "Skincare"], ["lip balm", "Skincare"], ["SPF 50", "Skincare"], ["dermatology", "Skincare"],
+    ["cosmetics", "Beauty"], ["make up", "Beauty"], ["beauty", "Beauty"],
+    ["health", "Health"], ["Health & Wellness", "Health"], ["first aid", "Health"],
+    ["personal care", "Health"], ["CBD oil", "Health"], ["essential oils", "Health"],
+    // fail-closed calls (report): walled on purpose
+    ["wellness tea", "Health"], ["health food", "Health"], ["hemp seeds", "Health"],
+    ["probiotic drink", "Supplements"], ["vitamin water", "Supplements"], ["lemon balm", "Skincare"],
+  ];
+  for (const [c, label] of LEAKERS) {
+    check(`walls ${JSON.stringify(c)} → ${label}`, [gates.isHealthMedical(c), gates.healthAnchorShort(c)], [true, label]);
+  }
+  const CLEAN = [
+    "wine", "red wine", "Spanish wine", "champagne", "scotch", "beer", "cream ale", "coffee",
+    "cold brew coffee", "cold cuts", "cold drinks", "cold-pressed juice", "mineral water",
+    "ice cream", "sour cream", "cream cheese", "Irish cream liqueur", "coffee creamer", "crème brûlée",
+    "healthy snacks", "food", "cheese", "cereal", "tropical fruit", "snack",
+    "movie", "movies", "tv show", "comedic film", "book", "music", "flute", "fluid ounces",
+    "cleaning supplies", "detergent", "dish soap", "household cleaner", "paint", "painting supplies",
+    "sleepwear", "electronics", "unknown", "",
+  ];
+  for (const c of CLEAN) {
+    check(`does not wall ${JSON.stringify(c)}`, gates.isHealthMedical(c), false);
+  }
+  check("recipe gate: pain relief never gets a recipe", gates.categoryGetsRecipe("pain relief"), false);
+  check("recipe gate: wine still does", gates.categoryGetsRecipe("wine"), true);
+
+  out("\n9. S2.7: every route gate walls a drifted category ('pain relief')");
+  process.env.MINT_SIGNING_SECRET = "s21-harness-secret";
+  logs = [];
+  ai.next = { ...visionAnswer("pain relief", "uses"), detected_item: { name: "Tylenol Extra Strength", description: claim, category: "pain relief" } };
+  const pr = await post({ image: IMAGE });
+  check("vision: lists withheld", [pr.json?.results?.similar?.length, pr.json?.results?.uses?.length, pr.json?.results?.alternatives?.length], [0, 0, 0]);
+  check("vision: short is the label", pr.json?.detected_item?.description, "Medication");
+  check("vision: claim absent", JSON.stringify(pr.json).includes("antioxidant"), false);
+  const prItem = { name: "Tylenol Extra Strength", category: "pain relief", description: "Medication" };
+  const prTok = tok.signAnchor({ name: prItem.name, category: prItem.category, short: "Medication", long: null, clientId: CLIENT });
+  ai.calls = 0;
+  const bf = await post({ backfill: { detectedItem: prItem, mode: "similar", excludeNames: [], rejectedNames: [], clientId: CLIENT, token: prTok } });
+  check("backfill: 403, no OpenAI call", [bf.status, ai.calls], [403, 0]);
+  const dt = await post({ anchorDetail: { name: prItem.name, category: prItem.category, shortDescription: "Medication", clientId: CLIENT, token: prTok } });
+  check("Show details: 403, no OpenAI call", [dt.status, ai.calls], [403, 0]);
+  const ch = await post({ chain: { kind: "reroll", detectedItem: prItem, mode: "similar", trail: [], rejectedNames: [], excludeNames: [], clientId: CLIENT, anchorToken: prTok } });
+  check("chain: 403, no OpenAI call", [ch.status, ai.calls], [403, 0]);
+  const snapsLib = require(path.join(OUT, "src/lib/anchorSnapshots.js"));
+  check("save/share/completion/public-read twin walls it", snapsLib.isHealthCategory("pain relief"), true);
+  check("save/share twin leaves wine alone", snapsLib.isHealthCategory("wine"), false);
+  delete process.env.MINT_SIGNING_SECRET;
+
+  out("\n10. S2.7: name backstop + canonical category");
+  process.env.MINT_SIGNING_SECRET = "s21-harness-secret";
+  logs = [];
+  ai.next = { ...visionAnswer("snacks", "similar"), detected_item: { name: "Halls cough drop", description: "Sweet and soothing, with menthol to ease the throat.", category: "snacks" } };
+  const hd = await post({ image: IMAGE });
+  check("cough drop filed as snacks: walled", [hd.json?.results?.similar?.length, hd.json?.results?.uses?.length, hd.json?.results?.alternatives?.length], [0, 0, 0]);
+  check("cough drop: short is Medication", hd.json?.detected_item?.description, "Medication");
+  check("cough drop: category canonicalized to medication", hd.json?.detected_item?.category, "medication");
+  check("cough drop: claim absent", JSON.stringify(hd.json).includes("throat"), false);
+  check("cough drop: [health-wall] walled by name tripwire", logged("[health-wall] walled by name"), true);
+  const hdTok = hd.json?.detected_item_token;
+  check("cough drop: token signs the canonical category", tok.verifyAnchor({ name: "Halls cough drop", category: "medication", short: "Medication", long: null, clientId: CLIENT }, hdTok), true);
+  check("cough drop: token refuses the model's category", tok.verifyAnchor({ name: "Halls cough drop", category: "snacks", short: "Medication", long: null, clientId: CLIENT }, hdTok), false);
+  ai.calls = 0;
+  const hdItem = { name: "Halls cough drop", category: "medication", description: "Medication" };
+  const hdBf = await post({ backfill: { detectedItem: hdItem, mode: "similar", excludeNames: [], rejectedNames: [], clientId: CLIENT, token: hdTok } });
+  check("cough drop: downstream backfill 403, no OpenAI call", [hdBf.status, ai.calls], [403, 0]);
+  logs = [];
+  ai.next = { ...visionAnswer("pain relief", "similar"), detected_item: { name: "Tylenol", description: "x", category: "pain relief" } };
+  const pc = await post({ image: IMAGE });
+  check("drifted category canonicalized ('pain relief' → medication)", pc.json?.detected_item?.category, "medication");
+  check("category-walled snap does not log walled-by-name", logged("walled by name"), false);
+  for (const [name, category] of [["Cold Mountain", "movie"], ["Pain & Gain", "movies"], ["Medicine Man", "movie"], ["Sleeping Giant Pinot Noir", "wine"], ["Stumptown Cold Brew", "coffee"], ["Relief Ale", "beer"], ["Health Warrior Chia Bar", "snacks"]]) {
+    logs = [];
+    ai.next = { ...visionAnswer(category, "similar"), detected_item: { name, description: "A description.", category } };
+    const r = await post({ image: IMAGE });
+    check(`name control ${JSON.stringify(name)} (${category}): not walled`, [r.json?.results?.similar?.length > 0, r.json?.detected_item?.category], [true, category]);
+  }
+  for (const [name, label] of [["Halls Cough Drops", "Medication"], ["Ricola lozenges", "Medication"], ["Advil Liqui-Gels ibuprofen", "Medication"], ["Bayer Aspirin", "Medication"], ["Nature Made Vitamin D3", "Supplements"], ["Claritin Allergy", "Medication"], ["Vitaminwater", "Supplements"]]) {
+    check(`name ${JSON.stringify(name)} → ${label}`, gates.healthLabelFromName(name), label);
+  }
+  for (const name of ["Cold Mountain", "Pain & Gain", "Medicine Man", "Sleeping Giant", "Painted Wolf Pinotage", "Relief Ale", "Healthy Choice", "Sainte Magdeleine"]) {
+    check(`name ${JSON.stringify(name)} not walled by name`, gates.healthLabelFromName(name), null);
+  }
+  delete process.env.MINT_SIGNING_SECRET;
 
   out(`\n${pass} passed, ${fail} failed.`);
   process.exit(fail ? 1 : 0);

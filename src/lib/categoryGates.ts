@@ -11,6 +11,12 @@
 // can't collide via substring (e.g. ice "cream" food ≠ cortisone "cream";
 // "carrot" ≠ "car"). Add words as real leakers are observed (e.g. "antacid"
 // for Tums).
+//
+// EXCEPT THE HEALTH WALL (S2.7, Brad 2026-10-11): exact match leaked live —
+// the same Tylenol photo came back "medication", "pain relief", "health",
+// and "pain relief" walked straight past the list. The wall now matches
+// STEMS and fails closed (isHealthMedical below); food false positives are
+// excused by a short, named allow-list instead.
 
 // Health / medical / supplement / ingestible-non-food words. These must NEVER
 // get a recipe link, and the anchor card stays structurally thin for them (no
@@ -52,7 +58,9 @@ const NON_CONSUMABLE_WORDS = [
   "clothing", "apparel", "shoes", "furniture",
 ];
 
-export const HEALTH_MEDICAL_CATEGORIES = new Set<string>(HEALTH_MEDICAL_WORDS);
+// The pre-S2.7 exact list, kept as the recipe deny set's health half and as
+// a regression fixture: every one of these words must still hit the wall.
+export const LEGACY_HEALTH_WORDS: readonly string[] = HEALTH_MEDICAL_WORDS;
 
 export const MEDIA_CATEGORIES = new Set<string>(MEDIA_WORDS);
 
@@ -122,6 +130,7 @@ export function categoryGetsRecipe(rawCategory: string | undefined): boolean {
   const c = (rawCategory ?? "").trim().toLowerCase();
   if (!c) return false;
   if (NON_RECIPE_CATEGORIES.has(c)) return false;
+  if (isHealthMedical(c)) return false;
   return FOOD_DRINK_CATEGORIES.has(c);
 }
 
@@ -133,7 +142,156 @@ export function categoryGetsRecipe(rawCategory: string | undefined): boolean {
 // category alone ("Medication") — the card's title already names the
 // product. The server signs THIS text (so save/backfill/detail attest it);
 // the client renders the same string as a twin against an older server.
+// S2.7 (Brad): the model's category word drifts between snaps of the same
+// bottle, so the shown word is a fixed label, derived from the same stems
+// that decide the wall (one source: a category is walled exactly when it
+// has a label).
 export function healthAnchorShort(rawCategory: string): string {
-  const c = (rawCategory ?? "").trim().toLowerCase();
-  return c ? c.charAt(0).toUpperCase() + c.slice(1) : "";
+  return healthLabel(rawCategory) ?? "Health";
 }
+
+/* ------------------------------------------------------------------
+   S2.7 — THE HEALTH WALL MATCHES STEMS, FAIL-CLOSED.
+
+   A category is health when, after the allow-list is stripped out:
+     - any STEM appears anywhere in it (substring: "multivitamin",
+       "painkiller", "antihistamines", "pain relief" all hit), or
+     - any SHORT TOKEN is a whole word in it (rx, otc, flu, cbd, spf —
+       too short to substring: "fluid", "influencer"), or
+     - any PHRASE appears in it ("first aid", "skin care").
+   Ambiguous means walled. The allow-list holds only known, named food /
+   drink / household false positives; anything not on it that touches a
+   stem is walled. To excuse a new false positive, add the narrowest
+   phrase or token here and a harness case for it.
+
+   The stems are grouped by the label the card shows. The first group
+   that matches wins, in this order: Supplements (an explicit "vitamin" or
+   "supplement" is the strongest signal of what the thing is), Medication,
+   Skincare, Beauty, Health.
+------------------------------------------------------------------- */
+type HealthLabel = "Supplements" | "Medication" | "Skincare" | "Beauty" | "Health";
+
+const HEALTH_GROUPS: {
+  label: HealthLabel;
+  stems: string[];
+  tokens?: string[];
+  phrases?: string[];
+}[] = [
+  {
+    label: "Supplements",
+    stems: ["vitamin", "supplement", "mineral", "probiotic", "melatonin", "collagen"],
+  },
+  {
+    label: "Medication",
+    stems: [
+      "pain", "relief", "analges", "medic", "drug", "pharma", "prescri",
+      "allerg", "antihist", "sleep", "cold", "cough", "antacid", "laxative",
+      "ointment", "topical", "antisept", "antibiot", "antifung", "decongest",
+      "ibuprofen", "acetaminophen", "paracetamol", "aspirin", "naproxen",
+      "hydrocort", "lozenge", "nasal", "remed", "nsaid",
+    ],
+    tokens: ["rx", "otc", "flu"],
+    phrases: ["eye drop"],
+  },
+  {
+    label: "Skincare",
+    stems: ["skincare", "cream", "creme", "lotion", "balm", "serum", "sunscreen", "moistur", "derma", "acne"],
+    tokens: ["spf"],
+    phrases: ["skin care"],
+  },
+  {
+    label: "Beauty",
+    stems: ["cosmetic", "beauty", "makeup"],
+    phrases: ["make up"],
+  },
+  {
+    label: "Health",
+    stems: ["health", "wellness", "hygiene", "tincture", "cannabis", "hemp", "kratom", "bandage"],
+    tokens: ["cbd"],
+    phrases: ["first aid", "personal care", "essential oil", "oral care"],
+  },
+];
+
+// Known false positives, stripped BEFORE matching. Phrases are removed
+// whole; tokens are dropped when a whole word matches. Deliberately NOT
+// excused (fail-closed, Brad to overrule): "wellness tea", "health food",
+// "hemp seeds", "probiotic drink", "vitamin water", "lemon balm".
+const HEALTH_ALLOW_PHRASES = [
+  // cream / creme as food and drink
+  "ice cream", "sour cream", "cream cheese", "whipped cream", "heavy cream",
+  "irish cream", "cream liqueur", "cream sherry", "cream soda", "cream ale",
+  "cream of", "creme brulee", "creme fraiche", "creme de",
+  // cold as temperature, not illness
+  "cold brew", "cold cuts", "cold drink", "cold beverage", "cold coffee",
+  "cold press", "cold smoked",
+  // mineral as water
+  "mineral water",
+];
+const HEALTH_ALLOW_TOKENS = [
+  /^healthy$/,      // "healthy snacks"
+  /^paint/,         // paint, painting, paints, painter
+  /^spain$/, /^spanish$/,
+  /^creamer$/, /^creamy$/, /^creamery$/,
+  /^sleepwear$/,
+  /^comedic$/,      // "medic" inside it
+];
+
+const normalizeCategory = (raw: string | null | undefined): string =>
+  (raw ?? "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "") // crème → creme
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+
+export function healthLabel(rawCategory: string | null | undefined): HealthLabel | null {
+  let c = ` ${normalizeCategory(rawCategory)} `;
+  if (!c.trim()) return null;
+  for (const phrase of HEALTH_ALLOW_PHRASES) {
+    c = c.split(` ${phrase}`).join(" ");
+  }
+  const tokens = c
+    .split(" ")
+    .filter((t) => t && !HEALTH_ALLOW_TOKENS.some((re) => re.test(t)));
+  const text = ` ${tokens.join(" ")} `;
+  for (const g of HEALTH_GROUPS) {
+    if (g.stems.some((stem) => text.includes(stem))) return g.label;
+    if (g.tokens?.some((t) => tokens.includes(t))) return g.label;
+    if (g.phrases?.some((ph) => text.includes(` ${ph}`))) return g.label;
+  }
+  return null;
+}
+
+// NAME BACKSTOP (S2.7). The category can drift entirely out of the health
+// domain: a Halls cough drop came back category "snacks", name "cough
+// drop". A product NAME is a much noisier field than a category (movies and
+// wines are named "Cold Mountain", "Pain & Gain", "Sleeping Giant",
+// "Medicine Man"), so it gets only unambiguous drug / supplement nouns —
+// never cold, pain, sleep, relief, medic or health.
+const HEALTH_NAME_GROUPS: { label: HealthLabel; stems: string[] }[] = [
+  { label: "Supplements", stems: ["vitamin", "supplement", "melatonin", "probiotic"] },
+  {
+    label: "Medication",
+    stems: [
+      "cough", "lozenge", "ibuprofen", "acetaminophen", "paracetamol",
+      "aspirin", "naproxen", "antacid", "antihist", "allergy", "decongest",
+      "laxative", "hydrocort", "ointment", "caplet", "gelcap",
+    ],
+  },
+  { label: "Skincare", stems: ["sunscreen"] },
+];
+
+export function healthLabelFromName(rawName: string | null | undefined): HealthLabel | null {
+  const n = ` ${normalizeCategory(rawName)} `;
+  if (!n.trim()) return null;
+  for (const g of HEALTH_NAME_GROUPS) {
+    if (g.stems.some((stem) => n.includes(stem))) return g.label;
+  }
+  return null;
+}
+
+// THE wall test. Every health gate (vision response, backfill, chain,
+// Show details, save, share, completion, public read, client twins, the
+// recipe deny) calls this one function.
+export const isHealthMedical = (rawCategory: string | null | undefined): boolean =>
+  healthLabel(rawCategory) !== null;

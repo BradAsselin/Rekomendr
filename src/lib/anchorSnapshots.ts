@@ -12,7 +12,7 @@ if (typeof window !== "undefined") {
   throw new Error("anchorSnapshots.ts was imported in a browser bundle.");
 }
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { HEALTH_MEDICAL_CATEGORIES } from "./categoryGates";
+import { isHealthMedical } from "./categoryGates";
 
 export const SNAPSHOT_MODES = ["similar", "uses", "alternatives"] as const;
 export type SnapshotMode = (typeof SNAPSHOT_MODES)[number];
@@ -57,8 +57,9 @@ const UUID_RE =
 export const cleanSnapshotId = (raw: unknown): string | null =>
   typeof raw === "string" && UUID_RE.test(raw.trim()) ? raw.trim().toLowerCase() : null;
 
+// S2.7: the stem wall, fail-closed — the same test as every other gate.
 export const isHealthCategory = (category: string | null | undefined): boolean =>
-  HEALTH_MEDICAL_CATEGORIES.has((category ?? "").trim().toLowerCase());
+  isHealthMedical(category);
 
 // supabaseServer throws AT IMPORT TIME on missing env, so it is only ever
 // loaded dynamically, behind an env check, memoized — the same guarded
