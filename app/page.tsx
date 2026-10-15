@@ -10,6 +10,12 @@ import RekSnapResults, {
 } from "../src/components/RekSnapResults";
 import RecipeModal from "../src/components/RecipeModal";
 import AuthControl from "../src/components/AuthControl";
+import InstallCoach from "../src/components/InstallCoach";
+import {
+  installOfferSnoozed,
+  isStandalone,
+  pointManifestAt,
+} from "../src/lib/installPrompt";
 import { getTop5FromEngine, type Rek } from "../src/engine/rekomendrEngine";
 import {
   getAnonymousClientId,
@@ -20,6 +26,68 @@ import {
 import { AIServiceError, isAIServiceError } from "../src/lib/aiServiceError";
 
 export type Category = "Movies" | "TV Shows" | "Books" | "Wine";
+
+// S4b — did this browser already have an anonymous id BEFORE this page
+// load? Read at module evaluation, before anything can create one. A
+// home-screen app launching for the first time has none, and only then may
+// it adopt the id that saved the card in Safari (the claim hand-off).
+const CLIENT_ID_KEY = "rekomendr.client_id";
+const BOOT_HAD_CLIENT_ID = (() => {
+  try {
+    return typeof window !== "undefined" && !!localStorage.getItem(CLIENT_ID_KEY);
+  } catch {
+    return true; // storage blocked: never adopt
+  }
+})();
+
+// S4b — a shared card opened in the app: its reks. Media cards use the
+// TMDb chooser (same as a typed title); anything else re-rolls the anchor
+// through the existing text-only chain, under the token the card carries.
+async function fetchCardReks(anchor: SnapResult): Promise<{ reks: SnapRek[]; notice?: string }> {
+  if (anchor.media) return fetchTypedReks(anchor.media, null);
+  try {
+    const res = await fetch("/api/reksnap", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chain: {
+          kind: "reroll",
+          detectedItem: anchor.detected_item,
+          mode: "similar",
+          trail: [],
+          rejectedNames: [],
+          excludeNames: [],
+          clientId: getAnonymousClientId(),
+          anchorToken: anchor.detected_item_token,
+        },
+      }),
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok) {
+      return {
+        reks: [],
+        notice:
+          typeof data?.reason === "string" && typeof data?.error === "string"
+            ? data.error
+            : AI_SEARCH_FAILED_MSG,
+      };
+    }
+    const raw: unknown[] = Array.isArray(data?.reks) ? data.reks : [];
+    const reks = raw
+      .filter((r): r is { name: string; description?: unknown; category?: unknown } =>
+        !!r && typeof (r as { name?: unknown }).name === "string" && !!(r as { name: string }).name.trim()
+      )
+      .map((r, i) => ({
+        name: r.name,
+        description: typeof r.description === "string" ? r.description : "",
+        category: typeof r.category === "string" && r.category ? r.category : undefined,
+        rank: i + 1,
+      }));
+    return { reks };
+  } catch {
+    return { reks: [], notice: AI_SEARCH_FAILED_MSG };
+  }
+}
 
 // Stale-session guard (S3.1a): an installed-PWA resume re-presents frozen
 // state as a fresh load (docs/typed-lane-trace.md A.2). Anything older than
@@ -268,6 +336,9 @@ export default function Page() {
     { dish: string; detectedItem?: string } | null
   >(null);
 
+  // S4b — the add-to-home-screen offer, raised only by a Save.
+  const [installOffer, setInstallOffer] = useState(false);
+
   useEffect(() => {
     setHasSnapped(getSnapCount() >= 1);
   }, []);
@@ -337,6 +408,132 @@ export default function Page() {
       window.removeEventListener("pageshow", onPageShow);
       document.removeEventListener("visibilitychange", onVisible);
     };
+  }, []);
+
+  // S4b — a shared card, opened in the app as the anchor. `save` = the
+  // person tapped Save on the card: keep it under their anonymous id, show
+  // it saved, and offer the home screen. The URL then carries the card and
+  // the signed claim, which is what an icon added from here opens with —
+  // Safari and the home-screen app don't share storage on iOS.
+  const openCardFromLink = async (cardId: string, opts: { save: boolean }) => {
+    const snapId = ++snapIdRef.current;
+    searchIdRef.current++;
+    lastActivityRef.current = Date.now();
+    setSnapError(null);
+    setSnapResult(null);
+    setLateReks(null);
+    setReksPending(false);
+    setSnapLoading(true);
+    try {
+      const clientId = getAnonymousClientId();
+      const res = await fetch("/api/card/open", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ card: cardId, clientId }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.anchor?.detected_item) throw new Error(`card ${res.status}`);
+      if (snapId !== snapIdRef.current) return;
+      const anchor = data.anchor as SnapResult;
+
+      let claim: string | null = null;
+      if (opts.save) {
+        const s = await fetch("/api/card/save", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ card: cardId, clientId }),
+        })
+          .then((r) => r.json())
+          .catch(() => null);
+        if (s?.ok) {
+          anchor.saved = true;
+          claim = typeof s.claim === "string" ? s.claim : null;
+        } else {
+          console.warn("[card-save] did not land", { reason: s?.reason ?? null });
+        }
+      }
+      if (snapId !== snapIdRef.current) return;
+
+      const needsReks = anchor.results.similar.length === 0;
+      setSnapResult(anchor);
+      setHasSnapped(true);
+      setSnapLoading(false);
+      setReksPending(needsReks);
+
+      // Drop save=1 (a reload must not save again); keep card + claim.
+      const next = `/?card=${encodeURIComponent(cardId)}${claim ? `&claim=${encodeURIComponent(claim)}` : ""}`;
+      try {
+        window.history.replaceState(null, "", next);
+      } catch {}
+      if (claim) pointManifestAt(cardId, claim);
+      if (anchor.saved && opts.save && !isStandalone() && !installOfferSnoozed()) setInstallOffer(true);
+
+      if (needsReks) {
+        const late = await fetchCardReks(anchor);
+        if (snapId !== snapIdRef.current) return;
+        setLateReks(late);
+        setReksPending(false);
+      }
+    } catch (err) {
+      console.warn("[card-open] failed", err);
+      if (snapId !== snapIdRef.current) return;
+      setSnapLoading(false);
+      setSnapError("This rek isn’t here anymore.");
+    }
+  };
+
+  // S4b — arrival: a card link (/?card=…&save=1), a home-screen launch,
+  // or both (the first launch of an icon added after a Save carries
+  // ?card=…&claim=…). Order matters: adopt the claimed id FIRST, so the
+  // launch and the save are counted under the person who saved in Safari.
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    const cardId = q.get("card");
+    const claim = q.get("claim");
+    const save = q.get("save") === "1";
+    const standalone = isStandalone();
+    void (async () => {
+      let claimedCard: string | null = null;
+      if (standalone && claim) {
+        try {
+          const r = await fetch("/api/card/claim", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ claim }),
+          }).then((x) => x.json());
+          if (r?.ok && typeof r.clientId === "string") {
+            claimedCard = typeof r.card === "string" ? r.card : null;
+            // Adopt only on a fresh install (no id of its own yet): the
+            // saved card, the name and the history come along with it.
+            if (!BOOT_HAD_CLIENT_ID) {
+              localStorage.setItem(CLIENT_ID_KEY, r.clientId);
+              console.info("[card-claim] adopted the saving browser's id");
+            }
+          }
+        } catch {
+          // a failed claim just opens the app normally
+        }
+      }
+      if (standalone) {
+        try {
+          if (!sessionStorage.getItem("rekomendr.launch_logged")) {
+            sessionStorage.setItem("rekomendr.launch_logged", "1");
+            void fetch("/api/card/event", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ kind: "standalone_launch", clientId: getAnonymousClientId() }),
+              keepalive: true,
+            }).catch(() => {});
+          }
+        } catch {}
+      }
+      const openId = cardId ?? claimedCard;
+      // A claim means the card was saved: re-saving is idempotent (same row
+      // for an adopted id; an import for a device that had its own id).
+      if (openId) await openCardFromLink(openId, { save: save || !!claimedCard });
+    })();
+    // Mount-once: the arrival URL is read exactly once.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const openSnapPicker = () => {
@@ -668,6 +865,8 @@ export default function Page() {
           )}
         </div>
       </div>
+
+      <InstallCoach open={installOffer} onClose={() => setInstallOffer(false)} />
 
       {activeRecipe && (
         <RecipeModal

@@ -67,6 +67,9 @@ export type SnapResult = {
   // guard dropped every rek the model offered. The anchor still ships;
   // this stands where the five cards would have been.
   notice?: string;
+  // S4b — client-only: the anchor arrived already saved (a shared card the
+  // person tapped Save on). The Save mark starts lit.
+  saved?: boolean;
   // S3.0 — present when the anchor is a TMDb-resolved movie/show (snapped
   // or typed): its official trailer and US watch providers.
   media?: {
@@ -309,7 +312,7 @@ const RekSnapResults: React.FC<Props> = ({
       );
       setActiveMode(health ? "similar" : result.mode);
       setThumbSignals({});
-      setSavedNames({});
+      setSavedNames(result.saved ? { [result.detected_item.name]: true } : {});
       setTrail([]);
       setLists(
         health
