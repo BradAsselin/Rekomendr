@@ -228,6 +228,12 @@ const RekSnapResults: React.FC<Props> = ({
     setSenderName(storedSenderName());
     setNameAsked(senderNameAsked());
   }, []);
+  // The prompt opens under Share, which on a phone is often at the bottom
+  // edge of the screen: bring it into view (the keyboard takes the rest).
+  const nameFormRef = useRef<HTMLFormElement | null>(null);
+  useEffect(() => {
+    if (nameSheet) nameFormRef.current?.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, [nameSheet]);
 
   // Guards late backfill responses from a previous snap result.
   const resultRef = useRef(result);
@@ -1584,6 +1590,7 @@ const RekSnapResults: React.FC<Props> = ({
         )}
         {anchorShareable && nameSheet && (
           <form
+            ref={nameFormRef}
             className="bg-white border border-gray-200 rounded-2xl p-4 shadow-sm mb-3"
             onSubmit={(e) => {
               e.preventDefault();
