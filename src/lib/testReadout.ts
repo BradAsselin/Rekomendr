@@ -40,9 +40,14 @@ const LATE_S = 2 * 86400;
 const pct = (n: number, d: number) => (d === 0 ? null : Math.round((1000 * n) / d) / 10);
 const isAgent = (id: string) => id.startsWith("anon_agent");
 
-export function computeReadout(rows: EventRow[], since: string): Readout {
+// `agentsOnly` flips the filter for acceptance runs: count ONLY agent
+// test traffic, so a machine check can prove every step is counted
+// without touching (or being diluted by) real people's numbers.
+export function computeReadout(rows: EventRow[], since: string, opts: { agentsOnly?: boolean } = {}): Readout {
   const t0 = Date.parse(since);
-  const ev = rows.filter((r) => Date.parse(r.created_at) >= t0 && !isAgent(r.client_id));
+  const ev = rows.filter(
+    (r) => Date.parse(r.created_at) >= t0 && (opts.agentsOnly ? isAgent(r.client_id) : !isAgent(r.client_id))
+  );
   const of = (k: string) => ev.filter((r) => r.kind === k);
   const sent = of("sent");
   const receiverOpens = of("open").filter((r) => r.is_sender === false);

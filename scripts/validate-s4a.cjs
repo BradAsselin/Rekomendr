@@ -434,6 +434,7 @@ const event = (kind, cardId, clientId) => recordCardEvent({ kind, card: cardId, 
   check("receiver opens; both > 2 days after send → reopen rate 100%", [ro.receiver_opens, ro.late_opens, ro.reopen_rate_pct], [2, 2, 100]);
   check("receiver → sender: 1 of 1 = 100%", [ro.receivers_who_sent, ro.receiver_to_sender_pct], [1, 100]);
   check("taps", [ro.watch_taps, ro.trailer_taps, ro.buy_taps], [1, 2, 1]);
+  check("agentsOnly: counts ONLY agent traffic (acceptance runs)", computeReadout(rows, iso(10 * DAY), { agentsOnly: true }).unique_receivers, 1);
   check("empty readout → zeros and null rates", (({ cards_sent, reopen_rate_pct, receiver_to_sender_pct }) => [cards_sent, reopen_rate_pct, receiver_to_sender_pct])(computeReadout([], iso(DAY))), [0, null, null]);
   const sqlRead = fs.readFileSync(path.join(ROOT, "docs/sql/test-readout.sql"), "utf8");
   check("SQL readout: same definitions (late = 2 days, agent excluded, via_card)", [/since_send_s > 2 \* 86400/.test(sqlRead), /not like 'anon_agent%'/.test(sqlRead), /via_card is not null/.test(sqlRead)], [true, true, true]);

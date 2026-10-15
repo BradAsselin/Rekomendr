@@ -1,6 +1,7 @@
 // app/api/stats/route.ts
 // S4 — the test readout, admin-only: GET /api/stats?key=<STATS_KEY>
-// [&since=YYYY-MM-DD] [&format=json]. A small HTML table by default (for
+// [&since=YYYY-MM-DD] [&format=json] [&agents=1 — agent test traffic only,
+// for acceptance runs]. A small HTML table by default (for
 // a phone), JSON on request. Same definitions as docs/sql/test-readout.sql.
 //
 // Gate: the STATS_KEY env var, compared in constant time. No key set → the
@@ -63,7 +64,9 @@ export async function GET(req: Request): Promise<Response> {
   }
   let readout: Readout;
   try {
-    readout = computeReadout(await loadEvents(store, since), since);
+    readout = computeReadout(await loadEvents(store, since), since, {
+      agentsOnly: url.searchParams.get("agents") === "1",
+    });
   } catch (err) {
     console.warn("[stats] read failed", { error: err instanceof Error ? err.message : String(err) });
     return Response.json({ error: "unavailable" }, { status: 503 });
