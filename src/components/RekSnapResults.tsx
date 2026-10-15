@@ -15,6 +15,13 @@ import { getAnonymousClientId } from "../lib/userPrefs";
 import { isAIServiceError, readServiceFailure } from "../lib/aiServiceError";
 import { shareOrCopy } from "../lib/shareLink";
 import {
+  markSenderNameAsked,
+  recordCardSent,
+  saveSenderName,
+  senderNameAsked,
+  storedSenderName,
+} from "../lib/senderName";
+import {
   TrailerVerb,
   WatchLine,
   WhereToWatchVerb,
@@ -210,6 +217,17 @@ const RekSnapResults: React.FC<Props> = ({
     // Shown when no sheet and no clipboard exist: the link, to copy by hand.
     note?: string;
   }>({ status: "idle" });
+
+  // S4 — the sender name: asked once, on the first Share tap ("first"),
+  // changeable later from the small link beside Share ("change").
+  const [nameSheet, setNameSheet] = useState<null | "first" | "change">(null);
+  const [nameDraft, setNameDraft] = useState("");
+  const [senderName, setSenderName] = useState<string | null>(null);
+  const [nameAsked, setNameAsked] = useState(true);
+  useEffect(() => {
+    setSenderName(storedSenderName());
+    setNameAsked(senderNameAsked());
+  }, []);
 
   // Guards late backfill responses from a previous snap result.
   const resultRef = useRef(result);
@@ -620,13 +638,21 @@ const RekSnapResults: React.FC<Props> = ({
   // unsaved anchor it IS the save — the same handleSave a Save tap runs
   // (mark, signal, mint) — and the flow below awaits that mint. Sharing
   // something is keeping it, so the Save mark lights up with it.
-  const handleShareAnchor = async () => {
+  // S4: `profileReady` is the name save from the first-share prompt; the
+  // flip waits for it so the very first card already carries the name.
+  const handleShareAnchor = async (profileReady?: Promise<unknown>) => {
     const forResult = resultRef.current;
     if (!forResult) return;
     const anchorName = forResult.detected_item.name;
 
     const send = async (url: string) => {
       const outcome = await shareOrCopy({ title: anchorName, text: anchorName, url });
+      // S4 instrumentation: "card sent" once the link actually left — a
+      // closed sheet or a refused gesture is not a send.
+      if (outcome === "shared" || outcome === "copied" || outcome === "manual") {
+        const cardId = url.split("/a/")[1];
+        if (cardId) recordCardSent(cardId);
+      }
       if (resultRef.current !== forResult) return;
       if (outcome === "not_allowed") {
         setShare({ status: "ready", url, needsTap: true });
@@ -661,6 +687,7 @@ const RekSnapResults: React.FC<Props> = ({
     }
 
     try {
+      if (profileReady) await profileReady.catch(() => {});
       const clientId = getAnonymousClientId();
       const res = await fetch("/api/share", {
         method: "POST",
@@ -689,6 +716,35 @@ const RekSnapResults: React.FC<Props> = ({
     } catch (err) {
       console.warn("[share] request failed", err);
       if (resultRef.current === forResult) setShare({ status: "refused" });
+    }
+  };
+
+  // S4 — the Share tap. First time ever: ask for a name once (one field,
+  // skippable). The sheet's own button is a fresh tap, so the share sheet
+  // still opens from a user gesture.
+  const onShareTap = () => {
+    if (share.status === "working") return;
+    if (!senderNameAsked() && share.status !== "ready") {
+      setNameDraft("");
+      setNameSheet("first");
+      return;
+    }
+    void handleShareAnchor();
+  };
+
+  const submitNameSheet = (skip: boolean) => {
+    const mode = nameSheet;
+    const name = skip ? "" : nameDraft.replace(/\s+/g, " ").trim().slice(0, 40);
+    setNameSheet(null);
+    setNameAsked(true);
+    if (name) setSenderName(name);
+    const saved = name ? saveSenderName(name) : (markSenderNameAsked(), Promise.resolve(false));
+    if (mode === "first") {
+      void handleShareAnchor(saved);
+    } else if (name && share.status === "ready") {
+      // A changed name reaches this card too: the next Share tap goes
+      // back through the (idempotent) flip, which restamps the name.
+      setShare({ status: "idle" });
     }
   };
 
@@ -1498,9 +1554,23 @@ const RekSnapResults: React.FC<Props> = ({
                 {share.note}
               </span>
             )}
+            {/* S4 — "a way to change it later": the name the cards carry,
+                or an offer to add one after a Skip. Quiet, beside Share. */}
+            {nameAsked && !nameSheet && (
+              <button
+                type="button"
+                onClick={() => {
+                  setNameDraft(senderName ?? "");
+                  setNameSheet("change");
+                }}
+                className="mr-auto text-[13px] text-gray-400 sm:text-gray-500 hover:underline"
+              >
+                {senderName ? `as ${senderName}` : "add your name"}
+              </button>
+            )}
             <button
               type="button"
-              onClick={handleShareAnchor}
+              onClick={onShareTap}
               disabled={share.status === "working"}
               className="font-medium text-blue-300 sm:text-[#1E3A8A] hover:underline disabled:opacity-60"
             >
@@ -1511,6 +1581,44 @@ const RekSnapResults: React.FC<Props> = ({
                 : "Share"}
             </button>
           </div>
+        )}
+        {anchorShareable && nameSheet && (
+          <form
+            className="bg-white border border-gray-200 rounded-2xl p-4 shadow-sm mb-3"
+            onSubmit={(e) => {
+              e.preventDefault();
+              submitNameSheet(false);
+            }}
+          >
+            <label htmlFor="sender-name" className="block text-sm text-gray-800 mb-2">
+              Your name, so friends know it’s from you.
+            </label>
+            <input
+              id="sender-name"
+              type="text"
+              autoFocus
+              autoComplete="given-name"
+              maxLength={40}
+              value={nameDraft}
+              onChange={(e) => setNameDraft(e.target.value)}
+              className="w-full rounded-xl border border-gray-300 px-3 py-2 text-base text-gray-900"
+            />
+            <div className="mt-3 flex justify-end gap-3 text-sm">
+              <button
+                type="button"
+                onClick={() => (nameSheet === "first" ? submitNameSheet(true) : setNameSheet(null))}
+                className="px-3 py-2 text-gray-600 hover:underline"
+              >
+                {nameSheet === "first" ? "Skip" : "Cancel"}
+              </button>
+              <button
+                type="submit"
+                className="rounded-xl bg-[#1E3A8A] px-4 py-2 font-medium text-white"
+              >
+                {nameSheet === "first" ? "Share" : "Save"}
+              </button>
+            </div>
+          </form>
         )}
         {share.status === "refused" && (
           <div className="bg-white border border-amber-300 rounded-2xl p-4 shadow-sm mb-3">

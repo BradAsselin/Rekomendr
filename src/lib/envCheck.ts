@@ -164,5 +164,10 @@ export function runEnvCheck(): string[] {
   } else {
     for (const p of problems) console.warn("[env-check]", p);
   }
+  // S4 — the test readout's key. Optional (the app is whole without it),
+  // so it is named here rather than counted as a health problem.
+  if (!process.env.STATS_KEY?.trim()) {
+    console.info("[env-check] STATS_KEY missing — /api/stats answers 404 (readout off; the SQL file still works)");
+  }
   return problems;
 }
