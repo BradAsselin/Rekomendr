@@ -41,7 +41,30 @@ export type SnapshotRow = {
   shared_at: string | null;
   revoked_at: string | null;
   created_at: string;
+  // S4 — all nullable; a row from before S4 has none of them.
+  sender_name?: string | null;
+  media_kind?: "movie" | "tv" | null;
+  media_id?: number | null;
+  poster_path?: string | null;
+  trailer_url?: string | null;
+  providers?: unknown;
+  providers_at?: string | null;
 };
+
+// S4 — the columns the public card reads. One list, so the page, the
+// preview image and the event route can never select different shapes.
+export const PUBLIC_CARD_COLUMNS =
+  "id, client_id, item_name, item_category, short_description, long_description, mode, shared_at, revoked_at, created_at, sender_name, media_kind, media_id, poster_path, trailer_url, providers, providers_at";
+
+// S4 — the optional sender name, cleaned the same way at every door
+// (profile write, share flip, render): control/bidi characters out,
+// whitespace collapsed, 1–40 characters or nothing.
+export const SENDER_NAME_MAX = 40;
+export function cleanSenderName(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  const v = stripControl(raw).replace(/\s+/g, " ").trim();
+  return v.length >= 1 && v.length <= SENDER_NAME_MAX ? v : null;
+}
 
 export const cleanClientId = (raw: unknown): string | null => {
   if (typeof raw !== "string") return null;
@@ -112,9 +135,7 @@ export async function loadPublicSnapshot(rawId: unknown): Promise<SnapshotRow | 
   }
   const { data, error } = await store
     .from("anchor_snapshots")
-    .select(
-      "id, client_id, item_name, item_category, short_description, long_description, mode, shared_at, revoked_at, created_at"
-    )
+    .select(PUBLIC_CARD_COLUMNS)
     .eq("id", id)
     .not("shared_at", "is", null)
     .is("revoked_at", null)

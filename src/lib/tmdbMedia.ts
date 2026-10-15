@@ -577,3 +577,51 @@ export async function completionForSaved(
 }
 
 export const mediaCategoryFor = (kind: MediaKind): string => (kind === "movie" ? "movies" : "tv");
+
+/* ------------------------------------------------------------------
+   S4 — a SHARED CARD's media, fetched fresh (no bundle cache): the card
+   keeps its synopsis forever, but where it streams changes, so a card
+   reopened months later asks TMDb today. One call. The caller
+   (src/lib/cardMedia.ts) owns the refresh clock and the stored fallback.
+------------------------------------------------------------------- */
+export type CardMedia = MediaCompletion & { posterPath: string | null };
+
+export async function fetchCardMedia(kind: MediaKind, id: number): Promise<CardMedia | null> {
+  const raw = await tmdbGet(`${kind}/${id}`, {
+    append_to_response: kind === "movie" ? "videos,watch/providers,release_dates" : "videos,watch/providers",
+    language: "en-US",
+  });
+  if (!raw || typeof raw.id !== "number") return null;
+  const title = String((kind === "movie" ? raw.title : raw.name) ?? "").trim();
+  if (!title) return null;
+  const watch = parseWatch(raw["watch/providers"], title);
+  const poster = typeof raw.poster_path === "string" && /^\/[\w.-]{1,120}$/.test(raw.poster_path)
+    ? raw.poster_path
+    : null;
+  return {
+    posterPath: poster,
+    trailerUrl: parseTrailer(raw.videos),
+    watch,
+    availability: !watch && kind === "movie" ? parseAvailability(raw.release_dates) : null,
+  };
+}
+
+// The saved-card lookup by name (old cards carry no TMDb id): the snapped
+// rule, which is the rule that produced the anchor in the first place.
+export async function resolveSavedTitle(
+  name: string,
+  category: string
+): Promise<{ kind: MediaKind; id: number } | null> {
+  const c = (category ?? "").trim().toLowerCase();
+  const kind: MediaKind | "any" =
+    c === "tv" || c === "tv shows" || c === "tv show" || c === "television" || c === "show" || c === "shows"
+      ? "tv"
+      : c === "movies" || c === "movie" || c === "film" || c === "films"
+        ? "movie"
+        : "any";
+  const r = await resolveSnappedTitle(name, kind);
+  return r ? { kind: r.kind, id: r.id } : null;
+}
+
+export const posterUrl = (path: string | null | undefined, size: "w185" | "w342" | "w500" = "w342") =>
+  path ? `https://image.tmdb.org/t/p/${size}${path}` : null;
