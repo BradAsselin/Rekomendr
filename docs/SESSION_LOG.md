@@ -894,3 +894,123 @@ NEXT SESSION SHOULD KNOW:
 - The arrival effect reads `?card`, `?save` and `?claim` exactly once.
 
 VALIDATION: folded into the combined §10.6 batch at the end of this chain.
+
+---
+
+## Session 5 — mood-chips — 2026-10-15 — branch auto/s5-mood-chips (from main) — PR (see chain close) (local agent mode, §11)
+
+**History check (asked by the plan):**
+- No commit ever removed visible chips under the box. The Aug-2025 MVP had rotating example prompts, and from `efad30a` (2026-01-03) genres lived behind "+".
+- What was removed was *automatic* searching: the 2-second auto-go timer (`401886b`, 2026-06-07, a mobile race where a late Comedy response overwrote a typed search; the same commit added the `searchIdRef` guard) and the category-switch auto-search (`3eaa04b`, 2026-07-10).
+- Designed around it: no timers, one deliberate tap = one search, the guard drops stale responses, and a category switch still never searches.
+
+SHIPPED:
+- **Row 1, always under the search box.** Movies: Comedy · Drama · Thriller · Crime · Action · Romance · Sci-Fi · Surprise me. TV and Books have their own sets; Wine: Bold Red · Crisp White · Bubbles · Rosé · Surprise me. One tap = results, no GO (`src/lib/moodChips.ts`, `SearchBar.tsx`).
+- **Row 2 after the first tap:** Feel-good · Dark · Smart · Classic · New. One at a time; each tap re-runs the search. Wine uses its own styles.
+- **No prompt text changed.** Tone refiners use existing TONE_BY_VIBE keys; era refiners qualify the lane string. The engine is byte-identical to main.
+- **Retired:** the "+" dropdown, the "Lane:" line with its vibe menu and "Pick a lane first", and the Play button. "Try another lane" on the exhaustion card still plays the next chip from the pool.
+- **Checks:** `validate-s5` 32/32; regression s1 50, s15 54, s30 69, s2 97; tsc and lint clean.
+- **Preview, WebKit at iPhone size: 16/16.** One tap on Comedy → five comedies in ~12s (Little Miss Sunshine, Grand Budapest, The Nice Guys, Booksmart, The Hundred-Foot Journey). Dark re-runs dark. Typed "Lioness" and a snapped Lioness poster both land the anchor. No old lane UI remains.
+
+FOUND, NOT FIXED:
+- Mood searches take 12–25s on the preview (existing generation path).
+- Row 1 scrolls past five chips at 390px; wrapping is a one-class change if Brad prefers. A feel call.
+- The Saved/Favorites/Liked lanes (only shown with history) went with the "+" dropdown. The S4 panel is their real home.
+
+BRAD MUST: the phone check in the combined batch.
+
+NEXT SESSION SHOULD KNOW:
+- Chips and refiners live in one file (`src/lib/moodChips.ts`), queries built by `chipQuery`.
+- A new refiner either reuses a TONE_BY_VIBE key or touches prompt text. Prompt text is a joint session (§5).
+
+VALIDATION: folded into the combined §10.6 batch below.
+
+---
+
+## Chain close (S4a → S4b → S5) — local agent mode (§11) — 2026-10-15
+
+**Nothing was self-merged.** Auto mode refused `gh pr merge` of #22 ("Merge Without Review"), so the three sessions are stacked for Brad to merge **in order: #22 (S4a) → #23 (S4b) → #24 (S5)**. #24 carries #23, which carries #22; each shrinks to its own diff once the one before lands. No `SESSION_LOG.md` conflicts in that order.
+**Combined preview (all three sessions):** https://rekomendr-ks49o9x0f-brad-asselins-projects.vercel.app. Main does not have them yet, so validate here.
+**Combined tree checks:**
+- Harnesses: s5 32, s4b 48, s4a 82, s30 69, s2 97, s1 50, s15 54, s21 364, s23 35, s36 59. tsc clean.
+- Browser suites on the combined preview: S4a 17/17, S4b 16/16, S5 16/16.
+**Permission change (read-only `vercel logs` on any environment):** approved by Brad, refused for self-edit by auto mode. Still not applied; the script is in the session scratchpad.
+
+### Brad's twenty minutes — combined (§10.6), in this order
+
+Preview: https://rekomendr-ks49o9x0f-brad-asselins-projects.vercel.app (signed in to Vercel on the phone, as usual).
+
+**What to do**
+1. **Mood chips (S5).** Open the preview cold. Under the search box: Comedy · Drama · Thriller · Crime · Action · Romance · Sci-Fi · Surprise me. Tap **Comedy**. Don't tap GO.
+2. When the five arrive, a second row appears: Feel-good · Dark · Smart · Classic · New. Tap **Dark**.
+3. Switch the category to **TV Shows**, then **Wine**. Each has its own row, and switching alone doesn't search.
+4. **The card (S4a).** TV Shows → type **Lioness** → GO → tap **Share**. A one-line question appears: *"Your name, so friends know it's from you."* Type your name → Share → text it to yourself.
+5. Beside Share it now reads **"as <your name>"**. Tap Share again: no question this time.
+6. Open the link you texted yourself. Top of the card: poster, **"<Name>'s pick"**, the title, a big **▶ Watch on <service>** and **Trailer**, and **Save** at top right. Scroll to the bottom: **"Snap your own →"**.
+7. **The bridge (S4b).** Tap **Save** on that card. The app opens with Lioness on top, the bookmark filled, and five similar shows loading. A sheet says *"Saved. Keep Rekomendr on your Home Screen"* with three steps. Tap **Not now** (the real home-screen test is step 10, on production).
+8. Snap a poster or a bottle. Same as yesterday.
+9. **Readout.** Open `<preview>/api/stats?key=<STATS_KEY from .env.local>`. Your own steps show up: cards sent, receivers, saves.
+10. **After promoting (production only).** Previews sit behind Vercel SSO, so these can only be proven on production:
+    - (a) Text a card to Katrina. In iMessage the bubble should show the poster, the title, and "from <you>".
+    - (b) She opens it (no account), taps Save, follows the sheet (Share → Add to Home Screen → Add), then opens the new icon. **The saved card should already be there.**
+    - (c) She shares any card. The readout's "Receiver → sender" should read 1.
+    - (d) Open `https://www.rekomendr.ai/a/99a1a2a4-9b13-4e9e-b45c-f43de15f82f0`, the old Lioness card. It should show a Watch button and today's services.
+
+**What it should feel like**
+- [ ] One tap on a mood = results. No "+", no "Lane:", no "Pick a lane first" anywhere.
+- [ ] The second row feels optional, and Dark reads darker.
+- [ ] The name question shows up once, takes five seconds, and never nags.
+- [ ] In a text thread the card is unmistakable: poster, title, your name.
+- [ ] The card answers "where do I watch it?" before you scroll.
+- [ ] Save feels like one tap into the app, not a sign-up.
+- [ ] The home-screen sheet appears only after a Save, never on opening the app; the header's old "Add to Home Screen" button is gone.
+- [ ] Your feel calls:
+  - wine's second row (Easy sipper · Special occasion · Crisp & dry · Rich & cozy);
+  - row 1 scrolling past five chips vs wrapping;
+  - the coach sheet's wording;
+  - "Snap your own →" replacing the old "Snapped with Rekomendr" line.
+
+**What to screenshot if it's wrong**
+- The top of the home screen (chips, and the Share pill under the clock).
+- The name question.
+- The card's top half.
+- The text bubble in Messages.
+- The app right after Save (with the sheet).
+- The icon's first launch.
+- `/api/stats`.
+- Log lines starting `[card-providers]`, `[card-event]`, `[card-save]`, `[card-claim]`, `[profile]`, `[share]`.
+
+### Production promotion checklist (§11.8)
+
+**Merge order:** #22 → #23 → #24. Then open `main → release/v2` as usual.
+
+**Production environment variables (Brad, Vercel → Settings → Environment Variables → Production):**
+- `STATS_KEY` — **new.** The key to the readout page.
+  - Generate any long random string, e.g. on a Mac: `openssl rand -base64 24`.
+  - Without it `/api/stats` answers 404; the SQL readout still works.
+  - Keep it private: it's the readout's only lock.
+- `MINT_SIGNING_SECRET` — already in Production. S4b's claim tokens also use it, so keep it the same as Preview.
+- `TMDB_API_KEY` — already in Production; used for live where-to-watch.
+
+**Migration already live (one database for previews and production):**
+- `docs/sql/s4-card.sql`: 7 nullable columns on `anchor_snapshots`, plus `client_profiles` and `card_events`.
+- Backup: **`backups/2026-10-15-1746-s4a.sql`** (517,280 bytes).
+- Additive; Blocks 1–4 passed. Rollback is Block 5 (Brad's call only).
+- The code fails soft without the tables.
+
+**Revert:** each PR's merge commit, individually, with `git revert -m 1 <sha>` (SHAs exist once Brad merges).
+
+**Decisions for Brad:**
+1. **Approve or strike the proposed §2 invariant 13**, "A shared card is permanent". The text is in PR #22.
+2. Delete the Oct 11–12 **CLI preview deployments**. They very likely uploaded `backups/*.sql` (user data) to Vercel's source storage. `.vercelignore` now prevents it, and sessions can't delete deployments.
+3. Apply the `vercel logs` permission yourself if you still want it. Paste this as one line:
+   `! node "C:\Users\BRADAS~1\AppData\Local\Temp\claude\C--Users-Brad-Asselin\a4063f42-3539-4c7f-a87a-fb6319dc23f9\scratchpad\apply-logs-permission.js"`
+   Or make the same edit by hand: in `.claude/settings.local.json`, replace both `vercel*production*` deny rules with `vercel deploy|build|pull|env|project|git *production*`.
+4. Allow self-merge to `main` in auto mode if future chains should land their own PRs (§10.3). Today it was refused.
+5. **Start the test clock** the day S4 reaches production, and pass `?since=YYYY-MM-DD` to `/api/stats` (or edit the date at the top of `docs/sql/test-readout.sql`).
+
+**Production test residue from this chain:**
+- `anchor_snapshots`: 6 agent rows (`anon_agent_s4*`), **all revoked**, so those links 404.
+- `card_events`: 22 rows from 6 `anon_agent_*` ids. The readout excludes them by design.
+- `client_profiles`: 2 agent rows.
+- The real Lioness card `99a1a2a4-…` was left live and now carries its TMDb id, poster and providers.
