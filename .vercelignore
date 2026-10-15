@@ -1,0 +1,13 @@
+# Files `vercel deploy` (CLI) must never upload. The CLI does NOT read
+# .gitignore — without this file, local-only files would ship to Vercel's
+# deployment source storage. Mirrors .gitignore; backups/ holds pg_dump
+# output with user data (charter §11.2) and must never leave the machine.
+backups/
+.env*
+.vercel
+node_modules
+.next
+*.log
+*.txt
+tsconfig.tsbuildinfo
+/*.png
