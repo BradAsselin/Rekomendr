@@ -22,7 +22,7 @@
 -- =====================================================================
 
 with params as (
-  select timestamptz '2026-10-15 00:00:00+00' as test_start
+  select timestamptz '2026-10-16 00:00:00+00' as test_start
 ),
 ev as (
   select e.*
@@ -64,7 +64,7 @@ select
 -- ---------------------------------------------------------------------
 -- Which cards bring people in (receiver → sender, by entry card).
 -- ---------------------------------------------------------------------
--- with params as (select timestamptz '2026-10-15 00:00:00+00' as test_start)
+-- with params as (select timestamptz '2026-10-16 00:00:00+00' as test_start)
 -- select e.via_card, s.item_name, s.sender_name, count(*) as new_senders
 -- from public.card_events e
 -- join public.anchor_snapshots s on s.id = e.via_card, params p
