@@ -1049,3 +1049,32 @@ VALIDATION (Brad's twenty minutes, on the #25 preview):
 3. Save a rek so it moves to the trail, open it, and tap Share. Same card page.
 4. Snap something health-ish (vitamins). No Share on the anchor or on any rek.
 5. Tap the Share row on a rek: is it quiet enough, and in the right place? That's your call (§12.4).
+
+## Session 7 — search-share-tmdb — 2026-10-15 — branch auto/s7-search-share-tmdb (from main @651dcba) — PR (see below) (local agent mode, §11)
+
+SHIPPED:
+- **Merges, in order, under Brad's instruction (2026-10-15):** #22 `aa65b67` → #23 `52940e8` → #24 `8394c29` → #25 `651dcba`. Each one is individually revertible with `git revert -m 1 <sha>`.
+- **Refusal copy (in #25 before merging):** "Couldn’t share this one right now. Try again in a moment." The old "— it's still saved" is gone everywhere, and the anchor and rek cards now use the same line.
+- **Search-lane Share (Brad's call B):** movies and TV cards in the search lane (mood chips and typed mood) now have Share.
+  - `/api/anchor` `action:"card"` looks the title up on TMDb (exact match, year ±1) and signs TMDb's own title and synopsis.
+  - The card shows TMDb's official synopsis. Books and wine get no Share yet.
+- **Public-repo audit:** no secrets, `.env` files or backups in history. Checked every ref, including all 25 `refs/pull/*`.
+  - All 13 real `.env.local` values: none found in history.
+  - Zero `sk-` keys, JWTs, password-bearing postgres URLs or private keys.
+  - No `.env*` or `backups/` path was ever committed, and both are gitignored.
+  - The committed `.sql` files are migrations plus adversarial self-tests with synthetic `anon_*` ids. One test row uses the display name "Katrina".
+
+FOUND, NOT FIXED:
+- Pre-existing lint error: `RekSnapResults.tsx` LimitCard apostrophe.
+
+BRAD MUST:
+- Promote `main` → `release/v2` when ready. That's yours alone (§10.4).
+
+NEXT SESSION SHOULD KNOW:
+- Every card on screen can now be shared, except search-lane books and wine.
+- Search-lane cards share TMDb's synopsis, not the rek's line, by design (call B).
+
+VALIDATION (on the S7 preview, then production after promotion):
+1. Mood chip → TV → Comedy. Tap Share on a card: the card page shows TMDb's synopsis and "from <you>".
+2. A Wine lane search shows no Share on any card.
+3. Snap and typed anchors, and their reks, still share as in S6.
