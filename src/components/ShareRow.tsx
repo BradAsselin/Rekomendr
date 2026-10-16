@@ -20,7 +20,7 @@ import {
 import { getAnonymousClientId } from "../lib/userPrefs";
 
 // The one refusal voice for Share, anchor and rek alike (Brad,
-// 2026-10-15, replacing #19 Call 2's "— it's still saved", which read as
+// 2026-10-15, replacing #19 Call 2's still-saved suffix, which read as
 // if Save had caused the failure). The row stays private; a retap retries.
 const SHARE_REFUSED_MSG = "Couldn’t share this one right now. Try again in a moment.";
 
