@@ -11,6 +11,8 @@ import RekSnapResults, {
 import RecipeModal from "../src/components/RecipeModal";
 import AuthControl from "../src/components/AuthControl";
 import InstallCoach from "../src/components/InstallCoach";
+import QuietTip from "../src/components/QuietTip";
+import { SHELF_TIP } from "../src/lib/wineShelf";
 import {
   installOfferSnoozed,
   isStandalone,
@@ -25,6 +27,7 @@ import {
 } from "../src/lib/userPrefs";
 import { AIServiceError, isAIServiceError } from "../src/lib/aiServiceError";
 import { asToken } from "../src/lib/shareSnapshot";
+import { isWineCategory } from "../src/lib/wineShelf";
 
 export type Category = "Movies" | "TV Shows" | "Books" | "Wine";
 
@@ -258,8 +261,7 @@ function incrementSnapCount(): void {
   sessionStorage.setItem(SNAP_COUNT_KEY, String(getSnapCount() + 1));
 }
 
-// Downscale large camera photos client-side so the vision request stays small.
-async function imageFileToDataUrl(file: File, maxDim = 1280): Promise<string> {
+async function loadImageFile(file: File): Promise<{ dataUrl: string; img: HTMLImageElement }> {
   const dataUrl: string = await new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(reader.result as string);
@@ -273,6 +275,16 @@ async function imageFileToDataUrl(file: File, maxDim = 1280): Promise<string> {
     el.onerror = reject;
     el.src = dataUrl;
   });
+  return { dataUrl, img };
+}
+
+// Downscale large camera photos client-side so the vision request stays
+// small. S8a: the cap was 1280px; it is 2048 now — the most OpenAI's high
+// detail pipeline ever uses — so a shelf's labels survive the trip.
+const SNAP_MAX_DIM = 2048;
+
+async function imageFileToDataUrl(file: File, maxDim = SNAP_MAX_DIM): Promise<string> {
+  const { dataUrl, img } = await loadImageFile(file);
 
   const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
   if (scale === 1) return dataUrl;
@@ -285,6 +297,49 @@ async function imageFileToDataUrl(file: File, maxDim = 1280): Promise<string> {
   ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
   return canvas.toDataURL("image/jpeg", 0.85);
 }
+
+// S8a — the dense-shelf retry. The ORIGINAL photo cut into horizontal
+// strips (roughly one per shelf), each overlapping its neighbour by 8% so
+// no bottle is cut in half, each encoded at up to 2048px wide. OpenAI's
+// high detail scales a photo's short side to 768px; a strip's short side
+// is its height, so the labels in it arrive at about twice the resolution.
+async function imageFileToStrips(file: File, count = 3): Promise<string[]> {
+  const { img } = await loadImageFile(file);
+  const overlap = Math.round(img.height * 0.08);
+  const band = Math.ceil(img.height / count);
+  const strips: string[] = [];
+  for (let i = 0; i < count; i++) {
+    const top = Math.max(0, i * band - overlap);
+    const bottom = Math.min(img.height, (i + 1) * band + overlap);
+    const h = bottom - top;
+    const scale = Math.min(1, SNAP_MAX_DIM / Math.max(img.width, h));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(img.width * scale);
+    canvas.height = Math.round(h * scale);
+    const ctx = canvas.getContext("2d");
+    if (!ctx) continue;
+    ctx.drawImage(img, 0, top, img.width, h, 0, 0, canvas.width, canvas.height);
+    strips.push(canvas.toDataURL("image/jpeg", 0.85));
+  }
+  return strips;
+}
+
+// S8a — the bar follows a successful snap: a wine snap leaves the bar on
+// Wine (field case: the error screen after a wine snap still said Movies,
+// because a snap never touched the bar). A failed snap leaves it alone.
+function barCategoryForSnap(raw: string | undefined): Category | null {
+  const c = (raw ?? "").trim().toLowerCase();
+  if (!c) return null;
+  if (isWineCategory(c)) return "Wine";
+  if (c === "movies" || c === "movie" || c === "film") return "Movies";
+  if (c === "tv" || c === "tv shows" || c === "tv show") return "TV Shows";
+  if (c === "books" || c === "book") return "Books";
+  return null;
+}
+
+// The dense-shelf message travels from the server; it is the one non-
+// service failure the snap shows verbatim (plain voice, machinery).
+type SnapReadFailure = Error & { dense?: string; retryStrips?: boolean };
 
 export default function Page() {
   const [reks, setReks] = useState<Rek[]>([]);
@@ -340,6 +395,14 @@ export default function Page() {
 
   // S4b — the add-to-home-screen offer, raised only by a Save.
   const [installOffer, setInstallOffer] = useState(false);
+
+  // S8a — the bar's category, mirrored here (it rides each snap as a hint),
+  // and the one way a snap moves the bar: bump `n` with the new value.
+  const barCategoryRef = useRef<string>("Movies");
+  const [barCategoryHint, setBarCategoryHint] = useState<{ value: Category | null; n: number }>({
+    value: null,
+    n: 0,
+  });
 
   useEffect(() => {
     setHasSnapped(getSnapCount() >= 1);
@@ -559,14 +622,18 @@ export default function Page() {
     setLateReks(null);
     setSnapLoading(true);
 
-    try {
-      const image = await imageFileToDataUrl(file);
+    const postSnap = async (payload: { image?: string; strips?: string[] }) => {
       const res = await fetch("/api/reksnap", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         // clientId keys the server's cross-session dislike shading (raced,
-        // fail-soft — an empty id just means no history).
-        body: JSON.stringify({ image, clientId: getAnonymousClientId() }),
+        // fail-soft — an empty id just means no history). category is the
+        // bar's, a hint only.
+        body: JSON.stringify({
+          ...payload,
+          clientId: getAnonymousClientId(),
+          category: barCategoryRef.current,
+        }),
       });
       const data = await res.json().catch(() => null);
       // A NAMED service failure (out of credit, key refused, rate-limited,
@@ -580,22 +647,45 @@ export default function Page() {
         !data?.results ||
         !Array.isArray(data?.results?.similar)
       ) {
-        throw new Error(data?.error || "RekSnap failed");
+        const failure: SnapReadFailure = new Error(data?.error || "RekSnap failed");
+        if (data?.dense === true && typeof data?.error === "string") failure.dense = data.error;
+        if (data?.retry === "strips") failure.retryStrips = true;
+        throw failure;
+      }
+      return data as SnapResult;
+    };
+
+    try {
+      const image = await imageFileToDataUrl(file);
+      let data: SnapResult;
+      try {
+        data = await postSnap({ image });
+      } catch (err) {
+        // S8a — a failed whole-photo read gets one more try, as strips.
+        if (!(err as SnapReadFailure)?.retryStrips || snapId !== snapIdRef.current) throw err;
+        console.info("[snap-strips] whole photo unread — retrying as strips");
+        data = await postSnap({ strips: await imageFileToStrips(file) });
       }
       if (snapId !== snapIdRef.current) return; // dismissed while in flight
-      setSnapResult(data as SnapResult);
+      setSnapResult(data);
       incrementSnapCount();
       setHasSnapped(true);
+      const barCat = barCategoryForSnap(data.detected_item.category);
+      if (barCat) setBarCategoryHint((h) => ({ value: barCat, n: h.n + 1 }));
     } catch (err) {
       console.error("RekSnap failed:", err);
       if (snapId !== snapIdRef.current) return;
       // Voice rule: ™ rides labels/branding; prose uses the bare name.
       // A service failure speaks plainly (machinery, not Reks Ray); only a
-      // genuine read miss is the persona's to own.
+      // genuine read miss is the persona's to own. A shelf too dense to
+      // read even in strips says so plainly (S8a).
+      const dense = (err as SnapReadFailure)?.dense;
       setSnapError(
         isAIServiceError(err)
           ? err.message
-          : "Reks Ray couldn’t read that photo. Give it another snap."
+          : dense
+            ? dense
+            : "Reks Ray couldn’t read that photo. Give it another snap."
       );
     } finally {
       if (snapId === snapIdRef.current) setSnapLoading(false);
@@ -810,6 +900,10 @@ export default function Page() {
           setLoading={setLoading}
           hasHistory={reks.length > 0}
           onSnap={openSnapPicker}
+          onCategoryChange={(c) => {
+            barCategoryRef.current = c;
+          }}
+          categoryHint={barCategoryHint}
           registerVibePlay={(fn) => {
             vibePlayRef.current = fn;
           }}
@@ -839,6 +933,11 @@ export default function Page() {
             !hasSnapped && (
               <div className="sm:hidden">
                 <RekSnapButton onClick={openSnapPicker} />
+                <QuietTip
+                  storageKey="shelf-shot"
+                  text={SHELF_TIP}
+                  className="mx-auto mt-4 max-w-xs px-2"
+                />
               </div>
             )
           ) : (
