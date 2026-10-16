@@ -19,8 +19,8 @@ export const dynamic = "force-dynamic";
 
 runEnvCheck();
 
-// The test's default start: the day S4 was built. Brad can pass ?since=.
-const DEFAULT_SINCE = "2026-10-15";
+// The test start Brad set (2026-10-16). Pass ?since= to override.
+const DEFAULT_SINCE = "2026-10-16";
 
 const notFound = () => new Response("Not found", { status: 404, headers: { "Cache-Control": "no-store" } });
 
