@@ -1287,7 +1287,6 @@ const RekSnapResults: React.FC<Props> = ({
       <ShareRow
         title={rek.name}
         getSnapshot={rekSnapshot(rek, mode)}
-        saved={!!savedNames[rek.name]}
       />
     ) : undefined;
   const anchorWatch = anchorIsMedia ? result.media?.watch ?? null : null;
@@ -1482,7 +1481,6 @@ const RekSnapResults: React.FC<Props> = ({
             title={result.detected_item.name}
             getSnapshot={anchorSnapshot}
             onTap={markAnchorSaved}
-            saved={!!savedNames[result.detected_item.name]}
             showNameLink
           />
         )}

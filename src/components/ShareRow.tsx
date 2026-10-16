@@ -19,11 +19,10 @@ import {
 } from "../lib/senderName";
 import { getAnonymousClientId } from "../lib/userPrefs";
 
-// S2 — the one refusal voice for Share (decided copy, #19 Call 2): the
-// row stays private and the save stands. An unsaved rek has no save to
-// stand, so it gets the first half only.
-const SHARE_REFUSED_MSG = "couldn't share this one — it's still saved";
-const SHARE_REFUSED_UNSAVED_MSG = "couldn't share this one";
+// The one refusal voice for Share, anchor and rek alike (Brad,
+// 2026-10-15, replacing #19 Call 2's "— it's still saved", which read as
+// if Save had caused the failure). The row stays private; a retap retries.
+const SHARE_REFUSED_MSG = "Couldn’t share this one right now. Try again in a moment.";
 
 type ShareState = {
   status: "idle" | "working" | "ready" | "refused";
@@ -42,7 +41,6 @@ type Props = {
   // Runs on the tap itself, before any network (the anchor: sharing is
   // keeping, so its Save mark lights up).
   onTap?: () => void;
-  saved?: boolean;
   // "as Brad" / "add your name" beside Share — the anchor only, so the
   // rek cards don't each repeat it.
   showNameLink?: boolean;
@@ -54,7 +52,6 @@ const ShareRow: React.FC<Props> = ({
   title,
   getSnapshot,
   onTap,
-  saved,
   showNameLink,
   variant = "rek",
 }) => {
@@ -256,7 +253,7 @@ const ShareRow: React.FC<Props> = ({
       {share.status === "refused" && (
         <div className={`bg-white border border-amber-300 rounded-2xl p-4 shadow-sm ${anchor ? "mb-3" : "mt-2"}`}>
           <div className="text-sm text-gray-800">
-            {saved ? SHARE_REFUSED_MSG : SHARE_REFUSED_UNSAVED_MSG}
+            {SHARE_REFUSED_MSG}
           </div>
         </div>
       )}

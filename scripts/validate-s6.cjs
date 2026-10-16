@@ -258,6 +258,7 @@ const rowsFor = (name) => db.anchor_snapshots.filter((r) => r.item_name === name
   check("rek Share only with the rek's token, never under a health anchor", /!anchorIsHealthMedical && rek\.token && rek\.category \?/.test(rsr), true);
   check("RekCard renders the slot", card.includes("{shareSlot}"), true);
   check("one ShareRow for all: same name prompt, same 'sent' event, same /a/ URL", [row.includes("Your name, so friends know it’s from you."), /outcome === "shared" \|\| outcome === "copied" \|\| outcome === "manual"[\s\S]{0,120}recordCardSent/.test(row), row.includes("`${window.location.origin}/a/${id}`")], [true, true, true]);
+  check("refusal copy is Brad's line; 'still saved' is gone", [row.includes("Couldn’t share this one right now. Try again in a moment."), /"[^"]*still saved"/.test(row)], [true, false]);
   check("a refused share can be retried (no sticky failed mint)", /let id = idRef\.current;\s*if \(!id\) \{\s*const minted = await getSnapshot\(\)/.test(row), true);
   const page = fs.readFileSync(path.join(ROOT, "app/page.tsx"), "utf8");
   check("rek tokens survive every client remap", [(rsr.match(/token: asToken\(/g) || []).length, (page.match(/token: asToken\(/g) || []).length], [2, 1]);
