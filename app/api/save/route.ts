@@ -117,6 +117,9 @@ export async function POST(req: Request): Promise<Response> {
     .eq("item_name", name)
     .eq("item_category", categoryKey)
     .gte("created_at", dayAgo)
+    // S6: a revoked row is not "already saved" — handing its id back would
+    // make the Share that follows answer not_found. Mint a fresh one.
+    .is("revoked_at", null)
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();

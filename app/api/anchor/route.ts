@@ -19,6 +19,7 @@
 
 import { runEnvCheck } from "../../../src/lib/envCheck";
 import { signAnchor } from "../../../src/lib/mintToken";
+import { withRekTokens } from "../../../src/lib/rekTokens";
 import {
   loadMediaBundle,
   mediaCategoryFor,
@@ -166,7 +167,10 @@ async function reks(body: any): Promise<Response> {
   });
   // Honest-short (§2.4): nothing real to offer → say so, never pad.
   return Response.json(
-    chosen.length > 0 ? { reks: chosen } : { reks: [], notice: NEW_TO_ME_NOTICE },
+    // S6 — every rek carries its own attestation (Share on every card).
+    chosen.length > 0
+      ? { reks: withRekTokens(chosen, clientId, mediaCategoryFor(kind)) }
+      : { reks: [], notice: NEW_TO_ME_NOTICE },
     { status: 200 }
   );
 }

@@ -90,6 +90,9 @@ type Props = {
   // Extra root classes/styles — ResultsV4 threads its stagger animation here.
   className?: string;
   style?: React.CSSProperties;
+  // S6 — the card's Share row (ShareRow), last thing on the card, under
+  // the verbs. Absent when the rek can't be shared.
+  shareSlot?: React.ReactNode;
 };
 
 const RekCard: React.FC<Props> = ({
@@ -119,6 +122,7 @@ const RekCard: React.FC<Props> = ({
   swipeable,
   className,
   style,
+  shareSlot,
 }) => {
   const titleText = year != null ? `${title} (${year})` : title;
 
@@ -294,6 +298,8 @@ const RekCard: React.FC<Props> = ({
           <div className="flex justify-end">{verbRight}</div>
         </div>
       )}
+
+      {shareSlot}
     </div>
   );
 };

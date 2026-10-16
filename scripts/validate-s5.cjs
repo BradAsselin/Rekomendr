@@ -89,7 +89,9 @@ const ref = (cat, label) => chips.refinersFor(cat).find((r) => r.label === label
   const tones = Object.values(chips.REFINERS_BY_CATEGORY).flat().filter((x) => x.kind === "tone").map((x) => x.vibe);
   const engineSrc = fs.readFileSync(path.join(ROOT, "src/engine/rekomendrEngine.ts"), "utf8");
   check("every tone refiner is an existing TONE_BY_VIBE key", tones.filter((v) => !engineSrc.includes(`"${v}":`)), []);
-  const diff = execFileSync("git", ["diff", "--stat", "main", "--", "src/engine", "app/api/openai", "app/api/reksnap"], { cwd: ROOT }).toString().trim();
+  // S6: pinned to S5's own commit (86efd9c) — "vs main" started failing as
+  // soon as a later session legitimately touched /api/reksnap (S6 signs reks).
+  const diff = execFileSync("git", ["diff", "--stat", "86efd9c^", "86efd9c", "--", "src/engine", "app/api/openai", "app/api/reksnap"], { cwd: ROOT }).toString().trim();
   check("engine and prompt routes untouched vs main (no VOICE change)", diff, "");
 
   console.log("\n4. Surprise me and Wine");
