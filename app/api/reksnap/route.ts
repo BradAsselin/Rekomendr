@@ -4,8 +4,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   isHealthMedical,
   healthAnchorShort,
-  healthLabel,
   healthLabelFromName,
+  anchorWallLabel,
+  cleanHealthClass,
 } from "../../../src/lib/categoryGates";
 // S1.5 — the real-title guard, snap side. The helpers live in a lib
 // rather than here because a Next route module may only export route
@@ -110,8 +111,9 @@ const SYSTEM_PROMPT =
   "- WRONG: 'These eggs are perfect for a silky, savory quiche with bacon and cheese.' (perfect-for filler; says nothing about what making it is like or what you end up with)\n" +
   "\n" +
   "Every rek in every list carries its OWN category — same register as detected_item.category (a short lowercase label); it may differ from the detected item's (a bourbon alternative under a scotch anchor is 'bourbon'; a cocktail in results.uses is 'cocktails').\n" +
+  "detected_item.health_class classifies the snapped item itself, whatever its category: \"medication\" (any medicine or drug, prescription or over-the-counter: pain relievers, allergy, cold, flu and cough remedies, cough drops and lozenges, antacids, sleep aids, medicated creams and ointments), \"supplement\" (vitamins, minerals, probiotics, melatonin, any dietary supplement), \"skincare\" (creams, lotions, moisturizers, sunscreens, other skin products), \"other_health\" (any other health, medical, first-aid, wellness, cosmetic or personal-care product), or \"none\" (everything else: food, drink, wine, movies, books, household goods). If the item could be a health product, do not answer \"none\".\n" +
   "Return JSON only, in this exact shape:\n" +
-  "{ \"detected_item\": { \"name\": string, \"description\": string, \"category\": string }, \"mode\": \"similar\"|\"uses\"|\"alternatives\", \"results\": { \"similar\": [ { \"name\": string, \"description\": string, \"category\": string, \"rank\": number } ], \"uses\": [ ... ], \"alternatives\": [ ... ] } }\n" +
+  "{ \"detected_item\": { \"name\": string, \"description\": string, \"category\": string, \"health_class\": \"none\"|\"medication\"|\"supplement\"|\"skincare\"|\"other_health\" }, \"mode\": \"similar\"|\"uses\"|\"alternatives\", \"results\": { \"similar\": [ { \"name\": string, \"description\": string, \"category\": string, \"rank\": number } ], \"uses\": [ ... ], \"alternatives\": [ ... ] } }\n" +
   "\n" +
   "Hard rules for EVERY list (similar, uses, alternatives):\n" +
   "- Each list must contain EXACTLY 5 items, every time, no fewer.\n" +
@@ -1127,9 +1129,27 @@ export async function POST(req: Request) {
     // (backfill, chain, Show details, save, share, completion, public read,
     // client twins) sees a wall word whatever the model wrote, and the name
     // backstop can't be lost after this response.
-    const wallLabel =
-      healthLabel(rawAnchorCategory) ?? healthLabelFromName(detected.name);
-    if (wallLabel && !isHealthMedical(rawAnchorCategory)) {
+    // S2.8 — the model's fixed health_class is trusted over its free-text
+    // category; the stem wall and the name backstop stay as backstops.
+    const healthClass = cleanHealthClass(detected.health_class);
+    if (healthClass === null) {
+      console.warn("[health-class] missing or invalid — backstops only", {
+        got: typeof detected.health_class === "string" ? detected.health_class.slice(0, 40) : typeof detected.health_class,
+      });
+    }
+    const wallLabel = anchorWallLabel(healthClass, rawAnchorCategory, detected.name);
+    if (wallLabel && healthClass !== null && healthClass !== "none" && !isHealthMedical(rawAnchorCategory) && !healthLabelFromName(detected.name)) {
+      console.info("[health-wall] walled by health_class", {
+        rawCategory: rawAnchorCategory,
+        healthClass,
+        label: wallLabel,
+      });
+    } else if (wallLabel && healthClass === "none") {
+      console.warn("[health-wall] backstop walled a health_class=none anchor", {
+        rawCategory: rawAnchorCategory,
+        label: wallLabel,
+      });
+    } else if (wallLabel && !isHealthMedical(rawAnchorCategory) && healthLabelFromName(detected.name)) {
       console.info("[health-wall] walled by name", {
         rawCategory: rawAnchorCategory,
         label: wallLabel,

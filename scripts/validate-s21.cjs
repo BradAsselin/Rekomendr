@@ -364,6 +364,42 @@ const IMAGE = "data:image/jpeg;base64,AAAA";
   }
   delete process.env.MINT_SIGNING_SECRET;
 
+  out("\n11. S2.8: the server trusts health_class over the category; backstops hold");
+  const CASES = [
+    // [health_class, category, name, walled?, label, tripwire]
+    ["medication", "snacks", "Starburst", true, "Medication", "walled by health_class"],
+    ["medication", "skincare", "Cortizone-10", true, "Medication", null],
+    ["supplement", "health", "Centrum", true, "Supplements", null],
+    ["skincare", "health", "Nivea Creme", true, "Skincare", null],
+    ["other_health", "makeup", "Maybelline", true, "Beauty", null],
+    ["other_health", "gift set", "Bath bombs", true, "Health", "walled by health_class"],
+    ["none", "pain relief", "Tylenol", true, "Medication", "backstop walled a health_class=none anchor"],
+    ["none", "snacks", "Halls cough drop", true, "Medication", "backstop walled a health_class=none anchor"],
+    ["maybe", "pain relief", "Tylenol", true, "Medication", "[health-class] missing or invalid"],
+    ["none", "wine", "Sainte Magdeleine", false, null, null],
+    ["none", "movies", "Cold Mountain", false, null, null],
+    ["none", "ice cream", "Häagen-Dazs", false, null, null],
+  ];
+  for (const [hc, category, name, walled, label, wire] of CASES) {
+    logs = [];
+    ai.next = { ...visionAnswer(category, "similar"), detected_item: { name, description: "A model-written sentence about soothing relief.", category, health_class: hc } };
+    const r = await post({ image: IMAGE });
+    const tag = `class=${hc} cat=${JSON.stringify(category)} name=${JSON.stringify(name)}`;
+    const n = (r.json?.results?.similar?.length ?? 0) + (r.json?.results?.uses?.length ?? 0) + (r.json?.results?.alternatives?.length ?? 0);
+    if (walled) {
+      check(`${tag}: walled → ${label}`, [n, r.json?.detected_item?.description, r.json?.detected_item?.category], [0, label, label.toLowerCase()]);
+      check(`${tag}: model sentence absent`, JSON.stringify(r.json).includes("soothing relief"), false);
+    } else {
+      check(`${tag}: not walled`, [n > 0, r.json?.detected_item?.category], [true, category]);
+    }
+    if (wire) check(`${tag}: tripwire "${wire}"`, logged(wire), true);
+  }
+  check("class never sent to the client", JSON.stringify((await (async () => { ai.next = { ...visionAnswer("wine", "similar"), detected_item: { name: "x", description: "y", category: "wine", health_class: "none" } }; return post({ image: IMAGE }); })()).json).includes("health_class"), false);
+  const routeSrc = fs.readFileSync(path.join(ROOT, "app/api/reksnap/route.ts"), "utf8");
+  check("vision prompt shape carries health_class enum", routeSrc.includes('\\"health_class\\": \\"none\\"|\\"medication\\"|\\"supplement\\"|\\"skincare\\"|\\"other_health\\"'), true);
+  check("unit: cleanHealthClass rejects junk", [gates.cleanHealthClass("Medication "), gates.cleanHealthClass("maybe"), gates.cleanHealthClass(undefined)], ["medication", null, null]);
+  check("unit: class none never un-walls a stem hit", gates.anchorWallLabel("none", "antihistamine", "x"), "Medication");
+
   out(`\n${pass} passed, ${fail} failed.`);
   process.exit(fail ? 1 : 0);
 })().catch((err) => {
