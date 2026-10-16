@@ -104,3 +104,30 @@ export const asToken = (t: unknown): MintToken | undefined => {
     ? { sig: v.sig, issued_at: v.issued_at }
     : undefined;
 };
+
+// S7 — a search-lane card (movies / TV only, Brad's call B). The server
+// looks the title up on TMDb and signs TMDb's OWN title + synopsis; the
+// card carries that, never the rek's browser-parsed line.
+export async function tmdbCardSnapshot(
+  rek: { title: string; year?: number | null; category: "Movies" | "TV Shows" },
+  clientId: string,
+  post: PostJson
+): Promise<MintOutcome> {
+  const data = await post("/api/anchor", {
+    action: "card",
+    title: rek.title,
+    year: rek.year ?? null,
+    category: rek.category,
+    clientId,
+  }).catch(() => null);
+  const token = asToken(data?.token);
+  const item = data?.item;
+  if (!data?.ok || !token || typeof item?.name !== "string" || typeof item?.category !== "string" || typeof item?.short !== "string") {
+    return { id: null, reason: typeof data?.reason === "string" ? data.reason : "unreachable" };
+  }
+  return snapshotForShare({
+    item: { name: item.name, category: item.category, short: item.short, token, mode: "similar" },
+    clientId,
+    post,
+  });
+}
