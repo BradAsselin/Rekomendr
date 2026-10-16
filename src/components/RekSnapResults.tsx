@@ -13,7 +13,7 @@ import { recordSnapSignal, type SnapMode } from "../lib/reksnapSignals";
 import { compensatedCommit } from "../lib/scrollCompensation";
 import { getAnonymousClientId } from "../lib/userPrefs";
 import { isAIServiceError, readServiceFailure } from "../lib/aiServiceError";
-import { shareOrCopy } from "../lib/shareLink";
+import { asToken, postJson, snapshotForShare, type MintOutcome } from "../lib/shareSnapshot";
 import {
   TrailerVerb,
   WatchLine,
@@ -22,6 +22,7 @@ import {
   type WatchInfoView,
 } from "./MediaVerbs";
 import RekCard from "./RekCard";
+import ShareRow from "./ShareRow";
 import RekSkeleton, { RekSkeletonCard } from "./RekSkeleton";
 import RekTrail, { TrailRow } from "./RekTrail";
 
@@ -37,6 +38,9 @@ export type SnapRek = {
   // comparison line and `long` is TMDb's overview ("Show details").
   long?: string;
   year?: number | null;
+  // S6 — the server's attestation of THIS rek (name, category, short):
+  // what lets its Share mint a card. Absent → no Share on that card.
+  token?: AnchorToken;
 };
 
 // S2 — the server's HMAC attestation of the anchor (Ledger #19). Opaque to
@@ -60,6 +64,9 @@ export type SnapResult = {
   // guard dropped every rek the model offered. The anchor still ships;
   // this stands where the five cards would have been.
   notice?: string;
+  // S4b — client-only: the anchor arrived already saved (a shared card the
+  // person tapped Save on). The Save mark starts lit.
+  saved?: boolean;
   // S3.0 — present when the anchor is a TMDb-resolved movie/show (snapped
   // or typed): its official trailer and US watch providers.
   media?: {
@@ -108,11 +115,6 @@ type Props = {
 
 // One failure voice, shared verbatim with the search lane's AI misses.
 // Chain failures only; auto-dismissed on the next successful chain.
-// S2 — the one refusal voice for Share (decided copy, #19 Call 2): the
-// row stays private and the save stands. Plain voice, amber chrome — the
-// same card as the chain failure.
-const SHARE_REFUSED_MSG = "couldn't share this one — it's still saved";
-
 const CHAIN_FAILED_MSG =
   "Reks Ray couldn’t fetch fresh picks — give it another go.";
 
@@ -201,15 +203,6 @@ const RekSnapResults: React.FC<Props> = ({
     forResult: SnapResult;
     promise: Promise<string | null>;
   } | null>(null);
-  const [share, setShare] = useState<{
-    status: "idle" | "working" | "ready" | "refused";
-    url?: string;
-    // iOS refused the native sheet after the network wait — one more tap
-    // (a fresh gesture) opens it.
-    needsTap?: boolean;
-    // Shown when no sheet and no clipboard exist: the link, to copy by hand.
-    note?: string;
-  }>({ status: "idle" });
 
   // Guards late backfill responses from a previous snap result.
   const resultRef = useRef(result);
@@ -285,7 +278,7 @@ const RekSnapResults: React.FC<Props> = ({
       );
       setActiveMode(health ? "similar" : result.mode);
       setThumbSignals({});
-      setSavedNames({});
+      setSavedNames(result.saved ? { [result.detected_item.name]: true } : {});
       setTrail([]);
       setLists(
         health
@@ -322,7 +315,6 @@ const RekSnapResults: React.FC<Props> = ({
       setAnchorExpandSignaled(false);
       setAnchorLongToken(null);
       mintRef.current = null;
-      setShare({ status: "idle" });
       setOpenRek(null);
       setWatchOpen(false);
       setLateNotice(null);
@@ -613,84 +605,63 @@ const RekSnapResults: React.FC<Props> = ({
     }
   };
 
-  // Share: flip the saved snapshot public, then hand its URL to the share
-  // sheet. The URL is built HERE from the page's own origin, so a preview
-  // shares a preview link and production shares a production one.
-  // One-tap (S2.2): Share is on the anchor from the start. Tapped on an
-  // unsaved anchor it IS the save — the same handleSave a Save tap runs
-  // (mark, signal, mint) — and the flow below awaits that mint. Sharing
-  // something is keeping it, so the Save mark lights up with it.
-  const handleShareAnchor = async () => {
+  // S6 — Share never depends on Save (src/lib/shareSnapshot.ts). The
+  // anchor's snapshot: the Save tap's mint if it landed, else its own.
+  // The URL, flip, name and sheet live in ShareRow, shared with the reks.
+  const anchorSnapshot = async (): Promise<MintOutcome> => {
     const forResult = resultRef.current;
-    if (!forResult) return;
-    const anchorName = forResult.detected_item.name;
-
-    const send = async (url: string) => {
-      const outcome = await shareOrCopy({ title: anchorName, text: anchorName, url });
-      if (resultRef.current !== forResult) return;
-      if (outcome === "not_allowed") {
-        setShare({ status: "ready", url, needsTap: true });
-      } else if (outcome === "copied") {
-        setShare({ status: "ready", url, note: "Link copied!" });
-      } else if (outcome === "manual") {
-        setShare({ status: "ready", url, note: url });
-      } else {
-        setShare({ status: "ready", url });
-      }
-    };
-
-    if (share.status === "working") return;
-    if (!savedNames[anchorName]) handleSave(anchorName);
-
-    // Already public: a fresh gesture straight into the sheet.
-    if (share.status === "ready" && share.url) {
-      await send(share.url);
-      return;
+    const token = forResult?.detected_item_token;
+    if (!forResult || !token) return { id: null, reason: "no_token" };
+    const minted = await snapshotForShare({
+      item: {
+        name: forResult.detected_item.name,
+        category: forResult.detected_item.category,
+        short: forResult.detected_item.description,
+        token,
+        long: anchorLong,
+        longToken: anchorLongToken,
+        mode: activeMode,
+      },
+      clientId: getAnonymousClientId(),
+      post: postJson,
+      pending:
+        mintRef.current && mintRef.current.forResult === forResult
+          ? mintRef.current.promise
+          : null,
+    });
+    // Later taps (and a later Save) reuse this row, not a failed mint.
+    if (minted.id && resultRef.current === forResult) {
+      mintRef.current = { forResult, promise: Promise.resolve(minted.id) };
     }
-    setShare({ status: "working" });
+    return minted;
+  };
 
-    const pendingMint =
-      mintRef.current && mintRef.current.forResult === forResult
-        ? mintRef.current.promise
-        : mintAnchorSnapshot(forResult);
-    const id = await pendingMint;
-    if (resultRef.current !== forResult) return;
-    if (!id) {
-      setShare({ status: "refused" });
-      return;
-    }
-
-    try {
-      const clientId = getAnonymousClientId();
-      const res = await fetch("/api/share", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "share", clientId, id }),
-      });
-      const data = await res.json().catch(() => null);
-      if (resultRef.current !== forResult) return;
-      if (!res.ok || !data?.ok) {
-        console.warn("[share] refused", { reason: data?.reason ?? null });
-        setShare({ status: "refused" });
-        return;
-      }
-      // The lazy long tier (Q5(i)) runs in its own request so the share
-      // sheet never waits on a generation. keepalive lets it outlive a
-      // tab the user closes right after sending.
-      if (data.needsCompletion) {
-        void fetch("/api/share", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "complete", clientId, id }),
-          keepalive: true,
-        }).catch(() => {});
-      }
-      await send(`${window.location.origin}/a/${id}`);
-    } catch (err) {
-      console.warn("[share] request failed", err);
-      if (resultRef.current === forResult) setShare({ status: "refused" });
+  // One-tap (S2.2): sharing the anchor is keeping it, so the Save mark
+  // lights up with it — never a toggle-off of an existing save.
+  const markAnchorSaved = () => {
+    const forResult = resultRef.current;
+    if (forResult && !savedNames[forResult.detected_item.name]) {
+      handleSave(forResult.detected_item.name);
     }
   };
+
+  // S6 — a rek card's snapshot: minted from the rek's own attestation,
+  // short-only. Sharing a rek doesn't save it (the card would graduate to
+  // the trail mid-share); Save stays its own verdict.
+  const rekSnapshot = (rek: SnapRek, mode: SnapMode) => (): Promise<MintOutcome> =>
+    rek.token && rek.category
+      ? snapshotForShare({
+          item: {
+            name: rek.name,
+            category: rek.category,
+            short: rek.description,
+            token: rek.token,
+            mode,
+          },
+          clientId: getAnonymousClientId(),
+          post: postJson,
+        })
+      : Promise.resolve({ id: null, reason: "no_token" });
 
   // Thumbs-down on a ranked rek: record, dismiss with the exit animation,
   // then backfill the slot with a fresh single-card generation (text-only
@@ -817,6 +788,7 @@ const RekSnapResults: React.FC<Props> = ({
                 typeof rek.category === "string" && rek.category
                   ? rek.category
                   : undefined,
+              token: asToken(rek.token),
               rank: list.length + 1,
             },
           ],
@@ -992,7 +964,7 @@ const RekSnapResults: React.FC<Props> = ({
         .filter(
           (
             r: unknown
-          ): r is { name: string; description?: unknown; category?: unknown } =>
+          ): r is { name: string; description?: unknown; category?: unknown; token?: unknown } =>
             !!r &&
             typeof (r as { name?: unknown }).name === "string" &&
             !!(r as { name: string }).name.trim()
@@ -1005,6 +977,7 @@ const RekSnapResults: React.FC<Props> = ({
             typeof r.category === "string" && r.category
               ? r.category
               : undefined,
+          token: asToken(r.token),
           rank: i + 1,
         }));
       if (resultRef.current !== forResult) return; // new snap mid-flight
@@ -1306,6 +1279,16 @@ const RekSnapResults: React.FC<Props> = ({
   const anchorShareable =
     !anchorIsHealthMedical && !!result.detected_item_token;
   const anchorIsMedia = MEDIA_CATEGORIES.has(detectedCategory);
+  // S6 — Share on every rek card: only with the rek's own attestation
+  // (the server withholds it for anything health), and never under a
+  // health anchor (whose lists are empty anyway — the client twin).
+  const rekShare = (rek: SnapRek, mode: SnapMode) =>
+    !anchorIsHealthMedical && rek.token && rek.category ? (
+      <ShareRow
+        title={rek.name}
+        getSnapshot={rekSnapshot(rek, mode)}
+      />
+    ) : undefined;
   const anchorWatch = anchorIsMedia ? result.media?.watch ?? null : null;
   // TMDb-path media anchors offer Similar only; a row with one pill is not
   // a choice (the S2.1 precedent).
@@ -1489,33 +1472,17 @@ const RekSnapResults: React.FC<Props> = ({
             start (S2.2) whenever the server attests anchors (token
             present), and never for a health/medical anchor — the client
             twin of the server's walls. Tapping it on an unsaved anchor
-            saves it first: the snapshot is still the save. Plain text
-            button, right-aligned under the verdict cluster. */}
+            saves it too. S6: the row is ShareRow, the same one every rek
+            card carries; keyed per result so a new snap starts fresh. */}
         {anchorShareable && (
-          <div className="-mt-1 mb-2 flex items-center justify-end gap-3 px-1 text-sm">
-            {share.note && (
-              <span className="text-[13px] text-gray-400 sm:text-gray-500 select-all break-all">
-                {share.note}
-              </span>
-            )}
-            <button
-              type="button"
-              onClick={handleShareAnchor}
-              disabled={share.status === "working"}
-              className="font-medium text-blue-300 sm:text-[#1E3A8A] hover:underline disabled:opacity-60"
-            >
-              {share.status === "working"
-                ? "Sharing…"
-                : share.needsTap
-                ? "Send link"
-                : "Share"}
-            </button>
-          </div>
-        )}
-        {share.status === "refused" && (
-          <div className="bg-white border border-amber-300 rounded-2xl p-4 shadow-sm mb-3">
-            <div className="text-sm text-gray-800">{SHARE_REFUSED_MSG}</div>
-          </div>
+          <ShareRow
+            key={`${result.detected_item.name}|${result.detected_item_token?.issued_at ?? 0}`}
+            variant="anchor"
+            title={result.detected_item.name}
+            getSnapshot={anchorSnapshot}
+            onTap={markAnchorSaved}
+            showNameLink
+          />
         )}
 
         {/* THE TRAIL — the user's decided keeps, compact, directly under
@@ -1574,6 +1541,7 @@ const RekSnapResults: React.FC<Props> = ({
                     handleDislikeFromTrail(entry.rek.name, entry.rek.category)
                   }
                   onSave={() => handleSave(entry.rek.name, entry.rek.category)}
+                  shareSlot={rekShare(entry.rek, entry.mode)}
                   /* Media reks carry their verbs into the trail; recipe
                      push-through keeps its ORIGIN mode. RIGHT = chain. */
                   verbLeft={
@@ -1688,6 +1656,7 @@ const RekSnapResults: React.FC<Props> = ({
                 onThumbUp={() => toggleThumb(rek.name, "like", rek.category)}
                 onThumbDown={() => handleDislikeRek(rek)}
                 onSave={() => handleSave(rek.name, rek.category)}
+                shareSlot={rekShare(rek, activeMode)}
                 className={[
                   "transition-all duration-300 ease-out",
                   migrating === rek.name

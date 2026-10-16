@@ -564,11 +564,15 @@ const OTHER = "anon_harness_client_2";
     };
     const ok = await get(pub);
     check("shared → 200", ok.status, 200);
-    check("…og:image is absolute on THIS host", ok.html.includes(`content="https://preview.example/api/og/${pub}?v=1"`), true);
+    // S4: the image URL carries the design version and a key over what it
+    // shows (sender name, poster) — still absolute on THIS host.
+    check("…og:image is absolute on THIS host", ok.html.includes(`content="https://preview.example/api/og/${pub}?v=2&amp;k=`), true);
     check("…twitter card is the large image", ok.html.includes('content="summary_large_image"'), true);
     check("…noindex in the page", ok.html.includes('name="robots" content="noindex, nofollow"'), true);
     check("…CSP forbids scripts", /default-src 'none'/.test(ok.headers.get("content-security-policy") || ""), true);
-    check("…no <script> at all", /<script/i.test(ok.html), false);
+    // S4: exactly one script — same-origin /card.js (opens and taps for the
+    // test readout) — and never an inline one; the CSP enforces both.
+    check("…only the same-origin /card.js, no inline script", [(ok.html.match(/<script/gi) || []).length, /<script src="\/card\.js" defer data-card="/.test(ok.html), /script-src 'self';/.test(ok.headers.get("content-security-policy") || ""), /'unsafe-inline'[^;]*script|script-src[^;]*unsafe/.test(ok.headers.get("content-security-policy") || "")], [1, true, true, false]);
     for (const [label, id] of [["private", priv], ["revoked", rev], ["health", hp], ["malformed", "garbage"], ["nonexistent", crypto.randomUUID()]]) {
       const r = await get(id);
       check(`${label} → a REAL 404 with the one voice`, [r.status, r.html.includes("This rek isn&#39;t here anymore.")], [404, true]);

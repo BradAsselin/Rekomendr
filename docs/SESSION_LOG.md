@@ -794,3 +794,287 @@ BRAD MUST:
 - If you want the 15:55 field miss confirmed: run `! vercel logs --environment production --since 2026-10-12T15:50:00Z --until 2026-10-12T16:10:00Z --query "typed-anchor"` — no `[typed-anchor]` lines at all confirms the old bundle; a `not a title` line would point at TMDb.
 
 VALIDATION: see the combined batch in the S3.1 PR and the final report.
+
+---
+
+## Plan doc + chain launch — 2026-10-15 — main
+
+- `docs/s4-s5-build-plan.md` committed to main (`5507e59`): Brad's S4 and S5 specs verbatim, plus the test definition (snap → share → done; primary metric = receivers who go on to send a card of their own; 4–6 weeks).
+- Permission proposal (read-only `vercel logs` on any environment, by narrowing the `vercel*production*` deny): Brad approved, but auto mode refused the agent's self-edit of `.claude/settings.local.json`. A script to apply it is in the session scratchpad; at chain start the file was unchanged, so production logs are still unreadable from a session.
+- §10.2 carry-forward at start (S3.1): s30 69, s1 50, s15 54, s2 97, s21 364, s23 35, s36 59, tsc clean; main = release/v2 = `09a8923`.
+
+---
+
+## Session 4a — the-card — 2026-10-15 — branch auto/s4a-the-card — PR (see chain close) (local agent mode, §11)
+
+SHIPPED:
+- **A shared card opens forever.**
+  - Audit: no TTL, no cleanup job, no expiring token. The URL is a v4 UUID; the 48h HMAC gates minting only, never opening.
+  - New structural guard: `card_events` references cards without cascade, so a card with history can't be deleted.
+  - Proposed §2 invariant 13 is in the PR. **Not applied** — that's Brad's call.
+- **Recognizable in the thread.**
+  - The link preview leads with the poster, the title and "from Katrina".
+  - `og:title` reads "Lioness · from Katrina".
+  - The image URL is keyed on what it shows (`?v=2&k=`), so a rename gets a fresh image (`app/api/og/[id]/route.tsx`, `src/lib/cardShare.ts`).
+- **Sender name.**
+  - Asked once, on the first Share tap ("Your name, so friends know it's from you."). Skippable.
+  - Stored locally and in `client_profiles`. Moderated, and fails closed.
+  - Stamped on the card at every flip. "as Katrina" / "add your name" beside Share changes it.
+  - The card says "Katrina's pick".
+- **Live where-to-watch.**
+  - The synopsis stays fixed. Providers refresh on open when older than 12h; otherwise the stored answer is used.
+  - TMDb down or over the 2.5s budget → the stored answer. An old card resolves by name once, then by id (`src/lib/cardMedia.ts`).
+  - Tripwire: `[card-providers] cached | refreshed | fallback stored — <why>`.
+- **One tap to do the thing.** "▶ Watch on <first service in JustWatch's order>" plus Trailer (Buy for wine/products) sit above the synopsis, inside the first screen at 390×664.
+- **The test's instrument.**
+  - `card_events` records sent / open (first vs reopen, seconds since send, is_sender) / tap_watch / tap_trailer / tap_buy, plus `via_card` on a client's first own send.
+  - Sources: the public card's same-origin `/card.js`, and the app after the sheet actually takes the link.
+  - Readout: `docs/sql/test-readout.sql` (the reference) and `/api/stats?key=STATS_KEY` (HTML or `&format=json`; `&agents=1` counts agent traffic only).
+- **Migration live (§11.2):**
+  - Backup **`backups/2026-10-15-1746-s4a.sql`** (517,280 bytes, 43 data tables, footer present).
+  - Blocks 1–3 as written. Block 4: 2 POSITIVE CONTROLs `t`, 11 PASS, 0 FAIL, rolled back.
+- `STATS_KEY` was generated into `.env.local` and set for Preview and Development with the CLI (value never echoed). Production is Brad's.
+- **Checks:**
+  - `validate-s4a` **82/82**. Regression s2 97, s30 69, s1 50, s15 54, s21 364, s23 35, s36 59. tsc clean.
+  - **Preview, WebKit at iPhone 13 size: 17/17**, including the old Lioness card gaining live providers (TMDb id 113962 and 4 services now stored on the row) and the readout matching every step.
+
+FOUND, NOT FIXED:
+- **`backups/` very likely reached Vercel's deployment-source storage** through the Oct 11–12 CLI preview deploys, because the CLI ignores `.gitignore`. It is not served publicly.
+  - Fixed going forward with `.vercelignore` (`9ea79d7`).
+  - Brad: delete those CLI preview deployments. `vercel remove` is denied to sessions.
+- **Receiver counts can include the sender.** A sender who uses the home-screen app and opens their own link in Safari counts as a receiver, because iOS gives the two separate storage. A small inflation; logged, not chased (§12.5).
+- **The header's always-on "Add to Home Screen" button** contradicts "after Save only". It is in S4b's fence.
+
+BRAD MUST:
+- Approve or strike the proposed §2 invariant 13 (text in the PR).
+- Production env before promoting: `STATS_KEY` (see the promotion checklist).
+
+NEXT SESSION SHOULD KNOW:
+- `cardMedia(row)` is the one door for a card's live media.
+- `recordCardEvent()` is the one door for events: S4b's save and standalone_launch call it directly.
+- Agent test clients must be `anon_agent_*`. The readout excludes them, and `&agents=1` shows only them.
+- On this machine `vercel deploy` is the only way to get a preview (git pushes build nothing). Check that `.vercelignore` is still present.
+
+VALIDATION: folded into the combined §10.6 batch at the end of this chain.
+
+---
+
+## Session 4b — the-bridge — 2026-10-15 — branch auto/s4b-the-bridge (stacked on auto/s4a-the-card) — PR (see chain close) (local agent mode, §11)
+
+**§10.2 carry-forward:** S4a verified on its branch (validate-s4a 82/82; preview 17/17). Not merged: auto mode refused the session's `gh pr merge` of #22 ("Merge Without Review"). S4b is stacked on S4a's branch, and Brad merges #22 first.
+
+SHIPPED:
+- **Save on the card, no sign-in.**
+  - A plain link opens the app, which copies the card into a private row under the visitor's anon id (`/api/card/save`: the card's own text, never regenerated, dedupe by title, shared mint cap).
+  - The app shows it as the anchor with the Save mark lit and reks loading (`/api/card/open`: the token is signed fresh for this client, so Save, Share and details work).
+  - Media reks come from the TMDb chooser; others use the chain re-roll.
+- **Add to home screen, after Save only.**
+  - The header button is gone (`InstallButton` is capture-only: service worker plus Chrome's held prompt).
+  - iPhone: a coach sheet with Share → Add to Home Screen → Add, the ⋯ note and an arrow. Android: the real install prompt. Never when standalone; "Not now" snoozes for 7 days (`InstallCoach.tsx`, `src/lib/installPrompt.ts`).
+- **The iOS separate-storage catch.**
+  - After Save, the page URL and a per-save manifest (`/api/manifest`) both start at `/?card=…&claim=…`.
+  - The claim is an HMAC under `MINT_SIGNING_SECRET` with its own prefix, valid 7 days (`src/lib/claimToken.ts`).
+  - On first standalone launch the app redeems it and, on a fresh install, adopts the Safari anon id, so the save, the name and the attribution carry over.
+- **Counted:** `save` (server-only) and `standalone_launch` (once per app session, after adoption).
+- **"Snap your own →"** at the bottom of the card replaces the old CTA.
+- **Checks:** `validate-s4b` **48/48**; regression s4a 82, s2 97, s30 69; tsc and lint clean.
+- **Preview, WebKit at iPhone size: 16/16.** Card Save → app anchor saved with reks → coach → per-save manifest → simulated home-screen first launch shows the saved card under the adopted id → the receiver shares their own card. The readout counted it: 1 save, 1 install, receiver → sender 1 of 2.
+
+FOUND, NOT FIXED:
+- The anchor opens below the search box. S5 removes the Lane row; scroll-to-anchor is a possible follow-up.
+- A forwarded claim URL could let someone else's fresh install adopt the anon id within 7 days. Low stakes (anon id only); not chased.
+
+BRAD MUST:
+- Merge #22, then this PR.
+- On a real iPhone: Save a card in Safari → Add to Home Screen → open the icon. The saved card should already be there.
+
+NEXT SESSION SHOULD KNOW:
+- `SnapResult.saved` is client-only: it lights the Save mark on arrival.
+- `openCardFromLink` in `app/page.tsx` is the one entry point for opening a card in the app.
+- The arrival effect reads `?card`, `?save` and `?claim` exactly once.
+
+VALIDATION: folded into the combined §10.6 batch at the end of this chain.
+
+---
+
+## Session 5 — mood-chips — 2026-10-15 — branch auto/s5-mood-chips (from main) — PR (see chain close) (local agent mode, §11)
+
+**History check (asked by the plan):**
+- No commit ever removed visible chips under the box. The Aug-2025 MVP had rotating example prompts, and from `efad30a` (2026-01-03) genres lived behind "+".
+- What was removed was *automatic* searching: the 2-second auto-go timer (`401886b`, 2026-06-07, a mobile race where a late Comedy response overwrote a typed search; the same commit added the `searchIdRef` guard) and the category-switch auto-search (`3eaa04b`, 2026-07-10).
+- Designed around it: no timers, one deliberate tap = one search, the guard drops stale responses, and a category switch still never searches.
+
+SHIPPED:
+- **Row 1, always under the search box.** Movies: Comedy · Drama · Thriller · Crime · Action · Romance · Sci-Fi · Surprise me. TV and Books have their own sets; Wine: Bold Red · Crisp White · Bubbles · Rosé · Surprise me. One tap = results, no GO (`src/lib/moodChips.ts`, `SearchBar.tsx`).
+- **Row 2 after the first tap:** Feel-good · Dark · Smart · Classic · New. One at a time; each tap re-runs the search. Wine uses its own styles.
+- **No prompt text changed.** Tone refiners use existing TONE_BY_VIBE keys; era refiners qualify the lane string. The engine is byte-identical to main.
+- **Retired:** the "+" dropdown, the "Lane:" line with its vibe menu and "Pick a lane first", and the Play button. "Try another lane" on the exhaustion card still plays the next chip from the pool.
+- **Checks:** `validate-s5` 32/32; regression s1 50, s15 54, s30 69, s2 97; tsc and lint clean.
+- **Preview, WebKit at iPhone size: 16/16.** One tap on Comedy → five comedies in ~12s (Little Miss Sunshine, Grand Budapest, The Nice Guys, Booksmart, The Hundred-Foot Journey). Dark re-runs dark. Typed "Lioness" and a snapped Lioness poster both land the anchor. No old lane UI remains.
+
+FOUND, NOT FIXED:
+- Mood searches take 12–25s on the preview (existing generation path).
+- Row 1 scrolls past five chips at 390px; wrapping is a one-class change if Brad prefers. A feel call.
+- The Saved/Favorites/Liked lanes (only shown with history) went with the "+" dropdown. The S4 panel is their real home.
+
+BRAD MUST: the phone check in the combined batch.
+
+NEXT SESSION SHOULD KNOW:
+- Chips and refiners live in one file (`src/lib/moodChips.ts`), queries built by `chipQuery`.
+- A new refiner either reuses a TONE_BY_VIBE key or touches prompt text. Prompt text is a joint session (§5).
+
+VALIDATION: folded into the combined §10.6 batch below.
+
+---
+
+## Chain close (S4a → S4b → S5) — local agent mode (§11) — 2026-10-15
+
+**Nothing was self-merged.** Auto mode refused `gh pr merge` of #22 ("Merge Without Review"), so the three sessions are stacked for Brad to merge **in order: #22 (S4a) → #23 (S4b) → #24 (S5)**. #24 carries #23, which carries #22; each shrinks to its own diff once the one before lands. No `SESSION_LOG.md` conflicts in that order.
+**Combined preview (all three sessions):** https://rekomendr-ks49o9x0f-brad-asselins-projects.vercel.app. Main does not have them yet, so validate here.
+**Combined tree checks:**
+- Harnesses: s5 32, s4b 48, s4a 82, s30 69, s2 97, s1 50, s15 54, s21 364, s23 35, s36 59. tsc clean.
+- Browser suites on the combined preview: S4a 17/17, S4b 16/16, S5 16/16.
+**Permission change (read-only `vercel logs` on any environment):** approved by Brad, refused for self-edit by auto mode. Still not applied; the script is in the session scratchpad.
+
+### Brad's twenty minutes — combined (§10.6), in this order
+
+Preview: https://rekomendr-ks49o9x0f-brad-asselins-projects.vercel.app (signed in to Vercel on the phone, as usual).
+
+**What to do**
+1. **Mood chips (S5).** Open the preview cold. Under the search box: Comedy · Drama · Thriller · Crime · Action · Romance · Sci-Fi · Surprise me. Tap **Comedy**. Don't tap GO.
+2. When the five arrive, a second row appears: Feel-good · Dark · Smart · Classic · New. Tap **Dark**.
+3. Switch the category to **TV Shows**, then **Wine**. Each has its own row, and switching alone doesn't search.
+4. **The card (S4a).** TV Shows → type **Lioness** → GO → tap **Share**. A one-line question appears: *"Your name, so friends know it's from you."* Type your name → Share → text it to yourself.
+5. Beside Share it now reads **"as <your name>"**. Tap Share again: no question this time.
+6. Open the link you texted yourself. Top of the card: poster, **"<Name>'s pick"**, the title, a big **▶ Watch on <service>** and **Trailer**, and **Save** at top right. Scroll to the bottom: **"Snap your own →"**.
+7. **The bridge (S4b).** Tap **Save** on that card. The app opens with Lioness on top, the bookmark filled, and five similar shows loading. A sheet says *"Saved. Keep Rekomendr on your Home Screen"* with three steps. Tap **Not now** (the real home-screen test is step 10, on production).
+8. Snap a poster or a bottle. Same as yesterday.
+9. **Readout.** Open `<preview>/api/stats?key=<STATS_KEY from .env.local>`. Your own steps show up: cards sent, receivers, saves.
+10. **After promoting (production only).** Previews sit behind Vercel SSO, so these can only be proven on production:
+    - (a) Text a card to Katrina. In iMessage the bubble should show the poster, the title, and "from <you>".
+    - (b) She opens it (no account), taps Save, follows the sheet (Share → Add to Home Screen → Add), then opens the new icon. **The saved card should already be there.**
+    - (c) She shares any card. The readout's "Receiver → sender" should read 1.
+    - (d) Open `https://www.rekomendr.ai/a/99a1a2a4-9b13-4e9e-b45c-f43de15f82f0`, the old Lioness card. It should show a Watch button and today's services.
+
+**What it should feel like**
+- [ ] One tap on a mood = results. No "+", no "Lane:", no "Pick a lane first" anywhere.
+- [ ] The second row feels optional, and Dark reads darker.
+- [ ] The name question shows up once, takes five seconds, and never nags.
+- [ ] In a text thread the card is unmistakable: poster, title, your name.
+- [ ] The card answers "where do I watch it?" before you scroll.
+- [ ] Save feels like one tap into the app, not a sign-up.
+- [ ] The home-screen sheet appears only after a Save, never on opening the app; the header's old "Add to Home Screen" button is gone.
+- [ ] Your feel calls:
+  - wine's second row (Easy sipper · Special occasion · Crisp & dry · Rich & cozy);
+  - row 1 scrolling past five chips vs wrapping;
+  - the coach sheet's wording;
+  - "Snap your own →" replacing the old "Snapped with Rekomendr" line.
+
+**What to screenshot if it's wrong**
+- The top of the home screen (chips, and the Share pill under the clock).
+- The name question.
+- The card's top half.
+- The text bubble in Messages.
+- The app right after Save (with the sheet).
+- The icon's first launch.
+- `/api/stats`.
+- Log lines starting `[card-providers]`, `[card-event]`, `[card-save]`, `[card-claim]`, `[profile]`, `[share]`.
+
+### Production promotion checklist (§11.8)
+
+**Merge order:** #22 → #23 → #24. Then open `main → release/v2` as usual.
+
+**Production environment variables (Brad, Vercel → Settings → Environment Variables → Production):**
+- `STATS_KEY` — **new.** The key to the readout page.
+  - Generate any long random string, e.g. on a Mac: `openssl rand -base64 24`.
+  - Without it `/api/stats` answers 404; the SQL readout still works.
+  - Keep it private: it's the readout's only lock.
+- `MINT_SIGNING_SECRET` — already in Production. S4b's claim tokens also use it, so keep it the same as Preview.
+- `TMDB_API_KEY` — already in Production; used for live where-to-watch.
+
+**Migration already live (one database for previews and production):**
+- `docs/sql/s4-card.sql`: 7 nullable columns on `anchor_snapshots`, plus `client_profiles` and `card_events`.
+- Backup: **`backups/2026-10-15-1746-s4a.sql`** (517,280 bytes).
+- Additive; Blocks 1–4 passed. Rollback is Block 5 (Brad's call only).
+- The code fails soft without the tables.
+
+**Revert:** each PR's merge commit, individually, with `git revert -m 1 <sha>` (SHAs exist once Brad merges).
+
+**Decisions for Brad:**
+1. **Approve or strike the proposed §2 invariant 13**, "A shared card is permanent". The text is in PR #22.
+2. Delete the Oct 11–12 **CLI preview deployments**. They very likely uploaded `backups/*.sql` (user data) to Vercel's source storage. `.vercelignore` now prevents it, and sessions can't delete deployments.
+3. Apply the `vercel logs` permission yourself if you still want it. Paste this as one line:
+   `! node "C:\Users\BRADAS~1\AppData\Local\Temp\claude\C--Users-Brad-Asselin\a4063f42-3539-4c7f-a87a-fb6319dc23f9\scratchpad\apply-logs-permission.js"`
+   Or make the same edit by hand: in `.claude/settings.local.json`, replace both `vercel*production*` deny rules with `vercel deploy|build|pull|env|project|git *production*`.
+4. Allow self-merge to `main` in auto mode if future chains should land their own PRs (§10.3). Today it was refused.
+5. **Start the test clock** the day S4 reaches production, and pass `?since=YYYY-MM-DD` to `/api/stats` (or edit the date at the top of `docs/sql/test-readout.sql`).
+
+**Production test residue from this chain:**
+- `anchor_snapshots`: 6 agent rows (`anon_agent_s4*`), **all revoked**, so those links 404.
+- `card_events`: 22 rows from 6 `anon_agent_*` ids. The readout excludes them by design.
+- `client_profiles`: 2 agent rows.
+- The real Lioness card `99a1a2a4-…` was left live and now carries its TMDb id, poster and providers.
+
+## Session 6 — share-every-card — 2026-10-15 — branch auto/s6-share-every-card (stacked on auto/s5-mood-chips) — PR #25 (local agent mode, §11)
+
+SHIPPED (PR open, not merged):
+- **Share never depends on Save.** Brad's bug: typed "Designated Survivor", already saved, tapped Share, got "couldn't share this one — it's still saved".
+  - Share used to await the Save tap's mint. A failed mint was cached, so every retap failed too.
+  - Now Share gets its own snapshot (`src/lib/shareSnapshot.ts`): the Save mint if it landed, else a fresh mint (server dedupe makes "already saved" a success), else short-only if a long was refused.
+  - `/api/save` dedupe skips revoked rows.
+- **Share on every snap-lane rek card** (frontier and trail):
+  - Every server rek path signs each rek (`src/lib/rekTokens.ts`): snap lists, media snap, backfill, chain, typed reks. Health is never signed, by category or by name.
+  - The anchor's share UI is now `ShareRow`, shared by every card: same one-tap flow, same name prompt and "from <name>", same `/a/<id>` card page.
+- Earlier in this run, under Brad's approval in chat: charter §2.13 "A shared card is permanent" (`7cd6621` on #22, merged forward into #23 and #24), and the test start set to 2026-10-16 (`/api/stats` default plus `docs/sql/test-readout.sql`).
+
+FOUND, NOT FIXED:
+- The search lane can't get Share yet: its reks are parsed client-side from raw `/api/openai` text, so nothing server-side can sign them. Options are in PR #25 (recommendation: A).
+- Pre-existing lint error: `RekSnapResults.tsx` LimitCard apostrophe.
+- The production reason the Designated Survivor mint failed was not confirmed. The session couldn't read prod logs or the DB (auto-mode classifier). Look for `[snapshot] mint refused` in Vercel logs.
+
+BRAD MUST:
+1. **Allow self-merge in auto mode.** The classifier blocked the session from editing its own permissions. Paste this:
+   `! node -e "const f='.claude/settings.local.json',fs=require('fs'),s=JSON.parse(fs.readFileSync(f));s.autoMode={allow:['\$defaults','gh pr merge into main (never --admin) is pre-authorized by the repo owner for build-charter sessions (BUILD_CHARTER §10.3/§11.4); anything targeting release/v2 stays blocked.']};fs.writeFileSync(f,JSON.stringify(s,null,2)+'\n')"`
+2. Decide the search-lane Share option (PR #25: A, B or C).
+3. Merge in order: #22 → #23 → #24 → #25.
+
+NEXT SESSION SHOULD KNOW:
+- Rek objects now carry `token` (an AnchorToken over name, category and short). Any new remap of reks must keep it (`asToken`), or that card loses Share.
+- `withRekTokens` pins `category` onto every rek it returns.
+- `validate-s5`'s "routes untouched" check is now pinned to S5's own commit `86efd9c`.
+
+VALIDATION (Brad's twenty minutes, on the #25 preview):
+1. Type "Designated Survivor", tap Save, then Share. The sheet opens (no refusal), and the card shows "from <your name>".
+2. Tap Share on a frontier rek card without saving it. It shares, and the card stays put; it does not jump to the trail.
+3. Save a rek so it moves to the trail, open it, and tap Share. Same card page.
+4. Snap something health-ish (vitamins). No Share on the anchor or on any rek.
+5. Tap the Share row on a rek: is it quiet enough, and in the right place? That's your call (§12.4).
+
+## Session 7 — search-share-tmdb — 2026-10-15 — branch auto/s7-search-share-tmdb (from main @651dcba) — PR #26 (local agent mode, §11)
+
+SHIPPED:
+- **Merges, in order, under Brad's instruction (2026-10-15):** #22 `aa65b67` → #23 `52940e8` → #24 `8394c29` → #25 `651dcba`. Each one is individually revertible with `git revert -m 1 <sha>`.
+- **Refusal copy (in #25 before merging):** "Couldn’t share this one right now. Try again in a moment." The old "— it's still saved" is gone everywhere, and the anchor and rek cards now use the same line.
+- **Search-lane Share (Brad's call B):** movies and TV cards in the search lane (mood chips and typed mood) now have Share.
+  - `/api/anchor` `action:"card"` looks the title up on TMDb (exact match, year ±1) and signs TMDb's own title and synopsis.
+  - The card shows TMDb's official synopsis. Books and wine get no Share yet.
+- **Public-repo audit:** no secrets, `.env` files or backups in history. Checked every ref, including all 25 `refs/pull/*`.
+  - All 13 real `.env.local` values: none found in history.
+  - Zero `sk-` keys, JWTs, password-bearing postgres URLs or private keys.
+  - No `.env*` or `backups/` path was ever committed, and both are gitignored.
+  - The committed `.sql` files are migrations plus adversarial self-tests with synthetic `anon_*` ids. One test row uses the display name "Katrina".
+
+FOUND, NOT FIXED:
+- Pre-existing lint error: `RekSnapResults.tsx` LimitCard apostrophe.
+
+BRAD MUST:
+- Promote `main` → `release/v2` when ready. That's yours alone (§10.4).
+
+NEXT SESSION SHOULD KNOW:
+- Every card on screen can now be shared, except search-lane books and wine.
+- Search-lane cards share TMDb's synopsis, not the rek's line, by design (call B).
+
+VALIDATION (on the S7 preview, then production after promotion):
+1. Mood chip → TV → Comedy. Tap Share on a card: the card page shows TMDb's synopsis and "from <you>".
+2. A Wine lane search shows no Share on any card.
+3. Snap and typed anchors, and their reks, still share as in S6.

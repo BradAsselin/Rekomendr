@@ -46,6 +46,7 @@ Field validation is the only validation. Six wows on the ledger share one beat: 
 10. **The model is gpt-4o-mini + the tuned prompts.** No model swaps, no reasoning-tier models. Both flagship pilots were run and closed in August; `ANTHROPIC_API_KEY` in `.env.local` is dev-only and not to be used in product code.
 11. **Timeouts sit above the p99 of legitimate completions** — hang protection, never a latency SLA. Any timeout extension re-audits every response landing site (a request that lives longer arrives later).
 12. **Two-tier exclusion canon:** an uncapped drop-set at the single response site is the guarantee; the capped prompt avoid-list is pressure. Guarantees never truncate.
+13. **A shared card is permanent.** Once shared, a card's link opens forever: no TTL, no cleanup job, no expiring token, by policy. The snapshot text never changes; what may refresh is live, factual completion (where it streams today). Only two things can hide a card: its owner revoking it, and the health wall (§2.2). Any migration or job that would delete, expire or narrow shared cards needs Brad's explicit approval. The production domain keeps serving `/a/*` for as long as the product exists. *(Added 2026-10-15; approved by Brad in chat.)*
 
 ---
 

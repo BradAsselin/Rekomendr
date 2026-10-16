@@ -32,6 +32,7 @@ import { runEnvCheck } from "../../../src/lib/envCheck";
 import {
   FLIP_CAP_PER_DAY,
   cleanClientId,
+  cleanSenderName,
   cleanSnapshotId,
   getSnapshotStore,
   isHealthCategory,
@@ -65,7 +66,27 @@ type Row = Pick<
   | "long_description"
   | "shared_at"
   | "revoked_at"
+  | "sender_name"
 >;
+
+// The client's display name, or null (never set, or the profiles table
+// unreachable — a card without a name is fine; a failed share is not).
+async function loadSenderName(
+  store: NonNullable<Awaited<ReturnType<typeof getSnapshotStore>>>,
+  clientId: string
+): Promise<string | null> {
+  const { data, error } = await store
+    .from("client_profiles")
+    .select("display_name")
+    .eq("client_id", clientId)
+    .limit(1)
+    .maybeSingle();
+  if (error) {
+    console.warn("[share] sender name unreadable — sharing without it", { code: error.code });
+    return null;
+  }
+  return cleanSenderName((data as { display_name?: unknown } | null)?.display_name);
+}
 
 export async function POST(req: Request): Promise<Response> {
   let body: any = null;
@@ -86,7 +107,7 @@ export async function POST(req: Request): Promise<Response> {
   const loaded = await store
     .from("anchor_snapshots")
     .select(
-      "id, client_id, item_name, item_category, short_description, long_description, shared_at, revoked_at"
+      "id, client_id, item_name, item_category, short_description, long_description, shared_at, revoked_at, sender_name"
     )
     .eq("id", id)
     .limit(1)
@@ -116,8 +137,21 @@ export async function POST(req: Request): Promise<Response> {
     return Response.json({ ok: outcome === "completed" || outcome === "already_rich", outcome });
   }
 
+  // S4 — "from Katrina": the sender's name (client_profiles, already
+  // moderated when it was set) rides on the card. Read at every share tap,
+  // so a changed name reaches the next send of the same card too.
+  const senderName = await loadSenderName(store, clientId);
+
   // Idempotent: a second Share tap on an already-public row just answers.
   if (row.shared_at) {
+    if ((row.sender_name ?? null) !== senderName && senderName) {
+      const named = await store
+        .from("anchor_snapshots")
+        .update({ sender_name: senderName })
+        .eq("id", id)
+        .eq("client_id", clientId);
+      if (named.error) console.warn("[share] sender name not stored", { id, code: named.error.code });
+    }
     return Response.json({
       ok: true,
       id,
@@ -163,7 +197,10 @@ export async function POST(req: Request): Promise<Response> {
 
   const flipped = await store
     .from("anchor_snapshots")
-    .update({ shared_at: new Date().toISOString() })
+    .update({
+      shared_at: new Date().toISOString(),
+      ...(senderName ? { sender_name: senderName } : {}),
+    })
     .eq("id", id)
     .eq("client_id", clientId)
     .is("shared_at", null);
@@ -174,6 +211,10 @@ export async function POST(req: Request): Promise<Response> {
     });
   }
 
-  console.info("[share] flipped", { id, needsCompletion: !row.long_description });
+  console.info("[share] flipped", {
+    id,
+    needsCompletion: !row.long_description,
+    named: !!senderName,
+  });
   return Response.json({ ok: true, id, needsCompletion: !row.long_description });
 }

@@ -36,6 +36,7 @@ import {
   resolveSnappedTitle,
 } from "../../../src/lib/tmdbMedia";
 import { chooseMediaReks, raceTaste } from "../../../src/lib/mediaReks";
+import { withRekTokens } from "../../../src/lib/rekTokens";
 
 export const runtime = "nodejs";
 
@@ -385,7 +386,9 @@ async function handleBackfill(backfill: any): Promise<Response> {
     return Response.json({ rek: null, reason: "unresolved_title" }, { status: 200 });
   }
 
-  return Response.json({ rek: survivor }, { status: 200 });
+  // S6 — the rek's own attestation rides with it (Share on every card).
+  const [signed] = withRekTokens([survivor], clientId, rekCategory);
+  return Response.json({ rek: signed }, { status: 200 });
 }
 
 // ---------------------------------------------------------------------------
@@ -1015,7 +1018,11 @@ async function handleChain(chain: any): Promise<Response> {
     );
   }
 
-  return Response.json({ reks: verified }, { status: 200 });
+  // S6 — every rek carries its own attestation (Share on every card).
+  return Response.json(
+    { reks: withRekTokens(verified, clientId, chainedCategory || category || "") },
+    { status: 200 }
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -1166,7 +1173,8 @@ async function tryMediaSnap(
       },
       ...(token ? { detected_item_token: token } : {}),
       mode: "similar",
-      results: { similar, uses: [], alternatives: [] },
+      // S6 — every rek carries its own attestation (Share on every card).
+      results: { similar: withRekTokens(similar, clientId, category), uses: [], alternatives: [] },
       media: {
         kind: bundle.kind,
         id: bundle.id,
@@ -1545,7 +1553,12 @@ export async function POST(req: Request) {
         },
         ...(detectedItemToken ? { detected_item_token: detectedItemToken } : {}),
         mode,
-        results: cleaned,
+        // S6 — every rek carries its own attestation (Share on every card).
+        results: {
+          similar: withRekTokens(cleaned.similar, clientId, anchorCategory),
+          uses: withRekTokens(cleaned.uses, clientId, anchorCategory),
+          alternatives: withRekTokens(cleaned.alternatives, clientId, anchorCategory),
+        },
         // Present ONLY when the guard left nothing to show. The client
         // renders it in plain voice where the five cards would have been.
         ...(guardEmptiedAll ? { notice: NEW_TO_ME_NOTICE } : {}),

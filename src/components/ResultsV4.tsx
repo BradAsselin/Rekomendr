@@ -6,6 +6,8 @@ import { Play } from "lucide-react";
 import DescriptorLine from "./DescriptorLine";
 import { TrailerVerb, WhereToWatchVerb, titleInfoUrl } from "./MediaVerbs";
 import RekCard from "./RekCard";
+import ShareRow from "./ShareRow";
+import { postJson, tmdbCardSnapshot } from "../lib/shareSnapshot";
 import RekSkeleton, { RekSkeletonCard } from "./RekSkeleton";
 import RekTrail, { TrailRow } from "./RekTrail";
 import ShortlistStrip, { type ShortlistItem } from "./ShortlistStrip";
@@ -18,7 +20,7 @@ import { compensatedCommit } from "../lib/scrollCompensation";
 import { getBackfillRek, getMoreLikeThisSet } from "../engine/rekomendrEngine";
 import { isAIServiceError } from "../lib/aiServiceError";
 import type { Rek } from "../engine/rekomendrEngine";
-import { recordLike } from "../lib/userPrefs";
+import { getAnonymousClientId, recordLike } from "../lib/userPrefs";
 import { resurfacedMarker } from "../engine/rekomendrEngine";
 
 // Descriptor typing
@@ -569,6 +571,25 @@ const ResultsV4: React.FC<ResultsProps> = ({
   // gate as the snap anchor's verbs (categoryGates.ts), evaluated once:
   // the whole result set shares one category.
   const isMedia = MEDIA_CATEGORIES.has(category.toLowerCase());
+  // S7 — Share on search-lane cards (Brad's call B): movies and TV only,
+  // and the card carries TMDb's official synopsis (the server looks the
+  // title up and signs what TMDb returns). Books and wine: no Share yet.
+  const shareLane: "Movies" | "TV Shows" | null =
+    category === "Movies" || category === "TV Shows" ? category : null;
+  const shareFor = (rek: Rek) =>
+    shareLane ? (
+      <ShareRow
+        key={`${shareLane}|${rek.id}`}
+        title={rek.title}
+        getSnapshot={() =>
+          tmdbCardSnapshot(
+            { title: rek.title, year: rek.year, category: shareLane },
+            getAnonymousClientId(),
+            postJson
+          )
+        }
+      />
+    ) : undefined;
 
   // S1 — "Watched it". Media only: the charter's watched arc is the
   // can't-wait-to-watch arc, and the media-adjacent verb pairs (Listen /
@@ -697,6 +718,7 @@ const ResultsV4: React.FC<ResultsProps> = ({
                     onThumbUp={() => handleLike(rek)}
                     onThumbDown={() => handleDislikeFromTrail(rek)}
                     onSave={() => handleSave(rek)}
+                    shareSlot={shareFor(rek)}
                     /* Media verbs stay expansion-gated in this lane; RIGHT
                        stays empty — no chaining from the trail. */
                     verbLeft={
@@ -758,6 +780,7 @@ const ResultsV4: React.FC<ResultsProps> = ({
                 onThumbUp={() => handleLike(rek)}
                 onThumbDown={() => handleDislike(rek)}
                 onSave={() => handleSave(rek)}
+                shareSlot={shareFor(rek)}
                 /* Media verbs stay expansion-gated in this lane (logic
                    unchanged, position only); MLT is the RIGHT chain verb —
                    search lane only, where its plumbing lives. */

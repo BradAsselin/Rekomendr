@@ -19,10 +19,12 @@
 
 import { runEnvCheck } from "../../../src/lib/envCheck";
 import { signAnchor } from "../../../src/lib/mintToken";
+import { withRekTokens } from "../../../src/lib/rekTokens";
 import {
   loadMediaBundle,
   mediaCategoryFor,
   mediaConfigured,
+  resolveExactTitle,
   resolveTypedTitleChecked,
   type MediaKind,
 } from "../../../src/lib/tmdbMedia";
@@ -137,6 +139,53 @@ async function resolve(body: any): Promise<Response> {
   );
 }
 
+// S7 — Share on a search-lane card (Brad's call B, 2026-10-15): movies and
+// TV only, and the card carries TMDb's OFFICIAL synopsis, never the rek's
+// browser-parsed line. The search lane's reks are built client-side from
+// raw model text, so the server signs only what it fetched itself: TMDb's
+// title + overview for an exact title match (year ±1). /api/save then
+// mints it like any anchor. Books and wine get no Share yet.
+async function card(body: any): Promise<Response> {
+  const lane = typeof body?.category === "string" ? body.category.trim() : "";
+  const laneKind: MediaKind | null =
+    lane === "Movies" ? "movie" : lane === "TV Shows" ? "tv" : null;
+  const title = typeof body?.title === "string" ? body.title.trim().slice(0, 200) : "";
+  const year = Number.isInteger(body?.year) ? (body.year as number) : null;
+  const clientId = cleanClientId(body?.clientId);
+  if (!laneKind || !title || !clientId) {
+    return Response.json({ ok: false, reason: "bad_request" }, { status: 400 });
+  }
+  if (!mediaConfigured()) {
+    console.error("[search-card] TMDB_API_KEY missing — search-lane Share is off");
+    return Response.json({ ok: false, reason: "disabled" }, { status: 200 });
+  }
+  const capped = await capGate(clientId, "reksnap-text");
+  if (capped) return capped;
+
+  // The lane's kind first; a "TV Shows" lane that named a film (or the
+  // reverse) still resolves to the real title.
+  const other: MediaKind = laneKind === "movie" ? "tv" : "movie";
+  const hit =
+    (await resolveExactTitle(title, year, laneKind)) ??
+    (await resolveExactTitle(title, year, other));
+  if (!hit) {
+    console.info("[search-card] no exact TMDb title — no card", { lane: laneKind, year });
+    return Response.json({ ok: false, reason: "not_found" }, { status: 200 });
+  }
+  const short = (hit.overview ?? "").trim();
+  if (!short) {
+    console.info("[search-card] TMDb has no synopsis — no card", { id: hit.id, kind: hit.kind });
+    return Response.json({ ok: false, reason: "no_synopsis" }, { status: 200 });
+  }
+  const category = mediaCategoryFor(hit.kind);
+  const token = signAnchor({ name: hit.title, category, short, long: null, clientId });
+  if (!token) return Response.json({ ok: false, reason: "disabled" }, { status: 200 });
+  return Response.json(
+    { ok: true, item: { name: hit.title, category, short, year: hit.year }, token },
+    { status: 200 }
+  );
+}
+
 async function reks(body: any): Promise<Response> {
   const kind: MediaKind | null =
     body?.kind === "movie" || body?.kind === "tv" ? body.kind : null;
@@ -166,7 +215,10 @@ async function reks(body: any): Promise<Response> {
   });
   // Honest-short (§2.4): nothing real to offer → say so, never pad.
   return Response.json(
-    chosen.length > 0 ? { reks: chosen } : { reks: [], notice: NEW_TO_ME_NOTICE },
+    // S6 — every rek carries its own attestation (Share on every card).
+    chosen.length > 0
+      ? { reks: withRekTokens(chosen, clientId, mediaCategoryFor(kind)) }
+      : { reks: [], notice: NEW_TO_ME_NOTICE },
     { status: 200 }
   );
 }
@@ -175,6 +227,7 @@ export async function POST(req: Request): Promise<Response> {
   try {
     const body = await req.json().catch(() => ({}));
     if (body?.action === "resolve") return await resolve(body);
+    if (body?.action === "card") return await card(body);
     if (body?.action === "reks") {
       maybeSimulateOpenAIFailure();
       return await reks(body);
