@@ -209,7 +209,7 @@ seed(require.resolve("openai"), { __esModule: true, default: FakeOpenAI });
 const taste = { likes: [], signals: [], snapshot: null };
 function query(table) {
   const b = {
-    select() { return b; }, insert() { return b; }, eq() { return b; }, gt() { return b; },
+    select() { return b; }, insert() { return b; }, update() { return b; }, eq() { return b; }, gt() { return b; },
     gte() { return b; }, in() { return b; }, order() { return b; }, limit() { return b; },
     not() { return b; }, is() { return b; }, ilike() { return b; },
     maybeSingle() { return Promise.resolve({ data: table === "anchor_snapshots" ? taste.snapshot : null, error: null }); },
@@ -442,7 +442,9 @@ const chooserPicks = (nums, wildcard = null) => ({
   taste.snapshot = { ...taste.snapshot, item_name: "Sing Street", item_category: "movies" };
   const page2 = await sharePage.GET(new Request("http://local/a/x", { headers: { host: "local" } }), { params: { id: taste.snapshot.id } });
   const html2 = await page2.text();
-  check("page: TMDb down → still 200, neutral links, no provider block", [page2.status, html2.includes("Stream: "), html2.includes("where%20to%20watch")], [200, false, true]);
+  // S4: with TMDb down and nothing stored, the card has no provider block
+  // and the one action falls back to the trailer search (no Watch button).
+  check("page: TMDb down → still 200, trailer search, no provider block", [page2.status, html2.includes("Stream: "), html2.includes("youtube.com/results?search_query=Sing%20Street%20trailer"), html2.includes("Watch on")], [200, false, true, false]);
   tmdb.down = false;
 
   out(`\n${pass} passed, ${fail} failed.`);
