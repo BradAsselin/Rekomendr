@@ -37,6 +37,7 @@ import {
 } from "../../../src/lib/tmdbMedia";
 import { chooseMediaReks, raceTaste } from "../../../src/lib/mediaReks";
 import { withRekTokens } from "../../../src/lib/rekTokens";
+import { isWineCategory, stripPairingSentence } from "../../../src/lib/wineShelf";
 
 export const runtime = "nodejs";
 
@@ -1035,7 +1036,7 @@ async function handleChain(chain: any): Promise<Response> {
 // in POST's outer catch with every named-failure voice intact.
 // ---------------------------------------------------------------------------
 type VisionContent = (
-  | { type: "image_url"; image_url: { url: string } }
+  | { type: "image_url"; image_url: { url: string; detail?: "high" | "low" | "auto" } }
   | { type: "text"; text: string }
 )[];
 
@@ -1061,6 +1062,10 @@ async function startVisionStream(content: VisionContent) {
 
   let buf = "";
   let usage: { prompt_tokens?: number; completion_tokens?: number } | null = null;
+  // S8a — what the model said when a read fails: the finish reason and any
+  // refusal text ride the [snap-read-fail] line.
+  let finishReason: string | null = null;
+  let refusal = "";
   let stopped = false;
   let detectedSettled = false;
   let settle: (v: Record<string, unknown> | null) => void = () => {};
@@ -1076,7 +1081,11 @@ async function startVisionStream(content: VisionContent) {
   const consumed = (async () => {
     try {
       for await (const chunk of stream) {
-        buf += chunk.choices?.[0]?.delta?.content ?? "";
+        const choice = chunk.choices?.[0];
+        buf += choice?.delta?.content ?? "";
+        const r = (choice?.delta as { refusal?: string | null } | undefined)?.refusal;
+        if (typeof r === "string") refusal += r;
+        if (choice?.finish_reason) finishReason = choice.finish_reason;
         if (chunk.usage) usage = chunk.usage;
         if (!detectedSettled) {
           const d = extractCompleteObject(buf, "detected_item");
@@ -1102,7 +1111,7 @@ async function startVisionStream(content: VisionContent) {
       } catch (err) {
         if (!stopped) throw err;
       }
-      return { text: buf, usage };
+      return { text: buf, usage, finishReason, refusal };
     },
   };
 }
@@ -1222,6 +1231,14 @@ async function classifyTypedWine(raw: unknown): Promise<string | null> {
   }
 }
 
+// S8a — the dense-shelf retry's framing, and its last word.
+const stripsNote = (n: number) =>
+  `This is ONE photo, cut into ${n} horizontal strips shown top to bottom. ` +
+  "Neighbouring strips overlap slightly, so a bottle on a cut line can appear in two strips — it is one bottle. " +
+  "Read the strips together as the single photo.";
+
+const DENSE_SHELF_MSG = "That's a lot of bottles. Try one or two shelves.";
+
 export async function POST(req: Request) {
   try {
     // Dev/preview-only: REKOMENDR_SIMULATE_OPENAI_FAILURE throws the
@@ -1265,8 +1282,19 @@ export async function POST(req: Request) {
     const typed =
       body?.typed && typeof body.typed === "object" ? body.typed : null;
     const image = typeof body?.image === "string" ? body.image : "";
+    // S8a — the dense-shelf retry: the client cuts the ORIGINAL photo into
+    // horizontal strips (one per shelf) after a failed read and sends them
+    // here. Each strip reaches the model at roughly twice the resolution a
+    // whole photo gets (high detail scales the short side to 768px).
+    const strips: string[] = Array.isArray(body?.strips)
+      ? body.strips
+          .filter((s: unknown): s is string => typeof s === "string" && s.startsWith("data:image/"))
+          .slice(0, 4)
+      : [];
+    // The bar's category at snap time — a hint only (never a gate).
+    const wineHint = body?.category === "Wine";
 
-    if (!typed && !image.startsWith("data:image/")) {
+    if (!typed && !image.startsWith("data:image/") && strips.length === 0) {
       return Response.json({ error: "Missing image" }, { status: 400 });
     }
 
@@ -1286,6 +1314,8 @@ export async function POST(req: Request) {
 
     let text = "";
     let usage: { prompt_tokens?: number; completion_tokens?: number } | null = null;
+    let finishReason: string | null = null;
+    let refusal = "";
 
     if (typed) {
       const typedName = await classifyTypedWine(typed.text);
@@ -1310,14 +1340,45 @@ export async function POST(req: Request) {
       text = completion.choices?.[0]?.message?.content ?? "";
       usage = completion.usage ?? null;
       console.info("[typed-anchor] wine by name", { name: typedName });
+    } else if (strips.length > 0) {
+      // Not streamed and no media path: this only runs after a failed read,
+      // and a strip set is a shelf, not a poster.
+      const completion = await openai.chat.completions.create({
+        model: "gpt-4o",
+        temperature: 0.7,
+        max_tokens: 4000,
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: SYSTEM_PROMPT },
+          {
+            role: "user",
+            content: [
+              { type: "text", text: stripsNote(strips.length) },
+              ...strips.map((url) => ({
+                type: "image_url" as const,
+                image_url: { url, detail: "high" as const },
+              })),
+              ...(priorBlock ? [{ type: "text" as const, text: priorBlock }] : []),
+            ],
+          },
+        ],
+      });
+      const choice = completion.choices?.[0];
+      text = choice?.message?.content ?? "";
+      usage = completion.usage ?? null;
+      finishReason = choice?.finish_reason ?? null;
+      refusal = (choice?.message as { refusal?: string | null } | undefined)?.refusal ?? "";
+      console.info("[snap-strips] read", { strips: strips.length, chars: text.length });
     } else {
+      // S8a — detail "high" explicit (the default "auto" leaves the choice
+      // to the API; a shelf of labels needs every pixel it can get).
       const vision = await startVisionStream(
         priorBlock
           ? [
-              { type: "image_url", image_url: { url: image } },
+              { type: "image_url", image_url: { url: image, detail: "high" } },
               { type: "text", text: priorBlock },
             ]
-          : [{ type: "image_url", image_url: { url: image } }]
+          : [{ type: "image_url", image_url: { url: image, detail: "high" } }]
       );
       // S3.0 — a movie or TV snap takes the TMDb path the moment the
       // anchor is identified; the rest of the vision output is not needed.
@@ -1326,17 +1387,48 @@ export async function POST(req: Request) {
         const media = await tryMediaSnap(early, clientId, vision.stop);
         if (media) return media;
       }
-      ({ text, usage } = await vision.done());
+      ({ text, usage, finishReason, refusal } = await vision.done());
     }
 
     let parsed: any = null;
+    // S8a — every failed read names itself (what the model actually said),
+    // and a failed whole-photo read asks the client for strips once.
+    const readFailed = (why: string): Response => {
+      const readCategory =
+        typeof parsed?.detected_item?.category === "string"
+          ? parsed.detected_item.category
+          : null;
+      console.warn("[snap-read-fail]", {
+        why,
+        attempt: typed ? "typed" : strips.length > 0 ? "strips" : "photo",
+        finishReason,
+        refusal: refusal ? refusal.slice(0, 200) : null,
+        outputChars: text.length,
+        head: text.slice(0, 300),
+        readCategory,
+        wineHint,
+        imageKB: image ? Math.round((image.length * 3) / 4 / 1024) : null,
+        promptTokens: usage?.prompt_tokens ?? null,
+        completionTokens: usage?.completion_tokens ?? null,
+      });
+      if (!typed && strips.length === 0) {
+        return Response.json(
+          { error: "Could not read that photo.", retry: "strips" },
+          { status: 502 }
+        );
+      }
+      const bottles = !typed && (wineHint || isWineCategory(readCategory));
+      return Response.json(
+        bottles
+          ? { error: DENSE_SHELF_MSG, dense: true }
+          : { error: "Could not read that photo." },
+        { status: 502 }
+      );
+    };
     try {
       parsed = JSON.parse(text);
     } catch {
-      return Response.json(
-        { error: "Could not read that photo." },
-        { status: 502 }
-      );
+      return readFailed("unparseable");
     }
 
     const detected = parsed?.detected_item;
@@ -1348,10 +1440,7 @@ export async function POST(req: Request) {
       !results ||
       typeof results !== "object"
     ) {
-      return Response.json(
-        { error: "Could not read that photo." },
-        { status: 502 }
-      );
+      return readFailed("no_detected_item");
     }
 
     const normalize = (s: string) => s.trim().toLowerCase();
@@ -1429,10 +1518,7 @@ export async function POST(req: Request) {
       cleanedRaw.uses.length === 0 &&
       cleanedRaw.alternatives.length === 0
     ) {
-      return Response.json(
-        { error: "Could not read that photo." },
-        { status: 502 }
-      );
+      return readFailed("all_lists_empty");
     }
 
     // S1.5 — THE REAL-TITLE GUARD. This is the exact site of the field
@@ -1526,13 +1612,22 @@ export async function POST(req: Request) {
     // S2.5/S2.6: a health anchor's short is its category alone, built here —
     // the model's own sentence never leaves the server, and the token signs
     // the replacement, so no later path can carry the model's text.
+    const modelShort =
+      typeof detected.description === "string" ? detected.description : "";
+    // S8a — a wine anchor loses its pairing sentence ("Built for X, not
+    // Y"), Brad's voice decision. Cut HERE, before the token signs the
+    // short, so save, share and Show details all attest the cut text.
+    const anchorIsWine = !anchorIsHealthMedical && isWineCategory(anchorCategory);
     const shortText = anchorIsHealthMedical
       ? healthAnchorShort(anchorCategory)
-      : typeof detected.description === "string"
-        ? detected.description
-        : "";
+      : anchorIsWine
+        ? stripPairingSentence(modelShort)
+        : modelShort;
     if (anchorIsHealthMedical) {
       console.info("[health-wall] anchor short replaced", { anchorCategory });
+    }
+    if (anchorIsWine && shortText !== modelShort.trim()) {
+      console.info("[wine] pairing sentence cut", { anchor: detected.name });
     }
     const detectedItemToken = clientId
       ? signAnchor({

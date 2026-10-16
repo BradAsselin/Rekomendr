@@ -25,6 +25,13 @@ import RekCard from "./RekCard";
 import ShareRow from "./ShareRow";
 import RekSkeleton, { RekSkeletonCard } from "./RekSkeleton";
 import RekTrail, { TrailRow } from "./RekTrail";
+import QuietTip from "./QuietTip";
+import {
+  SHELF_TIP,
+  bottleImageUrl,
+  isWineCategory,
+  whereToBuyUrl as wineWhereToBuyUrl,
+} from "../lib/wineShelf";
 
 export type SnapRek = {
   name: string;
@@ -124,7 +131,7 @@ const LimitCard = () => (
     <div className="bg-white border border-blue-300 rounded-2xl p-4 shadow-sm text-center">
       <Camera size={20} className="inline-block text-[#2D5AB5] mb-1.5" />
       <p className="text-[15px] text-gray-800 leading-relaxed">
-        You've used your 5 free Reks this session — sign in to keep snapping.
+        You&apos;ve used your 5 free Reks this session — sign in to keep snapping.
       </p>
     </div>
   </div>
@@ -1279,6 +1286,19 @@ const RekSnapResults: React.FC<Props> = ({
   const anchorShareable =
     !anchorIsHealthMedical && !!result.detected_item_token;
   const anchorIsMedia = MEDIA_CATEGORIES.has(detectedCategory);
+  // S8a — a wine anchor: titles show the bottle (image search, new tab),
+  // and the anchor's verbs are the bottle and where to buy it instead of
+  // "View recipe" (the "Use it for" pairing cards keep theirs — food).
+  const anchorIsWine = !anchorIsHealthMedical && isWineCategory(detectedCategory);
+  // The title link for any card under this anchor: media → info page,
+  // wine → the bottle. A rek labeled with a non-wine category under a wine
+  // anchor (a cheese in "Use it for") keeps a plain title.
+  const titleLinkFor = (name: string, category?: string): string | undefined =>
+    anchorIsMedia
+      ? titleInfoUrl(name)
+      : anchorIsWine && isWineCategory(category ?? detectedCategory)
+        ? bottleImageUrl(name)
+        : undefined;
   // S6 — Share on every rek card: only with the rek's own attestation
   // (the server withholds it for anything health), and never under a
   // health anchor (whose lists are empty anyway — the client twin).
@@ -1302,6 +1322,29 @@ const RekSnapResults: React.FC<Props> = ({
   // "View recipe". Unknown now suppresses. Trail cards keep the
   // push-through of their ORIGIN mode.
   const usesGetRecipes = categoryGetsRecipe(detectedCategory);
+
+  // S8a — the wine anchor's two verbs. See the bottle (LEFT — learn) is
+  // the collapsed one; Where to buy (MIDDLE — complete) joins it expanded.
+  const seeBottleVerb = (
+    <a
+      href={bottleImageUrl(result.detected_item.name)}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="hover:underline"
+    >
+      See the bottle
+    </a>
+  );
+  const wineBuyVerb = (
+    <a
+      href={wineWhereToBuyUrl(result.detected_item.name)}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="hover:underline"
+    >
+      Where to buy
+    </a>
+  );
 
   /* Recipe open lives ONLY on this button (not the whole card) so it
      won't collide with the swipe-to-dismiss gesture (frontier) or the
@@ -1376,9 +1419,7 @@ const RekSnapResults: React.FC<Props> = ({
           }
           /* Media titles link out — same anchorIsMedia gate as the media
              verbs; expand stays reachable via "Show details". */
-          titleHref={
-            anchorIsMedia ? titleInfoUrl(result.detected_item.name) : undefined
-          }
+          titleHref={titleLinkFor(result.detected_item.name)}
           long={anchorIsHealthMedical ? undefined : anchorLong ?? undefined}
           expandable={!anchorIsHealthMedical}
           markerLine={anchorIsHealthMedical ? HEALTH_ANCHOR_LINE : undefined}
@@ -1427,6 +1468,8 @@ const RekSnapResults: React.FC<Props> = ({
                 name={result.detected_item.name}
                 href={result.media?.trailerUrl ?? undefined}
               />
+            ) : anchorIsWine ? (
+              seeBottleVerb
             ) : anchorOpen ? (
               showMeVerb
             ) : undefined
@@ -1446,6 +1489,8 @@ const RekSnapResults: React.FC<Props> = ({
                   <WhereToWatchVerb name={result.detected_item.name} />
                 )
               ) : undefined
+            ) : anchorIsWine ? (
+              anchorOpen ? wineBuyVerb : undefined
             ) : usesGetRecipes ? (
               recipeButton(result.detected_item.name)
             ) : anchorOpen ? (
@@ -1499,9 +1544,7 @@ const RekSnapResults: React.FC<Props> = ({
                 hint={entry.rek.description}
                 thumbed={thumbSignals[entry.rek.name] === "like"}
                 saved={!!savedNames[entry.rek.name]}
-                titleHref={
-                  anchorIsMedia ? titleInfoUrl(entry.rek.name) : undefined
-                }
+                titleHref={titleLinkFor(entry.rek.name, entry.rek.category)}
                 trailing={
                   /* Compact chain affordance — a trail chain is double-
                      weighted (verdict + pursuit). Health/medical: none. */
@@ -1529,9 +1572,7 @@ const RekSnapResults: React.FC<Props> = ({
                       cur === entry.rek.name ? null : entry.rek.name
                     )
                   }
-                  titleHref={
-                    anchorIsMedia ? titleInfoUrl(entry.rek.name) : undefined
-                  }
+                  titleHref={titleLinkFor(entry.rek.name, entry.rek.category)}
                   thumbSignal={thumbSignals[entry.rek.name] ?? null}
                   saved={!!savedNames[entry.rek.name]}
                   onThumbUp={() =>
@@ -1645,7 +1686,7 @@ const RekSnapResults: React.FC<Props> = ({
                 onToggleDetails={() =>
                   setOpenRek((cur) => (cur === rek.name ? null : rek.name))
                 }
-                titleHref={anchorIsMedia ? titleInfoUrl(rek.name) : undefined}
+                titleHref={titleLinkFor(rek.name, rek.category)}
                 // Swipe grammar (touch only): a committed swipe in either
                 // direction dismisses + backfills (thumbs-down). Liked or
                 // saved cards don't arm. The anchor card above never gets
@@ -1719,6 +1760,11 @@ const RekSnapResults: React.FC<Props> = ({
           <Camera size={16} />
           Snap another
         </button>
+      )}
+      {/* S8a — the shelf shot, taught where the next snap starts. Shares
+          its count (3) and its × with the camera screen's line. */}
+      {!limitReached && anchorIsWine && (
+        <QuietTip storageKey="shelf-shot" text={SHELF_TIP} className="mt-3 max-w-xs px-2" />
       )}
     </div>
   );
