@@ -1078,3 +1078,200 @@ VALIDATION (on the S7 preview, then production after promotion):
 1. Mood chip → TV → Comedy. Tap Share on a card: the card page shows TMDb's synopsis and "from <you>".
 2. A Wine lane search shows no Share on any card.
 3. Snap and typed anchors, and their reks, still share as in S6.
+
+## Session 8 — wine-shelf (S8a + S8b + S8c) — 2026-10-16 — branches auto/s8a-wine-quick-fixes, auto/s8b-wine-shelf, auto/s8c-checkout-haul — PRs #28, #29, #30 (local agent mode, §11)
+
+Run on Brad's instruction for the evening: "make the reasonable call on anything ambiguous, log each call in the session log, and keep going. Merge to main when green; never release/v2 or production." Plan written first, at `docs/s8-wine-shelf-plan.md`.
+
+**Merges (self-merged under that instruction, §10.3):**
+- #28 S8a: `3239ba1`
+- #29 S8b: `f7c7cf1`
+- #30 S8c: merged after this entry was written. Its SHA is the merge commit of PR #30 on main.
+
+Each one reverts on its own with `git revert -m 1 <sha>`.
+
+FIELD RESULTS (Brad and Katrina, production, red and white wine shelves, before S8):
+- Katrina's shelf shot led straight to a purchase (Cannonball). It was the **first snap-to-cart conversion**.
+- White Sauvignon Blanc shelf: a two-shelf shot gave all-on-shelf reks. A three-shelf shot (~40 bottles) failed with "Reks Ray couldn't read that photo".
+- Final haul: Bonanza, La Marca Prosecco, Cannonball, Wairau River, Dashwood.
+
+SHIPPED:
+
+**S8a — quick fixes (#28)**
+- **No more pairing sentence on wine anchors.** The "Built for a grilled steak dinner, not a light salad" mold is cut server-side before the token signs the text, so save, share and Show details all carry the cut version. This was Brad's authorized voice decision; the vision prompt is byte-identical.
+  - `stripPairingSentence` in `src/lib/wineShelf.ts`.
+  - `validate-s8a` fails if the pattern returns. It runs 8 field strings and 840 generated "Built for X, not Y" variants (0 survive).
+- **Wine names show the bottle.** Tapping a wine title (anchor or rek, frontier or trail) opens a Google Images search for "<name> bottle" in a new tab.
+- **Wine anchor verbs.** "View recipe" is gone from wine anchors.
+  - Collapsed, the card shows **See the bottle**.
+  - Expanded, it shows See the bottle · **Where to buy** (exact-bottle search) · + More like this.
+  - On a shelf snap, the middle verb shows the shelf price instead ("$12.49 here").
+  - Food keeps View recipe, and so do the pairing dishes under "Use it for".
+- **Shelf tip.** "Tip: snap one or two shelves to compare bottles" shows on the camera screen and under Snap another on a wine result. One line, ×-dismissible, at most 3 shows.
+- **Dense shelves: diagnosis.**
+  - Snaps were uploaded at 1280px. OpenAI's high-detail pipeline scales a photo's short side to 768px, so 40 labels reach the model at about 19px each.
+  - Every failed read now logs `[snap-read-fail]` with the reason, finish_reason, refusal and the first 300 characters of the model's output.
+- **Dense shelves: fix, in Brad's order.**
+  - (a) Uploads at 2048px, `detail: "high"` explicit.
+  - (b) A failed whole-photo read retries once as 3 overlapping horizontal strips (about 2× the resolution per label).
+  - (c) If the strips fail too on a wine shelf: "That's a lot of bottles. Try one or two shelves."
+- **Category reset, diagnosed.** A snap never touched the bar, so a snap taken from the Movies bar left "Movies" on the error screen. Nothing reset anything. Now a successful snap moves the bar (a wine snap goes to Wine). A failed snap leaves the bar alone.
+
+**S8b — the shelf engine (#29)**
+- **Shelf read.** A vision call (`src/lib/wineReks.ts`) runs beside the existing streamed read. It returns:
+  - the scene: single, shelf, haul or other;
+  - each readable bottle;
+  - its **tag price**, only when the digits are legible;
+  - **shelf talkers**, only when a score is printed (80–100 kept);
+  - **staff-pick signs**.
+- **Never invented:** a rek that isn't on the shelf has no score field at all. A score card is never a bottle (field case: "92 Points").
+- **Price targeting.**
+  - The anchor's price is its tag if one was read, otherwise the model's typical retail ("about $X").
+  - Reks stay within **±35%** ($23 → $15–31).
+  - Chips: **Under $20 · $20–35 · $35–60 · Splurge** ($60+), with the mood chips' bubble style. One tap re-runs; tap the lit chip to clear.
+  - Every wine card shows "$17.99 on this shelf", "about $22", or "about $22 · not on this shelf".
+- **No repeats.**
+  - The visit's shown and rejected names (sessionStorage) ride every wine call.
+  - The server drops repeats at the response site, uncapped (§2.12).
+  - Every wine this person ever thumbed down is dropped **by producer**: no Decoy, ever.
+- **Shelf first.**
+  - Visible bottles rank first. Whether a bottle is on the shelf is decided by matching names against the read, never by the model's say-so.
+  - After them come widely distributed bottles of the same grape or region, at a similar price, that a typical grocery or big-box store carries.
+  - A single-bottle snap favors those widely available labels.
+  - **Replacements** (thumbs-down) and **More like this** must use any in-range shelf bottle left before going off-shelf. Once the shelf runs out, cards say "not on this shelf".
+- **Taste bars.** Dry↔Sweet and Light↔Bold, 5 positions, labeled "approx.". The go-to shows as a hollow amber ring on the same bars.
+- **Starred go-to.**
+  - A star on wine cards, separate from Save. It is stored per anon id in the new `wine_marks` table, through `/api/wine`, with a localStorage mirror.
+  - Each rek then leads with "vs. your Caymus Bonanza: drier, less vanilla, similar body."
+  - When the go-to is on the shelf: "Your Caymus Bonanza is here, $16.99."
+- **Single-bottle wine snap:** one quiet line, "Snap the whole shelf next time to compare the bottles side by side." Dismissible, at most 3 shows.
+
+**S8c — the haul (#30)**
+- **Detection.** A photo of bottles in a cart, basket, bag or on a checkout belt reads as a haul, and no picks are generated.
+  - It shows "You bought: …" as a list. Tap a name to correct it, × removes it, then "Yes, save them" or "Not a purchase".
+  - After a snap that read 2–8 bottles there is also a quiet **"I bought these"** link.
+- **Bought.** Each bottle becomes a `wine_marks` row (kind `bought`, a haul id, the date). The home screen has a "Wine you bought (n)" list.
+- **Closing the loop.** On the first open a day or more later, one quiet card: "How was the Cannonball? 👍 / 👎 / ⭐ new go-to · ×".
+  - One bottle per open, oldest first. Shown counts as asked, so a bottle is never asked about twice.
+  - 👍/👎 write the ordinary like/dislike signal (a 👎 keeps that producer out of reks). ⭐ makes it the go-to.
+  - No push notifications.
+- **Rek → purchase.** Every wine rek shown is remembered locally for 14 days with its anchor, so a bought bottle links back ("Cannonball ← the shelf shot of Josh Cellars").
+- **`/api/stats`** gains: wine hauls confirmed, bottles bought, **snap-to-cart (bought from a rek)**, people who bought, and "How was it?" answered. Agent traffic is excluded.
+- **"Our haul today"** can be shared like any card. The server signs it, and it is moderated at share time.
+
+MIGRATION (§11.2, executed):
+- `docs/sql/s8-wine-marks.sql`: one additive table. RLS on, zero client policies, anon/authenticated revoked.
+- Backup: **`backups/2026-10-16-1745-s8.sql`** (617,964 bytes).
+- Block 1 discovery: NULL as expected. Block 2 migration: as expected.
+- Block 3 readback: as expected, except `service_role` holds every privilege through Supabase default privileges, not just the three granted. My EXPECTED line was wrong, not the table; the file now says so.
+- Block 4: both positive controls pass, plus 10 refusals.
+
+CALLS I MADE (Brad was away; each is reversible):
+1. **Merging prompt-touching PRs.** §10.4 says those PRs never self-merge. I read Brad's chat instruction ("Merge to main when green") as overriding it for S8.
+   - The only voice change is the authorized deletion.
+   - The new prompts reuse `DIFFERENTIATOR_VOICE` verbatim and add task framing plus the data fields Brad specified (price, taste, "vs. your X").
+2. **How the pairing sentence goes:** a deterministic server-side cut, not a prompt ban. A cut is testable at zero, and a ban is also a mention (the prompt-tuning law). Sentence 1 is never touched.
+3. **"View recipe"** stays on the "Use it for" pairing cards under a wine (those are food). It is gone only from the wine anchor.
+4. **Tips:**
+   - "Tip: snap one or two shelves to compare bottles" (camera screen, plus under Snap another on wine).
+   - "Snap the whole shelf next time to compare the bottles side by side." (after a single-bottle snap).
+   - Plain voice; ×; at most 3 shows each.
+5. **Dense-shelf retry** fires only on a failed read, so successful snaps pay nothing. The "lot of bottles" message shows only when the bar is on Wine or the read said wine; anything else gets the old read failure.
+6. **Price bands.**
+   - Splurge = $60 and up.
+   - Estimated prices get ±8% slack at the response site; tag prices get none.
+   - Without a tag, the model estimates the anchor's typical retail and the band follows its estimate.
+   - A price settled in the first response stays fixed across that snap's re-runs.
+7. **"Visit"** = the browser session (sessionStorage). The wordmark's home reset keeps it; a new session starts clean.
+8. **Dislikes never return, by producer, with no time window.** Brad's "e.g. Decoy" reads as the brand: one 👎 on any Decoy keeps all Decoys out. The read is raced at 1.5s; a timeout is logged, and the visit list still holds.
+9. **Never a rek:** the anchor and the starred go-to.
+10. **What counts as a shelf snap:** the read says "shelf" with ≥2 bottles, or ≥4 bottles were read.
+11. **A starred rek doesn't keep its description.** A rek's line is written relative to another bottle, so only an anchor's description is stored with the star.
+12. **The go-to's short name** drops trailing grape words ("Caymus Bonanza Cabernet Sauvignon" → "Caymus Bonanza"). The product can't know you call it "Bonanza".
+13. **"I bought these"** shows only when 2–8 bottles were read. A whole aisle isn't a purchase.
+14. **Follow-up:** one bottle per open, shown counts as asked, home screen only (never over a result). ⭐ also counts as a like.
+15. **Bought bottles don't yet steer reks** (not asked for). They are the strongest signal on file for a later pass.
+16. **No `api_usage` cap on `/api/wine`.** It makes no OpenAI call, and every write is one bounded row.
+17. **Model:** the wine calls use `gpt-4o`, the model the snap route already uses. No model change.
+
+FOUND, NOT FIXED:
+- **The three-shelf field failure was not reproduced.** I tried a 3-shelf sparkling aisle from Wikimedia Commons, whole and in strips: it read vaguely ("sparkling wine", generic reks) rather than failing.
+  - The new `[snap-read-fail]` line will name the field case next time; look for it in Vercel logs.
+  - **For the model pilot:** a vision model that resolves more labels per pixel is the real fix for dense aisles. The strips are a workaround.
+- **Set mode can skip in-range shelf bottles of the other color.** On a red anchor, one first set went off-shelf while white shelf bottles remained (the model judged them a poor fit). Replacements and More like this are strict about the shelf; first sets are not.
+- **Splurge sometimes returns 3 cards, not 5.** The model's estimates cluster at exactly $60. That is honest-short, never padded.
+- `wine_marks` does not follow `/api/auth/merge`. It is per anon id, as asked; the merge route needs one more table.
+- **A wine snap now takes about 10–12s.** The shelf read and the picks run beside the vision stream. Measured on preview: 9.5–10.1s per shelf snap.
+- I put Brad's email address in a User-Agent header on two Wikimedia Commons API searches while looking for test photos. It was a slip, not repeated; every later request used a generic agent string.
+
+TEST RESIDUE (one database, shared by previews and production):
+- `wine_marks`: 11 agent `bought` rows and 2 agent `favorite` rows (`anon_agent_s8*`). One haul was backdated two days to test the follow-up.
+- `reksnap_signals`: 1 agent dislike.
+- `api_usage`: agent rows that age out.
+- `/api/stats` excludes all of it.
+
+BRAD MUST:
+- Promote `main` → `release/v2` when the phone checklist passes. That's yours alone (§10.4).
+- No new environment variables. The migration is already live (shared database).
+
+NEXT SESSION SHOULD KNOW:
+- **One code path for wine reks.** Every wine Similar list (first set, chip, replacement, More like this, re-roll) goes through `runWineSet` → `finishWineReks`. Guarantees live there, not in the prompt.
+- Wine reks carry `rek.wine` (price, priceSource, onShelf, offShelf, talker, staffPick, dry, body, vsFavorite). Any remap must keep it, like `token`.
+- The snap request body carries `wineVisit` (seen/rejected/favorite). The text branch is `body.wine` (needs `clientId` inside it, like the other text branches).
+- Prior harnesses all pass. s6's source fence now expects 7 `withRekTokens(` route sites.
+- Fixtures from this run (Kingstowne Giant end cap with tags and "90 POINTS" talkers; an Alsace shelf; a dense sparkling aisle) and the live runners (`accept.cjs`, `ui.cjs`, `ui-haul.cjs`) are in the session scratchpad. They are not committed: the photos are Commons CC images, re-downloadable.
+
+VALIDATION:
+
+Checks run this session:
+- Harnesses: validate-s8a 39/39, s8b 44/44, s8c 20/20, plus every earlier harness green (s1 50, s15 54, s2 97, s21 364, s23 35, s30 69, s36 59, s4a 82, s4b 48, s5 32, s6 36, s7 21). tsc and lint clean.
+- Live on the S8b preview (`accept.cjs`): three snaps of one shelf gave 15/15 different reks. Splurge came back at $60–75; Under $20 at ≤ $19.99; a typed Meiomi (~$20–23) at $15–27. The go-to on the shelf was flagged at $12.99, and every rek carried a vs-line.
+- Playwright at 390×844 on local dev: wine result, chips, star, go-to lead line, haul confirm (× / correct / save / share), Bought list, follow-up (asked once, ⭐ → go-to). All pass.
+
+### Brad's twenty minutes — the phone checklist (all of S8, on production after promotion, or the main preview first)
+
+**What to do**
+1. **Red shelf, two shelves.** Put the bar on Wine. Snap two shelves of Cabs with tags visible.
+   - The anchor has **no "Built for…" sentence**.
+   - Cards say "**$X.XX on this shelf**". Shelf bottles come first.
+   - Any talker shows ("90 pts, Wine Enthusiast (on shelf)").
+   - Tapping a name shows the bottle.
+2. **Price chips.** Tap **Splurge**: the prices jump. Tap it again: back to "Near the price of this bottle: $A–$B".
+3. **No repeats.** Snap the neighboring Cab, then a third. Across the three snaps, no title repeats (15 different).
+4. **Shelf replacements.** Thumbs-down a shelf card: its replacement is another bottle from the photo, until the shelf runs out ("not on this shelf"). Thumbs-down a Decoy once; it never comes back.
+5. **Go-to.** Star your Bonanza (snap it, star the anchor). Snap a shelf with Bonanza on it.
+   - "**Your Caymus Bonanza is here, $16.99**".
+   - Every card leads with "vs. your Caymus Bonanza: …".
+   - The amber ring sits on the taste bars.
+6. **White shelf, two shelves**, then **three shelves.**
+   - Two shelves should work like step 1.
+   - Three: either it reads (possibly after the silent strip retry, a few extra seconds) or it says "That's a lot of bottles. Try one or two shelves." Never "couldn't read" for a wine shelf.
+7. **Single bottle at home.** Snap one bottle. You get the quiet "Snap the whole shelf next time…" line, and See the bottle / Where to buy (expanded) instead of View recipe.
+8. **Checkout snap.** At the register, or with the cart, snap the haul.
+   - You get "**You bought: …**". Fix one name, × one, then "Yes, save them". Optionally Share "Our haul today".
+   - Home shows "Wine you bought (n)".
+9. **Tomorrow.** Open the app. One "**How was the Cannonball?**" Answer it. Reopen: a different bottle, never the same one twice.
+10. **Readout:** `/api/stats?key=<STATS_KEY>` shows hauls, bottles bought, and **Snap-to-cart**.
+
+**What it should feel like**
+- [ ] The shelf reads like a friend who can see the tags: real prices, shelf bottles first.
+- [ ] Price chips feel like the mood chips: one tap, results.
+- [ ] Nothing repeats; Decoy stays gone.
+- [ ] The go-to comparison is the first thing you read, and it's short.
+- [ ] The taste bars read in a glance and don't look like anyone else's app.
+- [ ] The haul list takes five seconds; the next-day question takes one tap and never nags.
+- [ ] Your feel calls (§12.4):
+  - the "Near the price of this bottle" line;
+  - star placement (left of Save);
+  - "I bought these" wording;
+  - "Caymus Bonanza" vs. "Bonanza" in the lead.
+
+**What to screenshot if it's wrong:** the top of any wine result (anchor + chips), a card with a wrong or invented price or score, a repeat, the three-shelf result or message, the haul list, the follow-up card, and `/api/stats`.
+
+**Log lines:** `[wine] shelf read`, `[wine] picks`, `[wine] short set`, `[snap-read-fail]`, `[snap-strips]`, `[wine-marks]`.
+
+### Production promotion steps (§11.8)
+1. Brad opens the PR `main → release/v2` and merges it after the checklist passes on the main preview.
+2. **Environment variables:** nothing new.
+3. **Migration:** already live (shared database). `wine_marks`, backup `backups/2026-10-16-1745-s8.sql`. Rollback is Block 5 of `docs/sql/s8-wine-marks.sql` (Brad's call only). The code fails soft without the table: `[wine-marks] … migration_pending`.
+4. **Revert SHAs:** #28 `3239ba1`, #29 `f7c7cf1`, #30 (its merge commit). Each with `git revert -m 1 <sha>`, newest first.
