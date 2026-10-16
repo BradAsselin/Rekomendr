@@ -48,6 +48,52 @@ const LABELS: [keyof Readout, string][] = [
   ["installs", "Installs (home-screen launches)"],
 ];
 
+// S8c — the wine shelf's outcome: bottles bought from confirmed hauls, and
+// how many of them a rek led to (snap-to-cart). Same agent exclusion as
+// the card readout. Counts only.
+type WineReadout = {
+  wine_hauls: number;
+  wine_bottles_bought: number;
+  snap_to_cart: number;
+  wine_buyers: number;
+  followups_answered: number;
+};
+
+const WINE_LABELS: [keyof WineReadout, string][] = [
+  ["wine_hauls", "Wine hauls confirmed"],
+  ["wine_bottles_bought", "Bottles bought"],
+  ["snap_to_cart", "Snap-to-cart (bought from a rek)"],
+  ["wine_buyers", "People who bought"],
+  ["followups_answered", "\"How was it?\" answered"],
+];
+
+async function wineReadout(
+  store: NonNullable<Awaited<ReturnType<typeof getSnapshotStore>>>,
+  since: string,
+  agentsOnly: boolean
+): Promise<WineReadout | null> {
+  const { data, error } = await store
+    .from("wine_marks")
+    .select("client_id, haul_id, from_rek, followup")
+    .eq("kind", "bought")
+    .gte("created_at", since)
+    .limit(20000);
+  if (error || !Array.isArray(data)) {
+    console.warn("[stats] wine readout unavailable", { code: error?.code ?? null });
+    return null;
+  }
+  const rows = data.filter((r) =>
+    agentsOnly ? String(r.client_id).startsWith("anon_agent") : !String(r.client_id).startsWith("anon_agent")
+  );
+  return {
+    wine_hauls: new Set(rows.map((r) => r.haul_id).filter(Boolean)).size,
+    wine_bottles_bought: rows.length,
+    snap_to_cart: rows.filter((r) => !!r.from_rek).length,
+    wine_buyers: new Set(rows.map((r) => r.client_id)).size,
+    followups_answered: rows.filter((r) => r.followup && r.followup !== "skipped").length,
+  };
+}
+
 export async function GET(req: Request): Promise<Response> {
   const url = new URL(req.url);
   if (!keyOk(url.searchParams.get("key"))) return notFound();
@@ -72,12 +118,16 @@ export async function GET(req: Request): Promise<Response> {
     return Response.json({ error: "unavailable" }, { status: 503 });
   }
 
-  const headers = { "Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow" };
-  if (url.searchParams.get("format") === "json") return Response.json(readout, { headers });
+  const wine = await wineReadout(store, since, url.searchParams.get("agents") === "1");
 
-  const rows = LABELS.map(
-    ([k, label]) => `<tr><td>${label}</td><td>${readout[k] ?? "—"}</td></tr>`
-  ).join("");
+  const headers = { "Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow" };
+  if (url.searchParams.get("format") === "json") {
+    return Response.json({ ...readout, ...(wine ?? {}) }, { headers });
+  }
+
+  const rows =
+    LABELS.map(([k, label]) => `<tr><td>${label}</td><td>${readout[k] ?? "—"}</td></tr>`).join("") +
+    WINE_LABELS.map(([k, label]) => `<tr><td>${label}</td><td>${wine ? wine[k] : "—"}</td></tr>`).join("");
   return new Response(
     `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex"><title>Rekomendr test readout</title>
 <style>body{font-family:-apple-system,system-ui,sans-serif;margin:16px;color:#111827}table{border-collapse:collapse;width:100%;max-width:28rem}td{padding:8px 4px;border-bottom:1px solid #e5e7eb;font-size:16px}td:last-child{text-align:right;font-variant-numeric:tabular-nums;font-weight:600}p{color:#4b5563;font-size:14px}</style>

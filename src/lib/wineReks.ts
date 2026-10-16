@@ -45,7 +45,7 @@ export const SHELF_READ_PROMPT =
   "- \"haul\": bottles the person has bought or is buying — in a shopping cart, a basket, a bag, on a checkout belt, or lined up together at home after shopping.\n" +
   "- \"other\": anything else.\n" +
   "\n" +
-  "bottles — every different wine whose label you can read well enough to name, as producer + wine the way the label prints it (\"Josh Cellars Cabernet Sauvignon\", \"La Marca Prosecco\"). A row of identical bottles is ONE entry. Top shelf first, left to right. Up to 40. Skip anything you cannot read; never invent a name to fill a gap.\n" +
+  "bottles — every different wine whose label you can read well enough to name, as producer + wine the way the label prints it (\"Josh Cellars Cabernet Sauvignon\", \"La Marca Prosecco\"). A row of identical bottles is ONE entry. Top shelf first, left to right. Up to 40. Skip anything you cannot read; never invent a name to fill a gap. Shelf talkers, score cards, price tags and store signs are NOT bottles — never list one as a bottle.\n" +
   "For each bottle:\n" +
   "- price: the shelf tag price for THAT bottle exactly as printed (17.99) — only when you can read the digits AND can see which bottle the tag belongs to. Otherwise null. Never estimate a price here.\n" +
   "- talker_points / talker_source: only when a shelf talker or score card at that bottle PRINTS a score (\"90 POINTS\", \"Wine Enthusiast 90\"): the number, and the publication if it is printed. Otherwise null. Never supply a score from memory.\n" +
