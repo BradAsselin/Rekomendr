@@ -19,6 +19,12 @@ export async function POST(req: Request): Promise<Response> {
     console.warn("[card-event] not recorded", { reason: "bad_json" });
     return new Response(null, { status: 204 });
   }
+  // 'save' is recorded by /api/card/save itself, only when a save really
+  // landed — never posted from a browser.
+  if (body?.kind === "save") {
+    console.warn("[card-event] not recorded", { kind: "save", reason: "server_only" });
+    return new Response(null, { status: 204 });
+  }
   await recordCardEvent({ kind: body?.kind, card: body?.card, clientId: body?.clientId });
   return new Response(null, { status: 204 });
 }

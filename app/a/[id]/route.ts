@@ -67,20 +67,18 @@ p{font-size:16px;line-height:1.625;font-weight:400;color:#111827;margin:0 0 8px}
 .btn{flex:1;display:block;text-align:center;padding:13px 10px;border-radius:12px;font-size:16px;font-weight:600;text-decoration:none;border:2px solid #1E3A8A;color:#1E3A8A;background:#fff;line-height:1.2}
 .btn.primary{flex:2;background:#1E3A8A;color:#fff}
 .avail{font-size:15px;color:#111827;margin:-4px 0 12px}
+.save{margin-left:auto;flex:none;display:flex;align-items:center;gap:6px;padding:8px 12px;border:2px solid #1E3A8A;border-radius:999px;color:#1E3A8A;font-size:15px;font-weight:600;text-decoration:none;line-height:1}
+.own{margin-top:14px;font-size:14px;text-align:right}
+.own a{color:#4b5563;text-decoration:none}
 .watch{margin-top:12px;font-size:15px;line-height:1.6;color:#111827}
 .watch .k{color:#4b5563}
 .watch a{color:#111827;text-decoration:underline;text-decoration-color:#9ca3af;text-underline-offset:2px}
 .watch .src{margin-top:4px;font-size:12px;color:#4b5563}
 .watch .src a{color:#4b5563}
-h1 a:hover,.cta a:hover{text-decoration:underline}
+h1 a:hover,.own a:hover{text-decoration:underline}
 .notice{background:#fff;border:1px solid #fcd34d;border-radius:16px;padding:16px;font-size:14px;color:#111827}
-.cta{margin-top:20px;text-align:center;font-size:14px;color:rgba(255,255,255,.8)}
-.cta a{color:#fff;font-weight:500;text-decoration:none}
 `;
 
-// The one CTA block (blueprint §4.2 copy, plain voice). "/" keeps the
-// visitor on whatever host served the page — a preview stays a preview.
-const CTA = `<div class="cta">Snapped with Rekomendr. <a href="/">Get reks for anything →</a></div>`;
 
 function shell(args: { head: string; body: string }): string {
   return `<!doctype html>
@@ -94,7 +92,7 @@ ${args.head}
 <style>${STYLE}</style>
 </head><body>
 <header><a href="/">Rekomendr</a></header>
-<main>${args.body}${CTA}</main>
+<main>${args.body}</main>
 </body></html>`;
 }
 
@@ -207,11 +205,21 @@ function cardPage(row: SnapshotRow, origin: string, media: CardMediaView | null)
     ? `<div class="pick">${esc(pickLabel(sender))}</div>`
     : `<div class="cat">${esc(category)}</div>`;
 
+  // S4b — Save, the bridge: one tap, no sign-in. It opens the app with this
+  // card as the anchor, saved under the visitor's anonymous id, reks
+  // loading (the app does the save — a plain link, so it works with no
+  // script at all). Top right: the anchor grammar's verdict corner (§2.5).
+  const save =
+    `<a class="save" href="/?card=${esc(row.id)}&amp;save=1" aria-label="Save">` +
+    `<svg aria-hidden="true" width="14" height="18" viewBox="0 0 14 18"><path d="M1.5 1.5h11v15L7 12.5 1.5 16.5z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>` +
+    `Save</a>`;
+
   const body =
     `<article class="card">` +
     `<div class="top">` +
     (posterSrc ? `<img class="poster" src="${esc(posterSrc)}" alt="" width="92" height="138">` : "") +
     `<div>${label}${heading}</div>` +
+    save +
     `</div>` +
     `<div class="actions">${actions}</div>` +
     (isMedia && !media?.watch && media?.availability
@@ -220,6 +228,9 @@ function cardPage(row: SnapshotRow, origin: string, media: CardMediaView | null)
     `<p>${esc(row.short_description)}</p>` +
     (row.long_description ? `<p>${esc(row.long_description)}</p>` : "") +
     (isMedia && media?.watch ? watchBlock(media.watch, link) : "") +
+    // The quiet invitation (build plan, optional). "/" keeps the visitor on
+    // whatever host served the page — a preview stays a preview.
+    `<div class="own"><a href="/">Snap your own →</a></div>` +
     `</article>` +
     `<script src="/card.js" defer data-card="${esc(row.id)}"></script>`;
 

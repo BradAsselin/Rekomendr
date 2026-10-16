@@ -856,3 +856,41 @@ NEXT SESSION SHOULD KNOW:
 - On this machine `vercel deploy` is the only way to get a preview (git pushes build nothing). Check that `.vercelignore` is still present.
 
 VALIDATION: folded into the combined §10.6 batch at the end of this chain.
+
+---
+
+## Session 4b — the-bridge — 2026-10-15 — branch auto/s4b-the-bridge (stacked on auto/s4a-the-card) — PR (see chain close) (local agent mode, §11)
+
+**§10.2 carry-forward:** S4a verified on its branch (validate-s4a 82/82; preview 17/17). Not merged: auto mode refused the session's `gh pr merge` of #22 ("Merge Without Review"). S4b is stacked on S4a's branch, and Brad merges #22 first.
+
+SHIPPED:
+- **Save on the card, no sign-in.**
+  - A plain link opens the app, which copies the card into a private row under the visitor's anon id (`/api/card/save`: the card's own text, never regenerated, dedupe by title, shared mint cap).
+  - The app shows it as the anchor with the Save mark lit and reks loading (`/api/card/open`: the token is signed fresh for this client, so Save, Share and details work).
+  - Media reks come from the TMDb chooser; others use the chain re-roll.
+- **Add to home screen, after Save only.**
+  - The header button is gone (`InstallButton` is capture-only: service worker plus Chrome's held prompt).
+  - iPhone: a coach sheet with Share → Add to Home Screen → Add, the ⋯ note and an arrow. Android: the real install prompt. Never when standalone; "Not now" snoozes for 7 days (`InstallCoach.tsx`, `src/lib/installPrompt.ts`).
+- **The iOS separate-storage catch.**
+  - After Save, the page URL and a per-save manifest (`/api/manifest`) both start at `/?card=…&claim=…`.
+  - The claim is an HMAC under `MINT_SIGNING_SECRET` with its own prefix, valid 7 days (`src/lib/claimToken.ts`).
+  - On first standalone launch the app redeems it and, on a fresh install, adopts the Safari anon id, so the save, the name and the attribution carry over.
+- **Counted:** `save` (server-only) and `standalone_launch` (once per app session, after adoption).
+- **"Snap your own →"** at the bottom of the card replaces the old CTA.
+- **Checks:** `validate-s4b` **48/48**; regression s4a 82, s2 97, s30 69; tsc and lint clean.
+- **Preview, WebKit at iPhone size: 16/16.** Card Save → app anchor saved with reks → coach → per-save manifest → simulated home-screen first launch shows the saved card under the adopted id → the receiver shares their own card. The readout counted it: 1 save, 1 install, receiver → sender 1 of 2.
+
+FOUND, NOT FIXED:
+- The anchor opens below the search box. S5 removes the Lane row; scroll-to-anchor is a possible follow-up.
+- A forwarded claim URL could let someone else's fresh install adopt the anon id within 7 days. Low stakes (anon id only); not chased.
+
+BRAD MUST:
+- Merge #22, then this PR.
+- On a real iPhone: Save a card in Safari → Add to Home Screen → open the icon. The saved card should already be there.
+
+NEXT SESSION SHOULD KNOW:
+- `SnapResult.saved` is client-only: it lights the Save mark on arrival.
+- `openCardFromLink` in `app/page.tsx` is the one entry point for opening a card in the app.
+- The arrival effect reads `?card`, `?save` and `?claim` exactly once.
+
+VALIDATION: folded into the combined §10.6 batch at the end of this chain.

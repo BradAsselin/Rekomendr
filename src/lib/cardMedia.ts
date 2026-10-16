@@ -37,6 +37,9 @@ import { getSnapshotStore, type SnapshotRow } from "./anchorSnapshots";
 export const PROVIDERS_TTL_MS = 12 * 60 * 60 * 1000;
 
 export type CardMediaView = {
+  // S4b: the TMDb identity, so the app can load reks for a card it opens.
+  kind: MediaKind | null;
+  id: number | null;
   posterPath: string | null;
   trailerUrl: string | null;
   watch: WatchInfo | null;
@@ -60,6 +63,8 @@ function storedOf(row: SnapshotRow): StoredProviders | null {
 function viewOf(row: SnapshotRow, source: CardMediaView["source"]): CardMediaView {
   const stored = storedOf(row);
   return {
+    kind: row.media_kind ?? null,
+    id: row.media_id ?? null,
     posterPath: row.poster_path ?? null,
     trailerUrl: row.trailer_url ?? null,
     watch: stored?.watch ?? null,
@@ -133,6 +138,8 @@ export async function cardMedia(
     firstLookup: !row.media_id,
   });
   return {
+    kind,
+    id: mediaId,
     posterPath: fresh.posterPath,
     trailerUrl: fresh.trailerUrl,
     watch: fresh.watch,
