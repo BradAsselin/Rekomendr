@@ -455,7 +455,8 @@ const event = (kind, cardId, clientId) => recordCardEvent({ kind, card: cardId, 
   out("\n11. Client pieces (source)");
   const cardJs = fs.readFileSync(path.join(ROOT, "public/card.js"), "utf8");
   check("card.js: the app's own anon id key, one open, taps by data-ev, beacon to the event route", [cardJs.includes('"rekomendr.client_id"'), cardJs.includes('send("open")'), cardJs.includes('closest("[data-ev]")'), cardJs.includes('"/api/card/event"')], [true, true, true, true]);
-  const rsr = fs.readFileSync(path.join(ROOT, "src/components/RekSnapResults.tsx"), "utf8");
+  // S6 moved the share row into ShareRow (shared by the anchor and every rek card).
+  const rsr = ["src/components/RekSnapResults.tsx", "src/components/ShareRow.tsx"].map((f) => fs.readFileSync(path.join(ROOT, f), "utf8")).join(String.fromCharCode(10));
   check("name prompt copy is Brad's, verbatim", rsr.includes("Your name, so friends know it’s from you."), true);
   check("asked once: gated on senderNameAsked()", /if \(!senderNameAsked\(\) && share\.status !== "ready"\)/.test(rsr), true);
   check("'sent' only after the link actually left", /outcome === "shared" \|\| outcome === "copied" \|\| outcome === "manual"[\s\S]{0,120}recordCardSent/.test(rsr), true);

@@ -24,6 +24,7 @@ import {
   type ShortlistEntry,
 } from "../src/lib/userPrefs";
 import { AIServiceError, isAIServiceError } from "../src/lib/aiServiceError";
+import { asToken } from "../src/lib/shareSnapshot";
 
 export type Category = "Movies" | "TV Shows" | "Books" | "Wine";
 
@@ -74,13 +75,14 @@ async function fetchCardReks(anchor: SnapResult): Promise<{ reks: SnapRek[]; not
     }
     const raw: unknown[] = Array.isArray(data?.reks) ? data.reks : [];
     const reks = raw
-      .filter((r): r is { name: string; description?: unknown; category?: unknown } =>
+      .filter((r): r is { name: string; description?: unknown; category?: unknown; token?: unknown } =>
         !!r && typeof (r as { name?: unknown }).name === "string" && !!(r as { name: string }).name.trim()
       )
       .map((r, i) => ({
         name: r.name,
         description: typeof r.description === "string" ? r.description : "",
         category: typeof r.category === "string" && r.category ? r.category : undefined,
+        token: asToken(r.token),
         rank: i + 1,
       }));
     return { reks };
