@@ -1050,7 +1050,7 @@ VALIDATION (Brad's twenty minutes, on the #25 preview):
 4. Snap something health-ish (vitamins). No Share on the anchor or on any rek.
 5. Tap the Share row on a rek: is it quiet enough, and in the right place? That's your call (§12.4).
 
-## Session 7 — search-share-tmdb — 2026-10-15 — branch auto/s7-search-share-tmdb (from main @651dcba) — PR (see below) (local agent mode, §11)
+## Session 7 — search-share-tmdb — 2026-10-15 — branch auto/s7-search-share-tmdb (from main @651dcba) — PR #26 (local agent mode, §11)
 
 SHIPPED:
 - **Merges, in order, under Brad's instruction (2026-10-15):** #22 `aa65b67` → #23 `52940e8` → #24 `8394c29` → #25 `651dcba`. Each one is individually revertible with `git revert -m 1 <sha>`.
