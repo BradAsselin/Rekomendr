@@ -1,14 +1,33 @@
 "use client";
 
+// S5 — mood chips up front (docs/s4-s5-build-plan.md). The bar is now:
+//   category ▾ · camera        (unchanged)
+//   typed text · GO            (unchanged — a typed title or mood text)
+//   ROW 1: lane chips          (always visible; one tap = results, no GO)
+//   ROW 2: refiners            (after the first chip tap; optional, re-runs)
+// Retired: the "+" lane dropdown, the "Lane:" line with its vibe menu and
+// "Pick a lane first", and the Play button — every one of them was a step
+// to learn before a result (§12.3). Chips, refiners and the reasoning for
+// tap-to-search being safe live in src/lib/moodChips.ts.
+
 import React, { useState, useRef, useEffect, useCallback } from "react";
-import { Camera, ChevronDown, Plus, Play, ChevronUp } from "lucide-react";
+import { Camera, ChevronDown } from "lucide-react";
+import {
+  chipQuery,
+  chipsFor,
+  refinersFor,
+  SURPRISE_ME,
+  type Chip,
+  type Refiner,
+} from "../lib/moodChips";
 
 interface SearchBarProps {
   onSearch: (query: string, category: string) => void;
   setLoading?: (loading: boolean) => void;
   hasHistory?: boolean;
 
-  // allow Page / ResultsV4 to trigger Play
+  // ResultsV4's "Try another lane" (the pool exhaustion card) still asks
+  // the bar to play the next lane.
   registerVibePlay?: (fn: () => void) => void;
 
   // The camera icon (mobile only — desktop has none; a desktop user won't
@@ -16,136 +35,48 @@ interface SearchBarProps {
   onSnap?: () => void;
 }
 
-// --------------------------------------------
-// VIBES (CATEGORY-SCOPED)
-// --------------------------------------------
-const VIBES_BY_CATEGORY: Record<string, string[]> = {
-  Movies: [
-    "Comfort Watch",
-    "Goofy / Silly Fun",
-    "Feel-Good Crowd Pleaser",
-    "Smart & Witty",
-    "Romantic / Heartfelt",
-    "Dark & Twisty",
-    "Suspense / Edge-of-Seat",
-    "Epic / Immersive",
-    "Action / Adrenaline",
-    "Thought-Provoking / Meaningful",
-    "Weird / Offbeat",
-    "Documentary / Real Stories",
-  ],
-  "TV Shows": [
-    "Binge & Chill",
-    "Comfort Rewatch",
-    "Prestige Drama",
-    "Dark & Twisty",
-    "Reality Escape",
-    "Edge-of-Seat",
-  ],
-  Books: [
-    "Can’t Put Down",
-    "Thought-Provoking",
-    "Comfort Read",
-    "Smart & Witty",
-    "Dark & Twisty",
-  ],
-  Wine: ["Crisp & Dry", "Easy Sipper", "Special Occasion", "Bright & Fresh", "Rich & Cozy"],
-};
+const CATEGORIES = ["Movies", "TV Shows", "Books", "Wine"];
 
-const getVibesForCategory = (category: string) =>
-  VIBES_BY_CATEGORY[category] ?? VIBES_BY_CATEGORY["Movies"];
+// Same bubble as the Shortlist strip's chips (ShortlistStrip.tsx).
+const bubble = (active: boolean) =>
+  [
+    "shrink-0 rounded-full border px-3 py-1.5 text-[13px] transition-colors",
+    active
+      ? "border-[#2D5AB5] bg-[#2D5AB5]/5 text-[#2D5AB5]"
+      : "border-gray-300 bg-white text-gray-800 hover:border-gray-400",
+  ].join(" ");
 
-const SearchBar: React.FC<SearchBarProps> = ({
-  onSearch,
-  setLoading,
-  hasHistory,
-  registerVibePlay,
-  onSnap,
-}) => {
+const SearchBar: React.FC<SearchBarProps> = ({ onSearch, setLoading, registerVibePlay, onSnap }) => {
   const [input, setInput] = useState("");
   const [isPulsing, setIsPulsing] = useState(false);
-
   const [category, setCategory] = useState("Movies");
-  const [clarifier, setClarifier] = useState<string | null>(null);
-
   const [openCategory, setOpenCategory] = useState(false);
-  const [openClarifiers, setOpenClarifiers] = useState(false);
-  const [openVibes, setOpenVibes] = useState(false);
 
-  // Vibe state
-  const [vibeIndex, setVibeIndex] = useState(0);
-  const [activeVibe, setActiveVibe] = useState<string | null>(null);
+  // The tapped lane chip (row 1) and the optional refiner (row 2).
+  const [activeChip, setActiveChip] = useState<Chip | null>(null);
+  const [refiner, setRefiner] = useState<Refiner | null>(null);
 
-  // Track what last triggered results, so Lane can be honest
-  const [lastSearchMode, setLastSearchMode] = useState<
-    "clarifier" | "typed" | "categoryOnly" | null
-  >(null);
-  const [lastTypedSeed, setLastTypedSeed] = useState<string>("");
-
-  // --------------------------------------------
-  // Refs to avoid stale state in Play handler
-  // --------------------------------------------
   const categoryRef = useRef(category);
-  const vibeIndexRef = useRef(vibeIndex);
-  const clarifierRef = useRef<string | null>(clarifier);
-
+  const chipRef = useRef<Chip | null>(activeChip);
   useEffect(() => {
     categoryRef.current = category;
   }, [category]);
-
   useEffect(() => {
-    vibeIndexRef.current = vibeIndex;
-  }, [vibeIndex]);
-
-  useEffect(() => {
-    clarifierRef.current = clarifier;
-  }, [clarifier]);
-
-  /* -----------------------------
-   * HELPERS
-   * ----------------------------- */
-
-  // Use "||" format (engine supports both). A vibe rides its OWN fifth
-  // segment (vibe:<name>) — never the text slot, which the engine treats
-  // as the user's PRIMARY typed signal. Tone on genre, not intersection.
-  const buildQuery = (
-    cat: string,
-    clar: string | null,
-    text: string,
-    mode: "pool" | "ai",
-    vibe?: string
-  ) => {
-    const safeText = text.trim();
-    const clarPart = clar ?? "";
-    const base = `${cat}||${clarPart}||${safeText}||mode:${mode}`;
-    return vibe ? `${base}||vibe:${vibe}` : base;
-  };
-
+    chipRef.current = activeChip;
+  }, [activeChip]);
 
   const triggerPulse = () => {
     setIsPulsing(true);
     setTimeout(() => setIsPulsing(false), 1000);
   };
 
-  const startSearch = (query: string, catOverride?: string) => {
-    const cat = catOverride ?? categoryRef.current;
+  const startSearch = (query: string, cat: string) => {
     setLoading?.(true);
     triggerPulse();
     onSearch(query, cat);
   };
 
-  const closeAllDropdowns = () => {
-    setOpenCategory(false);
-    setOpenClarifiers(false);
-    setOpenVibes(false);
-  };
-
-  /* -----------------------------
-   * PLACEHOLDER LOGIC
-   * ----------------------------- */
   const getPlaceholder = () => {
-    if (clarifier) return "";
-
     switch (category) {
       case "Movies":
         return "Enter a movie you liked";
@@ -160,229 +91,68 @@ const SearchBar: React.FC<SearchBarProps> = ({
     }
   };
 
-  /* -----------------------------
-   * CLARIFIERS — VERTICAL AWARE
-   * ----------------------------- */
-  const movieClarifiers = ["Comedy", "Thriller", "Action", "Drama", "Romance", "Sci-Fi", "Crime"];
-  const tvClarifiers = ["Sitcom", "Drama", "Crime", "Reality", "Documentary", "Fantasy"];
-  const bookClarifiers = ["Mystery", "Fantasy", "Romance", "Sci-Fi", "Non-Fiction", "Thriller"];
-  const wineClarifiers = ["Dry", "Sweet", "Red", "White", "Sparkling", "Rosé"];
-
-  const getClarifierSet = () => {
-    switch (category) {
-      case "Movies":
-        return movieClarifiers;
-      case "TV Shows":
-        return tvClarifiers;
-      case "Books":
-        return bookClarifiers;
-      case "Wine":
-        return wineClarifiers;
-      default:
-        return [];
-    }
-  };
-
-  const advancedOptions = hasHistory ? ["Saved", "Favorites", "Liked"] : [];
-
+  // A category switch only re-aims the bar and its chips — it never
+  // searches by itself (3eaa04b). The previous results stay until a tap.
   const handleSelectCategory = (c: string) => {
-    closeAllDropdowns();
-
+    setOpenCategory(false);
     setCategory(c);
-
-    // Reset refiners
-    setClarifier(null);
+    setActiveChip(null);
+    setRefiner(null);
     setInput("");
-    setActiveVibe(null);
-    setVibeIndex(0);
-
-    setLastSearchMode("categoryOnly");
-    setLastTypedSeed("");
-
-    // No auto-search: switching category only re-aims the bar. The user
-    // types (or picks a lane via +) and GO fires the search — until then
-    // the previous category's results stay on screen, accepted.
   };
 
-  const handleSelectClarifier = (c: string) => {
-    closeAllDropdowns();
-
-    setClarifier(c);
-    setActiveVibe(null);
+  // Row 1: one tap = results. A new lane starts unrefined.
+  const tapChip = (c: Chip) => {
+    setOpenCategory(false);
+    setActiveChip(c);
+    setRefiner(null);
     setInput("");
-
-    setLastSearchMode("clarifier");
-    setLastTypedSeed("");
+    startSearch(chipQuery(categoryRef.current, c, null), categoryRef.current);
   };
 
-  const clearLane = () => {
-    closeAllDropdowns();
-
-    setClarifier(null);
-    setActiveVibe(null);
-    setInput("");
-
-    setLastSearchMode("categoryOnly");
-    setLastTypedSeed("");
-
-    // Clearing the lane fires a search — deliberate act, routes AI.
-    const q = buildQuery(categoryRef.current, null, "", "ai");
-
-    startSearch(q, categoryRef.current);
-  };
-
-  /* -----------------------------
- * VIBE (modifier)
- * - requires lane to exist
- * - encoded as TEXT so engine sees it as intent bias
- * ----------------------------- */
-const runVibe = useCallback(
-  (vibeName: string, catOverride?: string, indexOverride?: number) => {
-    const cat = catOverride ?? categoryRef.current;
-
-    closeAllDropdowns();
-
-    // ✅ vibe only valid once a lane exists
-    const lane = clarifierRef.current;
+  // Row 2: one refiner at a time; tapping the active one clears it. Either
+  // way the search re-runs.
+  const tapRefiner = (r: Refiner) => {
+    const lane = chipRef.current;
     if (!lane) return;
-
-    setInput("");
-    setActiveVibe(vibeName);
-
-    // vibe is modifier => keep mode as clarifier (lane-first)
-    setLastSearchMode("clarifier");
-    setLastTypedSeed("");
-
-    if (typeof indexOverride === "number") setVibeIndex(indexOverride);
-
-    // Text stays EMPTY — the vibe is a tone instruction on the lane, not
-    // a keyword; it travels in the dedicated vibe segment.
-    const q = buildQuery(cat, lane, "", "ai", vibeName);
-    startSearch(q, cat);
-  },
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  []
-);
-
-  /* -----------------------------
-   * PLAY BUTTON
-   * - cycles GENRE (clarifier) instead of vibes
-   * - solves “genre hidden behind +”
-   * ----------------------------- */
-  const handlePlayStable = useCallback(() => {
-    const cat = categoryRef.current;
-
-    // Only meaningful for now on Movies (you can expand later)
-    const clarifiers = (() => {
-      switch (cat) {
-        case "Movies":
-          return movieClarifiers;
-        case "TV Shows":
-          return tvClarifiers;
-        case "Books":
-          return bookClarifiers;
-        case "Wine":
-          return wineClarifiers;
-        default:
-          return movieClarifiers;
-      }
-    })();
-
-    // find next clarifier
-    const current = clarifierRef.current;
-    const currentIdx = current ? Math.max(clarifiers.indexOf(current), -1) : -1;
-    const nextIdx = (currentIdx + 1) % clarifiers.length;
-    const nextClar = clarifiers[nextIdx];
-
-    // set lane + run auto-go immediately
-    setClarifier(nextClar);
-    setActiveVibe(null);
-    setInput("");
-
-    setLastSearchMode("clarifier");
-    setLastTypedSeed("");
-
-    const q = buildQuery(cat, nextClar, "", "pool");
-    startSearch(q, cat);
-  }, []);
-
-  // Register Play handler with Page.tsx
-  useEffect(() => {
-    registerVibePlay?.(handlePlayStable);
-  }, [registerVibePlay, handlePlayStable]);
-
-  /* -----------------------------
-   * FEELING / LANE LABEL
-   * ----------------------------- */
-  const getLaneLabel = () => {
-    // Base lane
-    const parts: string[] = [];
-    parts.push(clarifier ? clarifier : "Surprise me");
-
-    // Modifier vibe only after lane exists
-    if (clarifier && activeVibe) parts.push(activeVibe);
-
-    // Typed seed last (your request: sports first, then vibe second)
-    if (lastSearchMode === "typed" && lastTypedSeed.trim()) {
-      // If no lane, show typed as primary lane label
-      if (!clarifier) return `“${lastTypedSeed.trim()}”`;
-      return `${parts.join(" • ")} • “${lastTypedSeed.trim()}”`;
-    }
-
-    return parts.join(" • ");
+    const next = refiner?.label === r.label ? null : r;
+    setRefiner(next);
+    startSearch(chipQuery(categoryRef.current, lane, next), categoryRef.current);
   };
 
-  /* -----------------------------
-   * SUBMIT LOGIC
-   * ----------------------------- */
+  // "Try another lane" (ResultsV4's pool exhaustion card): the next row-1
+  // chip, from the canned pool — the one place pool is still opt-in.
+  const playNextLane = useCallback(() => {
+    const cat = categoryRef.current;
+    const lanes = chipsFor(cat).filter((c) => c.label !== SURPRISE_ME);
+    const current = chipRef.current;
+    const idx = current ? lanes.findIndex((c) => c.label === current.label) : -1;
+    const next = lanes[(idx + 1) % lanes.length];
+    setActiveChip(next);
+    setRefiner(null);
+    setInput("");
+    startSearch(`${cat}||${next.lane}||||mode:pool`, cat);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  useEffect(() => {
+    registerVibePlay?.(playNextLane);
+  }, [registerVibePlay, playNextLane]);
+
+  // Typed text is its own path, unchanged: a title lands as the anchor, a
+  // mood phrase searches. It does not inherit a tapped chip.
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    closeAllDropdowns();
-
+    setOpenCategory(false);
     const trimmed = input.trim();
-
-   // If they typed, that becomes the primary lane label (no surprise-me)
-   if (trimmed) {
-     setLastSearchMode("typed");
-     setLastTypedSeed(trimmed);
-
-   // typed should clear vibe modifier (prevents weird “sports + goofy” unless user re-adds)
-    setActiveVibe(null);
-
-     const mode: "pool" | "ai" = "ai";
-     const q = buildQuery(categoryRef.current, clarifierRef.current, trimmed, mode);
-     startSearch(q, categoryRef.current);
-
+    setActiveChip(null);
+    setRefiner(null);
+    // Empty GO is still a deliberate press — generic AI discovery.
+    startSearch(`${categoryRef.current}||||${trimmed}||mode:ai`, categoryRef.current);
     setInput("");
-   return;
-  }
-
-
-    // no typed
-    if (clarifierRef.current) {
-  setLastSearchMode("clarifier");
-  setLastTypedSeed("");
-
-  const q = buildQuery(categoryRef.current, clarifierRef.current, "", "ai");
-  startSearch(q, categoryRef.current);
-} else {
-  setLastSearchMode("categoryOnly");
-  setLastTypedSeed("");
-
-  // Empty GO is still a deliberate press — generic AI discovery, not pool.
-  const q = buildQuery(categoryRef.current, null, "", "ai");
-  startSearch(q, categoryRef.current);
-}
-
-setInput("");
-
   };
 
-  /* -----------------------------
-   * RENDER
-   * ----------------------------- */
-  const laneLabel = getLaneLabel();
-  const vibeEnabled = !!clarifier;
+  const chips = chipsFor(category);
+  const refiners = refinersFor(category);
 
   return (
     <div className="w-full relative">
@@ -394,72 +164,23 @@ setInput("");
                    transition-all duration-200 hover:shadow-[0_3px_10px_rgba(0,0,0,0.12)]
                    focus-within:shadow-[0_3px_12px_rgba(0,0,0,0.14)]"
       >
-        {/* ROW 1 (mobile) / left section (desktop): play + category/clarifier + camera */}
+        {/* ROW 1 (mobile) / left section (desktop): category + camera */}
         <div className="flex items-center sm:mr-3">
-          {/* PLAY */}
           <button
             type="button"
-            onClick={handlePlayStable}
-            title="Play a lane"
-            className="mr-2 p-2 rounded-full border border-gray-300 text-[#374151] hover:text-black hover:border-gray-500 transition flex-shrink-0"
+            onClick={() => setOpenCategory((prev) => !prev)}
+            className="flex items-center gap-1 text-gray-700 hover:text-black font-medium whitespace-nowrap"
           >
-            <Play size={18} strokeWidth={1.8} />
+            {category}
+            <ChevronDown size={16} strokeWidth={1.7} />
           </button>
 
-          {/* CATEGORY + PLUS / CLARIFIER */}
-          <div className="flex items-center gap-1 min-w-0">
-            <button
-              type="button"
-              onClick={() => {
-                setOpenCategory((prev) => !prev);
-                setOpenClarifiers(false);
-                setOpenVibes(false);
-              }}
-              className="flex items-center gap-1 text-gray-700 hover:text-black font-medium whitespace-nowrap"
-            >
-              {category}
-              <ChevronDown size={16} strokeWidth={1.7} />
-            </button>
-
-            {!clarifier && (
-              <button
-                type="button"
-                onClick={() => {
-                  setOpenClarifiers((prev) => !prev);
-                  setOpenCategory(false);
-                  setOpenVibes(false);
-                }}
-                className="text-gray-500 hover:text-gray-700 transition flex-shrink-0"
-                title="Pick a lane"
-              >
-                <Plus size={15} strokeWidth={1.8} />
-              </button>
-            )}
-
-            {clarifier && (
-              <button
-                type="button"
-                onClick={() => {
-                  setOpenClarifiers((p) => !p);
-                  setOpenCategory(false);
-                  setOpenVibes(false);
-                }}
-                className="flex items-center gap-1 text-sm text-gray-600 hover:text-black transition ml-1 whitespace-nowrap"
-                title="Change lane"
-              >
-                {clarifier}
-                <ChevronDown size={14} strokeWidth={1.8} />
-              </button>
-            )}
-          </div>
-
           {/* CAMERA — mobile only, and it IS RekSnap: always opens the
-              current snap flow regardless of session state. Desktop has no
-              camera icon at all (a desktop user won't file-pick a product
-              photo; removing the trigger also removes its wrong-dialog bug). */}
+              current snap flow regardless of session state. */}
           <button
             type="button"
             onClick={() => onSnap?.()}
+            aria-label="Snap"
             className="ml-auto pl-3 sm:hidden text-[#2D5AB5] hover:text-[#244a99] transition flex-shrink-0"
           >
             <Camera size={20} strokeWidth={1.7} />
@@ -468,74 +189,54 @@ setInput("");
 
         {/* ROW 2 (mobile) / right section (desktop): input + GO */}
         <div className="flex items-center flex-1 mt-2 sm:mt-0">
-          {/* INPUT */}
           <input
             type="text"
             placeholder={getPlaceholder()}
             value={input}
-            onChange={(e) => {
-              setInput(e.target.value);
-              setOpenVibes(false);
-            }}
+            onChange={(e) => setInput(e.target.value)}
             className="flex-grow bg-transparent outline-none text-black placeholder-gray-500 text-base min-w-0"
           />
-
-          {/* GO */}
           <button type="submit" className="ml-2 font-semibold text-gray-800 hover:text-black transition flex-shrink-0">
             GO
           </button>
         </div>
       </form>
 
-      {/* LANE LINE + VIBE MODIFIER */}
-      <div className="relative mt-2 text-xs text-[#4B5563] sm:text-gray-500 pl-1 flex items-center gap-1">
-        <span>
-          Lane: <span className="font-semibold text-[#4B5563] sm:text-gray-700">{laneLabel}</span>
-        </span>
-
-        <button
-          type="button"
-          disabled={!vibeEnabled}
-          onClick={() => {
-            if (!vibeEnabled) return;
-            setOpenVibes((p) => !p);
-            setOpenCategory(false);
-            setOpenClarifiers(false);
-          }}
-          className={[
-            "ml-1 inline-flex items-center justify-center rounded-md border px-1.5 py-0.5 transition",
-            vibeEnabled
-              ? "border-[#4B5563] bg-transparent sm:border-gray-200 sm:bg-white text-[#4B5563] sm:text-gray-600 hover:text-black hover:border-gray-300"
-              : "border-[#4B5563] bg-transparent sm:border-gray-100 sm:bg-gray-50 text-[#4B5563] sm:text-gray-300 cursor-not-allowed",
-          ].join(" ")}
-          title={vibeEnabled ? "Pick a vibe (optional)" : "Pick a lane first"}
-        >
-          {openVibes ? <ChevronUp size={14} strokeWidth={1.8} /> : <ChevronDown size={14} strokeWidth={1.8} />}
-        </button>
-
-        {!vibeEnabled && (
-          <span className="ml-1 text-[11px] text-gray-400">Pick a lane first</span>
-        )}
-
-        {openVibes && vibeEnabled && (
-          <div className="absolute left-0 top-[calc(100%+8px)] w-full max-w-[320px] bg-white border border-gray-300 rounded-xl shadow-lg py-2 z-50">
-            {getVibesForCategory(category).map((v, idx) => (
-              <button
-                key={v}
-                onClick={() => runVibe(v, categoryRef.current, idx)}
-                className="block w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 transition"
-              >
-                {v}
-              </button>
-            ))}
-          </div>
-        )}
+      {/* CHIPS — row 1 always; row 2 after the first tap. Horizontal
+          scroll only; the page keeps its own vertical scroll. */}
+      <div className="mt-3 flex gap-2 overflow-x-auto pb-1 -mx-1 px-1" style={{ scrollbarWidth: "thin" }} aria-label="Moods">
+        {chips.map((c) => (
+          <button
+            key={c.label}
+            type="button"
+            onClick={() => tapChip(c)}
+            aria-pressed={activeChip?.label === c.label}
+            className={bubble(activeChip?.label === c.label)}
+          >
+            {c.label}
+          </button>
+        ))}
       </div>
+      {activeChip && (
+        <div className="mt-2 flex gap-2 overflow-x-auto pb-1 -mx-1 px-1" style={{ scrollbarWidth: "thin" }} aria-label="Refine">
+          {refiners.map((r) => (
+            <button
+              key={r.label}
+              type="button"
+              onClick={() => tapRefiner(r)}
+              aria-pressed={refiner?.label === r.label}
+              className={bubble(refiner?.label === r.label)}
+            >
+              {r.label}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* CATEGORY DROPDOWN */}
       {openCategory && (
-        <div className="absolute top-[108%] left-0 w-[150px] bg-white border border-gray-300 rounded-xl shadow-lg py-1.5 z-40">
-          {["Movies", "TV Shows", "Books", "Wine"].map((c) => (
+        <div className="absolute top-12 left-0 w-[150px] bg-white border border-gray-300 rounded-xl shadow-lg py-1.5 z-40">
+          {CATEGORIES.map((c) => (
             <button
               key={c}
               onClick={() => handleSelectCategory(c)}
@@ -544,51 +245,6 @@ setInput("");
               {c}
             </button>
           ))}
-        </div>
-      )}
-
-      {/* CLARIFIER DROPDOWN */}
-      {openClarifiers && (
-        <div className="absolute top-[108%] left-0 w-[170px] bg-white border border-gray-300 rounded-xl shadow-lg py-1.5 z-40">
-          {clarifier && (
-            <>
-              <button
-                type="button"
-                onClick={clearLane}
-                className="block w-full text-left px-3 py-1.5 text-sm text-gray-500 hover:bg-gray-100 transition"
-              >
-                Clear lane
-              </button>
-              <div className="border-t my-1 border-gray-200" />
-            </>
-          )}
-
-          {getClarifierSet().map((g) => (
-            <button
-              key={g}
-              type="button"
-              onClick={() => handleSelectClarifier(g)}
-              className="block w-full text-left px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100 transition"
-            >
-              {g}
-            </button>
-          ))}
-
-          {advancedOptions.length > 0 && (
-            <>
-              <div className="border-t my-1 border-gray-200" />
-              {advancedOptions.map((opt) => (
-                <button
-                  key={opt}
-                  type="button"
-                  onClick={() => handleSelectClarifier(opt)}
-                  className="block w-full text-left px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100 transition"
-                >
-                  {opt}
-                </button>
-              ))}
-            </>
-          )}
         </div>
       )}
 
