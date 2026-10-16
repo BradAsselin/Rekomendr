@@ -28,7 +28,14 @@ import {
 import { AIServiceError, isAIServiceError } from "../src/lib/aiServiceError";
 import { asToken } from "../src/lib/shareSnapshot";
 import { isWineCategory } from "../src/lib/wineShelf";
-import { getWineFavorite, syncWineState, wineVisit } from "../src/lib/wineVisit";
+import {
+  getWineFavorite,
+  syncWineState,
+  wineVisit,
+  type BoughtItem,
+} from "../src/lib/wineVisit";
+import WineBought from "../src/components/WineBought";
+import WineFollowup from "../src/components/WineFollowup";
 
 // S8b — what every wine call carries: the visit's shown/rejected names and
 // the starred go-to (the server holds the no-repeat guarantee with it).
@@ -409,10 +416,21 @@ export default function Page() {
     n: 0,
   });
 
+  // S8c — the Bought list and the one "How was it?" due on this open.
+  const [bought, setBought] = useState<BoughtItem[]>([]);
+  const [followup, setFollowup] = useState<{ id: string; name: string } | null>(null);
+  const refreshWineState = async (withFollowup: boolean) => {
+    const st = await syncWineState();
+    if (!st) return;
+    setBought(Array.isArray(st.bought) ? st.bought : []);
+    if (withFollowup) setFollowup(st.followup ?? null);
+  };
+
   useEffect(() => {
     setHasSnapped(getSnapCount() >= 1);
-    // S8b — the starred go-to: the server's copy wins on load.
-    void syncWineState();
+    // S8b — the starred go-to: the server's copy wins on load. S8c — the
+    // follow-up question is decided once per open, here.
+    void refreshWineState(true);
   }, []);
 
   const vibePlayRef = useRef<null | (() => void)>(null);
@@ -936,9 +954,19 @@ export default function Page() {
               onOpenRecipe={(r) => setActiveRecipe(r)}
               reksPending={reksPending}
               lateReks={lateReks}
+              onHaulSaved={() => void refreshWineState(false)}
             />
           ) : !hasSearched && !loading ? (
-            !hasSnapped && (
+            <>
+            {/* S8c — the one follow-up question on this open, and the
+                Bought list. Home screen only: never over a result. */}
+            {(followup || bought.length > 0) && (
+              <div className="mb-6 space-y-3">
+                {followup && <WineFollowup item={followup} />}
+                <WineBought items={bought} />
+              </div>
+            )}
+            {!hasSnapped && (
               <div className="sm:hidden">
                 <RekSnapButton onClick={openSnapPicker} />
                 <QuietTip
@@ -947,7 +975,8 @@ export default function Page() {
                   className="mx-auto mt-4 max-w-xs px-2"
                 />
               </div>
-            )
+            )}
+            </>
           ) : (
             <>
               {searchError && !loading && (

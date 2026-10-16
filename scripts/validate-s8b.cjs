@@ -147,6 +147,8 @@ const IMG = "data:image/jpeg;base64,AAAA";
     ],
   }).bottles;
   check("an impossible score (150) is never kept", shelf.find((x) => /silver/i.test(x.name)).talkerPoints, null);
+  // S8c field case: a "92 POINTS" talker card came back as a bottle.
+  check("a score card is never a bottle", W.cleanShelfRead({ bottles: [{ name: "92 Points Cabernet Sauvignon" }, { name: "Wine Enthusiast 90" }, { name: "Paxis Red Blend" }] }).bottles.map((x) => x.name), ["Paxis Red Blend"]);
   const raw = [
     { name: "Silver Oak Alexander Valley Cabernet", price_usd: 85 },
     { name: "Decoy Cabernet Sauvignon", price_usd: 22 },

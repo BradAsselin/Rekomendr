@@ -27,6 +27,7 @@ import RekSkeleton, { RekSkeletonCard } from "./RekSkeleton";
 import RekTrail, { TrailRow } from "./RekTrail";
 import QuietTip from "./QuietTip";
 import WineFacts from "./WineFacts";
+import HaulConfirm from "./HaulConfirm";
 import {
   PRICE_CHIPS,
   SHELF_TIP,
@@ -151,6 +152,8 @@ type Props = {
   // on the anchor meanwhile stands).
   reksPending?: boolean;
   lateReks?: { reks: SnapRek[]; notice?: string } | null;
+  // S8c — a haul was saved (the page refreshes the Bought list).
+  onHaulSaved?: () => void;
 };
 
 // One failure voice, shared verbatim with the search lane's AI misses.
@@ -179,6 +182,7 @@ const RekSnapResults: React.FC<Props> = ({
   onOpenRecipe,
   reksPending,
   lateReks,
+  onHaulSaved,
 }) => {
   // Thumb marks and saves are independent per item name (a card can be
   // thumbed-up AND saved). Thumbs are one-active-within-thumbs and toggle on
@@ -311,6 +315,9 @@ const RekSnapResults: React.FC<Props> = ({
   const [priceChip, setPriceChip] = useState<PriceChip | null>(null);
   const priceChipRef = useRef<PriceChip | null>(null);
   const [wineBand, setWineBand] = useState<PriceBand | null>(null);
+  // S8c — the haul confirm: open by itself on a cart/basket photo, or via
+  // "I bought these" under a multi-bottle snap. Closed = the normal result.
+  const [haulOpen, setHaulOpen] = useState(false);
 
   // Which intent list is on screen. Defaults to the model's inferred mode;
   // all three lists are already loaded, so switching is instant (no API call).
@@ -371,13 +378,14 @@ const RekSnapResults: React.FC<Props> = ({
       setLateNotice(null);
       setPriceChip(null);
       priceChipRef.current = null;
+      setHaulOpen(result.wine?.scene === "haul");
       setWineBand(result.wine?.band ?? null);
       // S8b — the visit remembers every wine it showed (no repeats).
       if (!health && isWineCategory(result.detected_item.category)) {
-        noteWineShown([
-          result.detected_item.name,
-          ...result.results.similar.map((r) => r.name),
-        ]);
+        noteWineShown(
+          [result.detected_item.name, ...result.results.similar.map((r) => r.name)],
+          result.detected_item.name
+        );
       }
     }
   }, [result]);
@@ -869,7 +877,7 @@ const RekSnapResults: React.FC<Props> = ({
       // Every generated name joins the exclusion spine, even if the insert
       // below declines (capacity/dupe) — the model produced it, never re-ask.
       everShownRef.current.add(rek.name);
-      if (rek.wine) noteWineShown([rek.name]);
+      if (rek.wine) noteWineShown([rek.name], forResult.detected_item.name);
 
       setLists((prev) => {
         if (!prev) return prev;
@@ -1115,7 +1123,7 @@ const RekSnapResults: React.FC<Props> = ({
       }
 
       cleaned.forEach((r) => everShownRef.current.add(r.name));
-      if (branch === "wine") noteWineShown(cleaned.map((r) => r.name));
+      if (branch === "wine") noteWineShown(cleaned.map((r) => r.name), forResult.detected_item.name);
       setLists((prev) => (prev ? { ...prev, [mode]: cleaned } : prev));
       setChainError(null);
     } catch (err) {
@@ -1603,6 +1611,40 @@ const RekSnapResults: React.FC<Props> = ({
     </a>
   );
 
+  // S8c — names for the haul list: what the shelf read found, else the
+  // anchor alone.
+  const haulNames =
+    wineMeta && wineMeta.shelf.length > 0
+      ? wineMeta.shelf.map((b) => b.name)
+      : [result.detected_item.name];
+  // "I bought these" — a few bottles, not a whole aisle.
+  const canClaimHaul =
+    !!wineMeta && wineMeta.scene !== "haul" && wineMeta.shelf.length >= 2 && wineMeta.shelf.length <= 8;
+
+  if (haulOpen && anchorIsWine) {
+    return (
+      <div className="w-full flex flex-col items-center px-4 pt-2 pb-14">
+        <div className="w-full max-w-xl">
+          <HaulConfirm
+            key={`${result.detected_item.name}|${result.detected_item_token?.issued_at ?? 0}`}
+            initial={haulNames}
+            onCancel={() => setHaulOpen(false)}
+            onSaved={() => onHaulSaved?.()}
+          />
+        </div>
+        {!limitReached && (
+          <button
+            onClick={() => onSnapAgain?.()}
+            className="mt-6 px-4 py-2 rounded-xl text-sm border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 flex items-center gap-1.5"
+          >
+            <Camera size={16} />
+            Snap another
+          </button>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="w-full flex flex-col items-center px-4 pt-2 pb-14 select-none">
       {limitReached && (
@@ -1764,6 +1806,17 @@ const RekSnapResults: React.FC<Props> = ({
 
         {/* S8b — after a single-bottle wine snap, one quiet line toward
             the shelf shot (dismissible, at most 3 times). */}
+        {canClaimHaul && (
+          <div className="mt-2 px-1 text-right">
+            <button
+              type="button"
+              onClick={() => setHaulOpen(true)}
+              className="text-[13px] text-blue-300 sm:text-[#1E3A8A] hover:underline"
+            >
+              I bought these
+            </button>
+          </div>
+        )}
         {wineMeta?.scene === "single" && (
           <QuietTip storageKey="shelf-after-single" text={SINGLE_BOTTLE_TIP} className="mt-3 px-1" />
         )}

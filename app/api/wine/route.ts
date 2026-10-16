@@ -6,6 +6,11 @@
 //   state     → the live favorite (S8b), plus the Bought list and the one
 //               follow-up question due on this open (S8c)
 //   favorite  → star a wine as the go-to (clears the old star), or un-star
+//   bought    → a confirmed haul: one row per bottle, one haul id, the rek
+//               that led to each bottle when there was one; answers with a
+//               signed "Our haul today" card the Share row can mint (S8c)
+//   followup_shown → the question was put on screen: never asked again
+//   followup  → the answer (like / dislike / favorite / skipped), once
 //
 // The client keeps a localStorage mirror for instant UI; this row is what
 // survives a cleared browser on the same anonymous id. No OpenAI call
@@ -16,6 +21,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { runEnvCheck } from "../../../src/lib/envCheck";
 import { cleanClientId, getSnapshotStore } from "../../../src/lib/anchorSnapshots";
+import { signAnchor } from "../../../src/lib/mintToken";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -59,6 +65,12 @@ async function readFavorite(db: SupabaseClient, clientId: string) {
     .limit(1);
 }
 
+// S8c — a bottle bought at least a day ago, never asked about, is due.
+const FOLLOWUP_AFTER_MS = 24 * 60 * 60 * 1000;
+const HAUL_MAX = 24;
+const FOLLOWUPS = new Set(["like", "dislike", "favorite", "skipped"]);
+const HAUL_TITLE = "Our haul today";
+
 export async function POST(req: Request): Promise<Response> {
   let body: any = null;
   try {
@@ -80,6 +92,24 @@ export async function POST(req: Request): Promise<Response> {
   if (action === "state") {
     const fav = await readFavorite(db, clientId);
     if (fav.error) return failure("state", fav.error);
+    const bought = await db
+      .from("wine_marks")
+      .select("id, name, created_at, followup, followup_at, from_rek")
+      .eq("client_id", clientId)
+      .eq("kind", "bought")
+      .order("created_at", { ascending: false })
+      .limit(60);
+    if (bought.error) return failure("state bought", bought.error);
+    const rows = bought.data ?? [];
+    // One question per open, oldest first, never one already shown.
+    const due = rows
+      .filter(
+        (r) =>
+          r.followup == null &&
+          r.followup_at == null &&
+          Date.parse(r.created_at) <= Date.now() - FOLLOWUP_AFTER_MS
+      )
+      .sort((a, b) => a.created_at.localeCompare(b.created_at))[0];
     const row = fav.data?.[0];
     const favorite: FavoriteRow | null = row
       ? {
@@ -89,7 +119,91 @@ export async function POST(req: Request): Promise<Response> {
           body: row.light_bold ?? null,
         }
       : null;
-    return Response.json({ ok: true, favorite }, { status: 200 });
+    return Response.json(
+      {
+        ok: true,
+        favorite,
+        bought: rows.map((r) => ({
+          id: r.id,
+          name: r.name,
+          at: r.created_at,
+          followup: r.followup ?? null,
+        })),
+        followup: due ? { id: due.id, name: due.name } : null,
+      },
+      { status: 200 }
+    );
+  }
+
+  if (action === "bought") {
+    const items = (Array.isArray(body?.items) ? body.items : [])
+      .map((it: any) => ({
+        name: text(it?.name, 120),
+        fromRek: text(it?.fromRek, 120),
+        fromAnchor: text(it?.fromAnchor, 120),
+        price:
+          typeof it?.price === "number" && it.price > 0 && it.price < 100000
+            ? Math.round(it.price * 100) / 100
+            : null,
+      }))
+      .filter((it: { name: string | null }) => !!it.name)
+      .slice(0, HAUL_MAX);
+    if (items.length === 0) {
+      return Response.json({ ok: false, reason: "bad_request" }, { status: 400 });
+    }
+    const haulId = crypto.randomUUID();
+    const ins = await db.from("wine_marks").insert(
+      items.map((it: { name: string; fromRek: string | null; fromAnchor: string | null; price: number | null }) => ({
+        client_id: clientId,
+        kind: "bought",
+        name: it.name,
+        price: it.price,
+        haul_id: haulId,
+        from_rek: it.fromRek,
+        from_anchor: it.fromRek ? it.fromAnchor : null,
+      }))
+    );
+    if (ins.error) return failure("bought insert", ins.error);
+    const conversions = items.filter((it: { fromRek: string | null }) => !!it.fromRek).length;
+    console.info("[wine-marks] haul saved", { bottles: items.length, conversions });
+    // The haul as a card: signed like any anchor, so Share mints it through
+    // /api/save and moderates it at share time like every other card.
+    const short = items.map((it: { name: string }) => it.name).join(" · ").slice(0, 600);
+    const token = signAnchor({ name: HAUL_TITLE, category: "wine", short, long: null, clientId });
+    return Response.json(
+      {
+        ok: true,
+        haulId,
+        conversions,
+        card: token ? { name: HAUL_TITLE, category: "wine", short, token } : null,
+      },
+      { status: 200 }
+    );
+  }
+
+  if (action === "followup_shown" || action === "followup") {
+    const id = typeof body?.id === "string" && /^[0-9a-f-]{36}$/i.test(body.id) ? body.id : null;
+    const answer = action === "followup" ? body?.answer : null;
+    if (!id || (action === "followup" && !FOLLOWUPS.has(answer))) {
+      return Response.json({ ok: false, reason: "bad_request" }, { status: 400 });
+    }
+    // Scoped to this client's own bought row; an answer lands once.
+    let q = db
+      .from("wine_marks")
+      .update(
+        action === "followup"
+          ? { followup: answer, followup_at: new Date().toISOString() }
+          : { followup_at: new Date().toISOString() }
+      )
+      .eq("id", id)
+      .eq("client_id", clientId)
+      .eq("kind", "bought")
+      .is("followup", null);
+    if (action === "followup_shown") q = q.is("followup_at", null);
+    const upd = await q;
+    if (upd.error) return failure(action, upd.error);
+    console.info("[wine-marks] follow-up", { action, answer: answer ?? null });
+    return Response.json({ ok: true }, { status: 200 });
   }
 
   if (action === "favorite") {

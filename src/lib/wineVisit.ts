@@ -12,7 +12,7 @@
 // on load; a local star the server never got is pushed again.
 
 import { getAnonymousClientId } from "./userPrefs";
-import type { WineFavorite } from "./wineShelf";
+import { sameWine, type WineFavorite } from "./wineShelf";
 
 const VISIT_KEY = "rekomendr.wine_visit";
 const FAVORITE_KEY = "rekomendr.wine_favorite";
@@ -53,10 +53,87 @@ export function wineVisit(): Visit {
   return readVisit();
 }
 
-export function noteWineShown(names: string[]) {
+export function noteWineShown(names: string[], fromAnchor?: string) {
   const v = readVisit();
   addUnique(v.seen, names);
   writeVisit(v);
+  if (fromAnchor) noteRekOrigins(names.filter((n) => n !== fromAnchor), fromAnchor);
+}
+
+// ---------------------------------------------------------------------------
+// S8c — which rek led to a purchase. Every wine rek shown is remembered for
+// two weeks with the anchor it came from (localStorage — a haul is often
+// confirmed after the shelf visit), so a bought bottle can be linked back:
+// "Cannonball ← the shelf shot of Josh Cellars".
+// ---------------------------------------------------------------------------
+const ORIGINS_KEY = "rekomendr.wine_rek_origins";
+const ORIGINS_DAYS = 14;
+type Origin = { name: string; anchor: string; at: number };
+
+function readOrigins(): Origin[] {
+  try {
+    const list = JSON.parse(localStorage.getItem(ORIGINS_KEY) || "[]");
+    const cutoff = Date.now() - ORIGINS_DAYS * 24 * 60 * 60 * 1000;
+    return Array.isArray(list) ? list.filter((o) => o && typeof o.name === "string" && o.at >= cutoff) : [];
+  } catch {
+    return [];
+  }
+}
+
+function noteRekOrigins(names: string[], anchor: string) {
+  const list = readOrigins();
+  const now = Date.now();
+  for (const name of names) {
+    if (!list.some((o) => o.name === name)) list.push({ name, anchor, at: now });
+  }
+  try {
+    localStorage.setItem(ORIGINS_KEY, JSON.stringify(list.slice(-300)));
+  } catch {}
+}
+
+export function rekOriginFor(bought: string): { rek: string; anchor: string } | null {
+  const hit = readOrigins()
+    .reverse()
+    .find((o) => sameWine(o.name, bought));
+  return hit ? { rek: hit.name, anchor: hit.anchor } : null;
+}
+
+// ---------------------------------------------------------------------------
+// S8c — the haul, the Bought list, the next-open question.
+// ---------------------------------------------------------------------------
+export type BoughtItem = { id: string; name: string; at: string; followup: string | null };
+export type HaulCard = {
+  name: string;
+  category: string;
+  short: string;
+  token: { sig: string; issued_at: number };
+};
+
+export async function saveHaul(
+  names: string[]
+): Promise<{ ok: boolean; conversions: number; card: HaulCard | null }> {
+  const items = names.map((name) => {
+    const o = rekOriginFor(name);
+    return { name, fromRek: o?.rek ?? null, fromAnchor: o?.anchor ?? null };
+  });
+  const r = await postWine({ action: "bought", items });
+  if (!r?.ok) {
+    console.warn("[wine-haul] not saved", { reason: r?.reason ?? null });
+    return { ok: false, conversions: 0, card: null };
+  }
+  return { ok: true, conversions: r.conversions ?? 0, card: r.card ?? null };
+}
+
+export async function followupShown(id: string): Promise<void> {
+  await postWine({ action: "followup_shown", id });
+}
+
+export async function answerFollowup(
+  id: string,
+  answer: "like" | "dislike" | "favorite" | "skipped"
+): Promise<boolean> {
+  const r = await postWine({ action: "followup", id, answer });
+  return !!r?.ok;
 }
 
 export function noteWineRejected(name: string) {

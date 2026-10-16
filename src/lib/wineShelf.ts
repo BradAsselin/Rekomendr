@@ -346,6 +346,13 @@ export function cleanShelfRead(raw: unknown): {
     const o = (b ?? {}) as Record<string, unknown>;
     const name = text(o.name, 120);
     if (!name || bottles.some((x) => sameWine(x.name, name))) continue;
+    // A score card read as a bottle ("92 Points", "Wine Enthusiast 90").
+    if (
+      /^\d{2,3}\s*(?:pts?|points?)\b/i.test(name) ||
+      /^(?:wine enthusiast|wine spectator|james suckling|wine advocate|vinous)\b/i.test(name)
+    ) {
+      continue;
+    }
     const pts = num(o.talker_points);
     // A score is only kept when a talker printed a believable one.
     const believable = pts != null && pts >= 80 && pts <= 100;
