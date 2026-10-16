@@ -28,6 +28,11 @@ import {
 import { AIServiceError, isAIServiceError } from "../src/lib/aiServiceError";
 import { asToken } from "../src/lib/shareSnapshot";
 import { isWineCategory } from "../src/lib/wineShelf";
+import { getWineFavorite, syncWineState, wineVisit } from "../src/lib/wineVisit";
+
+// S8b — what every wine call carries: the visit's shown/rejected names and
+// the starred go-to (the server holds the no-repeat guarantee with it).
+const wineVisitPayload = () => ({ ...wineVisit(), favorite: getWineFavorite() });
 
 export type Category = "Movies" | "TV Shows" | "Books" | "Wine";
 
@@ -187,7 +192,7 @@ async function resolveTypedAnchor(text: string, category: Category): Promise<Sna
     const res = await fetch("/api/reksnap", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ typed: { text, clientId } }),
+      body: JSON.stringify({ typed: { text, clientId }, wineVisit: wineVisitPayload() }),
     });
     const data = await res.json().catch(() => null);
     if (!res.ok && typeof data?.reason === "string" && typeof data?.error === "string") {
@@ -406,6 +411,8 @@ export default function Page() {
 
   useEffect(() => {
     setHasSnapped(getSnapCount() >= 1);
+    // S8b — the starred go-to: the server's copy wins on load.
+    void syncWineState();
   }, []);
 
   const vibePlayRef = useRef<null | (() => void)>(null);
@@ -633,6 +640,7 @@ export default function Page() {
           ...payload,
           clientId: getAnonymousClientId(),
           category: barCategoryRef.current,
+          wineVisit: wineVisitPayload(),
         }),
       });
       const data = await res.json().catch(() => null);
