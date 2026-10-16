@@ -67,6 +67,15 @@ class FakeOpenAI {
     this.chat = {
       completions: {
         create: async (req) => {
+          // S8b's wine calls (shelf read, wine picks) answer on their own;
+          // the queue scripts only the vision / typed reads under test here.
+          const sys = String(req.messages?.[0]?.content || "");
+          if (sys.startsWith("You are reading a photo taken in a wine shop")) {
+            return { choices: [{ message: { content: JSON.stringify({ scene: "other", bottles: [] }) } }] };
+          }
+          if (sys.startsWith("You are a taste-aware wine recommendation engine")) {
+            return { choices: [{ message: { content: JSON.stringify({ anchor: {}, reks: [] }) } }] };
+          }
           calls.push(req);
           const r = nextReply();
           if (r.throw) throw r.throw;
@@ -121,7 +130,8 @@ const post = async (body) => {
 const ME = "anon_s8a_client_0001";
 const IMG = "data:image/jpeg;base64,AAAA";
 const rek = (name, category = "wine") => ({ name, description: "Similarly dry. Moves. Lands.", category, rank: 1 });
-const five = (prefix, category) => [1, 2, 3, 4, 5].map((i) => rek(`${prefix} ${i}`, category));
+const five = (prefix, category) =>
+  ["Alpha", "Bravo", "Charlie", "Delta", "Echo"].map((w) => rek(`${prefix} ${w}`, category));
 const snapJson = (item) =>
   JSON.stringify({
     detected_item: item,
