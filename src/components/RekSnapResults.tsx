@@ -30,7 +30,6 @@ import WineFacts from "./WineFacts";
 import HaulConfirm from "./HaulConfirm";
 import {
   PRICE_CHIPS,
-  SHELF_TIP,
   SINGLE_BOTTLE_TIP,
   bottleImageUrl,
   formatPrice,
@@ -2130,11 +2129,6 @@ const RekSnapResults: React.FC<Props> = ({
           <Camera size={16} />
           Snap another
         </button>
-      )}
-      {/* S8a — the shelf shot, taught where the next snap starts. Shares
-          its count (3) and its × with the camera screen's line. */}
-      {!limitReached && anchorIsWine && (
-        <QuietTip storageKey="shelf-shot" text={SHELF_TIP} className="mt-3 max-w-xs px-2" />
       )}
     </div>
   );
