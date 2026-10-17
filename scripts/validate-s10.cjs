@@ -24,7 +24,7 @@ function load(rel) {
   }).outputText;
   const m = { exports: {} };
   new Function("module", "exports", "require", out)(m, m.exports, (id) =>
-    id === "react" ? { useEffect() {}, useRef() {}, useState() {} } : require(id)
+    id === "react" ? { useEffect() {}, useMemo() {}, useRef() {}, useState() {} } : id.startsWith(".") ? {} : require(id)
   );
   return m.exports;
 }
@@ -56,27 +56,29 @@ check("empty read still fails (strip retry intact)", /if \(\s*cleanedRaw\.simila
 check("no new-to-me notice when wine picks ship", /alternatives\.length === 0 &&\s*cleaned\.similar\.length === 0;/.test(route), true);
 check("strips + typed branches untouched (still full reads)", (route.match(/content: SYSTEM_PROMPT/g) || []).length, 3);
 
-console.log("\n3. Wine results: the bottom tip is gone; the camera-screen tip stays");
+console.log("\n3. Wine results: the bottom tip is gone (S11 also removed the camera-screen tip)");
 const results = read("src/components/RekSnapResults.tsx");
 check("no SHELF_TIP on results", results.includes("SHELF_TIP"), false);
 check("Snap the shelf still under the anchor", results.includes("Snap the shelf"), true);
 const page = read("app/page.tsx");
-check("camera-screen tip kept", /<QuietTip\s+storageKey="shelf-shot"\s+text=\{SHELF_TIP\}/.test(page), true);
+check("camera-screen tip removed (S11, Brad)", page.includes("SHELF_TIP"), false);
 check("tips follow the bar's category", page.includes("<RekSnapButton onClick={openSnapPicker} category={barCategory} />"), true);
 
 console.log("\n4. Snap tips (Brad-approved wording, 2026-10-17)");
-const { SNAP_TIPS, tipIndexFor, TIP_INTERVAL_MS } = load("src/components/SnapTips.tsx");
-const text = SNAP_TIPS.map((t) => t.snap + t.rest);
-check("the approved tips, word for word, in order", text, [
+// S11 made the set context-aware (tipsFor); the full Wine + go-to set
+// still carries S10's five approved tips word for word.
+const { tipsFor, TIP_INTERVAL_MS } = load("src/components/SnapTips.tsx");
+const all = tipsFor("Wine", true);
+const text = all.map((t) => t.snap + t.rest);
+check("S10's approved tips, word for word", [
   "Snap a wine shelf to compare every bottle at once",
   "Snap a label to see how it stacks up to your go-to",
   "Snap a movie poster for the trailer and where to watch",
   "Snap your cart to keep track of what you bought",
   "Snap it, then send it. Friends see the card, no app needed",
-]);
-check("held back: restaurant wine list, TV", text.some((t) => /wine list|Snap the TV/.test(t)), false);
-check("each tip leads with its snap phrase", SNAP_TIPS.every((t) => t.snap.startsWith("Snap")), true);
-check("category start: Wine / Movies / TV Shows / Books", ["Wine", "Movies", "TV Shows", "Books", undefined].map(tipIndexFor), [0, 2, 2, 4, 0]);
+].every((t) => text.includes(t)), true);
+check("held back: restaurant wine list", text.some((t) => /wine list/i.test(t)), false);
+check("each tip leads with its snap phrase", all.every((t) => t.snap.startsWith("Snap")), true);
 check("rotation every 4–5 s", TIP_INTERVAL_MS >= 4000 && TIP_INTERVAL_MS <= 5000, true);
 const tipsSrc = read("src/components/SnapTips.tsx");
 check("reduced motion: no transition, no timer", tipsSrc.includes("if (reduced) return;") && tipsSrc.includes("style={reduced ? undefined"), true);

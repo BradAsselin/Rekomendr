@@ -1,29 +1,37 @@
 'use client';
 
 // S10 — the line under the RekSnap button: one tip at a time, a soft fade
-// every few seconds. Brad approved this wording as written (2026-10-17);
-// two of his tips are held back until the app does them reliably — the
-// restaurant wine list (reads the list, but anchors on a random bottle and
-// calls menu prices "on this shelf") and the TV (a cable info banner reads
-// as "Show S5 E14 …", so TMDb misses and there's no where-to-stream).
-// Rotation pauses while touched (and for one interval after). Reduced motion: no animation, no timer;
-// the tip moves on once per visit instead.
+// every few seconds. Brad approved this wording as written (2026-10-17).
+// S11 — context-aware: "Snap your cart" only on the Wine bar (hauls are
+// wine-only); the label tip names the go-to only once one is starred
+// (otherwise "how it compares", Brad-approved); the TV tip is back now a
+// cable banner's "S5 E14 …" no longer hides the show from TMDb. Still held
+// back: the restaurant wine list (needs its own mode — session log).
+// Rotation pauses while touched (and for one interval after). Reduced
+// motion: no animation, no timer; the tip moves on once per visit instead.
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 
-export type SnapTip = { snap: string; rest: string; categories?: string[] };
+import { getWineFavorite, onWineFavoriteChange } from '../lib/wineVisit';
 
-export const SNAP_TIPS: SnapTip[] = [
-  { snap: 'Snap a wine shelf', rest: ' to compare every bottle at once', categories: ['Wine'] },
-  { snap: 'Snap a label', rest: ' to see how it stacks up to your go-to' },
-  {
-    snap: 'Snap a movie poster',
-    rest: ' for the trailer and where to watch',
-    categories: ['Movies', 'TV Shows'],
-  },
-  { snap: 'Snap your cart', rest: ' to keep track of what you bought' },
-  { snap: 'Snap it, then send it.', rest: ' Friends see the card, no app needed', categories: ['Books'] },
-];
+export type SnapTip = { id: string; snap: string; rest: string; starts?: string[] };
+
+// The tips that apply right now, in rotation order. `starts`: the bar
+// categories that open on this tip.
+export function tipsFor(category: string | undefined, hasGoTo: boolean): SnapTip[] {
+  const wine = category === 'Wine';
+  const tips: (SnapTip | null)[] = [
+    { id: 'shelf', snap: 'Snap a wine shelf', rest: ' to compare every bottle at once', starts: ['Wine'] },
+    hasGoTo
+      ? { id: 'label-goto', snap: 'Snap a label', rest: ' to see how it stacks up to your go-to' }
+      : { id: 'label', snap: 'Snap a label', rest: ' to see how it compares' },
+    { id: 'poster', snap: 'Snap a movie poster', rest: ' for the trailer and where to watch', starts: ['Movies'] },
+    { id: 'tv', snap: 'Snap the TV', rest: " to see what's playing and where to stream it", starts: ['TV Shows'] },
+    wine ? { id: 'cart', snap: 'Snap your cart', rest: ' to keep track of what you bought' } : null,
+    { id: 'send', snap: 'Snap it, then send it.', rest: ' Friends see the card, no app needed', starts: ['Books'] },
+  ];
+  return tips.filter((t): t is SnapTip => t !== null);
+}
 
 export const TIP_INTERVAL_MS = 4500;
 const FADE_MS = 400;
@@ -31,8 +39,8 @@ const VISIT_KEY = 'rekomendr.snap_tip_visit';
 const VISIT_SEEN = 'rekomendr.snap_tip_counted';
 
 // The tip that matches the bar's category; the first tip otherwise.
-export function tipIndexFor(category: string | undefined): number {
-  const i = SNAP_TIPS.findIndex((t) => !!category && t.categories?.includes(category));
+export function tipIndexFor(tips: SnapTip[], category: string | undefined): number {
+  const i = tips.findIndex((t) => !!category && t.starts?.includes(category));
   return i < 0 ? 0 : i;
 }
 
@@ -62,7 +70,9 @@ function prefersReducedMotion(): boolean {
 }
 
 export default function SnapTips({ category }: { category?: string }) {
-  const [index, setIndex] = useState(() => tipIndexFor(category));
+  const [hasGoTo, setHasGoTo] = useState(false);
+  const tips = useMemo(() => tipsFor(category, hasGoTo), [category, hasGoTo]);
+  const [index, setIndex] = useState(() => tipIndexFor(tips, category));
   const [shown, setShown] = useState(true);
   const [reduced, setReduced] = useState(false);
   // Touching the line holds the tip; after release it stays one full
@@ -70,12 +80,20 @@ export default function SnapTips({ category }: { category?: string }) {
   const paused = useRef(false);
   const touchedAt = useRef(0);
 
+  // The go-to lives in localStorage (and changes when a star is tapped).
+  useEffect(() => {
+    const read = () => setHasGoTo(!!getWineFavorite());
+    read();
+    return onWineFavoriteChange(read);
+  }, []);
+
   // The bar's category picks the starting tip (and re-picks on change).
   useEffect(() => {
-    const base = tipIndexFor(category);
+    const list = tipsFor(category, false);
+    const base = tipIndexFor(list, category);
     const r = prefersReducedMotion();
     setReduced(r);
-    setIndex(r ? (base + visitOffset()) % SNAP_TIPS.length : base);
+    setIndex(r ? (base + visitOffset()) % list.length : base);
     setShown(true);
   }, [category]);
 
@@ -86,7 +104,7 @@ export default function SnapTips({ category }: { category?: string }) {
       if (paused.current || Date.now() - touchedAt.current < TIP_INTERVAL_MS) return;
       setShown(false);
       fade = setTimeout(() => {
-        setIndex((i) => (i + 1) % SNAP_TIPS.length);
+        setIndex((i) => (i + 1) % tips.length);
         setShown(true);
       }, FADE_MS);
     }, TIP_INTERVAL_MS);
@@ -94,9 +112,9 @@ export default function SnapTips({ category }: { category?: string }) {
       clearInterval(tick);
       if (fade) clearTimeout(fade);
     };
-  }, [reduced, category]);
+  }, [reduced, tips]);
 
-  const tip = SNAP_TIPS[index];
+  const tip = tips[index % tips.length];
   const hold = () => {
     paused.current = true;
   };
@@ -114,7 +132,8 @@ export default function SnapTips({ category }: { category?: string }) {
       onPointerUp={release}
       onPointerCancel={release}
       onPointerLeave={release}
-      data-tip-index={index}
+      data-tip-index={index % tips.length}
+      data-tip={tip.id}
     >
       <span className="font-semibold text-gray-100">{tip.snap}</span>
       <span className="font-normal text-gray-300">{tip.rest}</span>

@@ -11,8 +11,6 @@ import RekSnapResults, {
 import RecipeModal from "../src/components/RecipeModal";
 import AuthControl from "../src/components/AuthControl";
 import InstallCoach from "../src/components/InstallCoach";
-import QuietTip from "../src/components/QuietTip";
-import { SHELF_TIP } from "../src/lib/wineShelf";
 import {
   installOfferSnoozed,
   isStandalone,
@@ -972,11 +970,6 @@ export default function Page() {
             {!hasSnapped && (
               <div className="sm:hidden">
                 <RekSnapButton onClick={openSnapPicker} category={barCategory} />
-                <QuietTip
-                  storageKey="shelf-shot"
-                  text={SHELF_TIP}
-                  className="mx-auto mt-4 max-w-xs px-2"
-                />
               </div>
             )}
             </>
