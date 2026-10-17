@@ -35,5 +35,16 @@ check(
   true
 );
 
+console.log("2. Snap the shelf");
+const btn = src.indexOf("Snap the shelf");
+check("button exists once", btn > 0 && src.indexOf("Snap the shelf", btn + 1) === -1, true);
+const block = src.slice(src.lastIndexOf("{anchorIsWine && !limitReached", btn), btn);
+check("wine only, hidden at the snap limit and on a checkout snap", block.includes('{anchorIsWine && !limitReached && wineMeta?.scene !== "haul" && ('), true);
+check("opens the same camera as Snap another", block.includes("onClick={() => onSnapAgain?.()}"), true);
+const anchorEnd = src.indexOf("{anchorShareable && (");
+const trail = src.indexOf("{trail.length > 0 && (");
+check("sits under the anchor (after its Share row, before the trail)", btn > anchorEnd && btn < trail, true);
+check("Snap another kept", (src.match(/Snap another/g) || []).length >= 2, true);
+
 console.log(`\n${passed} passed, ${failed} failed.`);
 process.exit(failed ? 1 : 0);
