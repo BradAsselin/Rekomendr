@@ -250,7 +250,8 @@ const IMG = "data:image/jpeg;base64,AAAA";
   check("three snaps → 15 reks, all different", [allNames.length, new Set(allNames).size], [15, 15]);
   check("never Decoy, never the favorite, never out of band", [allNames.some((n) => /decoy|bonanza|splurgey/.test(n))], [false]);
   check("every rek carries a token; model-written vs_favorite rides through", first.results.similar.slice(1).every((x) => x.wine.vsFavorite === "drier" && !!x.token), true);
-  check("Use it for and Instead try stay the vision read's", [first.results.uses[0].name, first.results.alternatives[0].name], ["Dish 1", "Alt 1"]);
+  // S10 — wine shows Similar only, so the vision stream stops after it.
+  check("Use it for and Instead try not generated on wine (S10)", [first.results.uses.length, first.results.alternatives.length], [0, 0]);
   check("shelf read once per snap, picks once per snap", [calls.shelf, calls.wine], [3, 3]);
 
   out("\n6. The route — the text branch");

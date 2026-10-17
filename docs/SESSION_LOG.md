@@ -1317,3 +1317,81 @@ FIELD RESULTS:
 VALIDATION:
 - Harnesses: new validate-s9 (tab gates, plus button fences in S9b), s21 updated for the new Similar-forcing line, s4a stub fixed; every harness green (s1 50, s15 54, s2 97, s21 364, s23 35, s30 69, s36 59, s4a 82, s4b 48, s5 32, s6 36, s7 21, s8a 39, s8b 44, s8c 20). tsc and lint clean.
 - Playwright at 390×844 on local dev, end-cap fixture, live model: no Similar / Use it for / Instead try buttons; chips then reks; one Snap the shelf, above the chips; tap opens the file chooser; anchor unchanged; Snap another kept.
+
+### S9b update — 2026-10-17
+Brad approved the "Snap the shelf" label; #34 merged (`31edf6b`).
+
+---
+
+## Session 10 — wine-lean + snap-tips — 2026-10-17 — branch auto/s10-wine-lean-tips (local agent mode, §11)
+
+Brad's instructions:
+- Remove the bottom-of-results wine tip; keep the camera-screen tip. Wording removal approved.
+- Stop generating Use it for / Instead try on wine snaps; measure before/after.
+- Replace the line under RekSnap with rotating tips. Wording approved as written; drop any tip the app can't do reliably yet.
+- Merge when green.
+
+SHIPPED:
+- **Bottom wine tip removed** from wine results. The camera-screen tip stays (shared count and ×, unchanged).
+- **Wine snaps stop after Similar.** The vision stream used to run to the end on wine, writing 10 reks nobody sees.
+  - It now stops the moment the anchor reads as wine and the Similar list closes. Similar is kept as the engine's fallback.
+  - The response carries empty Use it for / Instead try lists.
+  - If Similar never closes, the full read ships as before. An empty Similar is still a failed read, so S8a's strip retry is intact.
+  - Log line: `[wine] vision cut after Similar`.
+- **Rotating tips under RekSnap**:
+  - One tip at a time, a 400ms fade every 4.5s; the snap phrase is semibold, the rest regular; centered, 13px, light on the dark home.
+  - Touching the line holds the tip, and it stays one more interval after release.
+  - Reduced motion: no fade and no timer; each visit (browser session) starts one tip further on.
+  - It starts on the tip matching the bar's category: Wine → shelf, Movies/TV → poster, Books → send. It restarts when the bar changes.
+
+MEASURED (local dev, gpt-4o live, bar on Wine, fresh client per snap, same three fixtures, two rounds; n = 18 per side):
+
+| fixture | before median / mean | after median / mean |
+|---|---|---|
+| end cap (10–12 bottles) | 13.6s / 14.1s | 12.8s / 12.5s |
+| two shelves (6–7) | 11.5s / 11.6s | 10.9s / 11.0s |
+| Alsace (1–2) | 11.7s / 11.8s | 9.0s / 9.0s |
+| **all** | **12.1s / 12.5s** | **10.9s / 10.8s** |
+
+- Roughly 1.2s off the median and 1.7s off the mean.
+- The gain is largest on small shelves. On busy shelves the long pole is now the wine picks call, which waits on the shelf read (2.0–5.7s measured).
+- Next lever for the 10–12s follow-up: the picks call (stream it, or start it before the shelf read finishes). Not built.
+
+TIPS DROPPED (Brad: drop any tip the app can't do reliably yet):
+- **"Snap a restaurant wine list to find your pick."** Tested with a rendered 10-wine restaurant list, two snaps:
+  - The list reads perfectly, with bottle prices.
+  - **The anchor is a random wine from the list** (Josh Cellars, then Ruffino). The user hasn't chosen, so "your pick" is relative to nothing.
+  - Menu bottle prices show as "**$52.00 on this shelf**", which is wrong for a restaurant, and the glass prices are ignored.
+  - A red anchor's picks mixed in whites ("Similarly dry" for a Pinot Grigio).
+  - One snap took 19s.
+  - Needs a menu scene (no anchor, or the go-to as anchor; "on the list" pricing). Not built.
+- **"Snap the TV to see what's playing and where to stream it."**
+  - A streaming title screen works: The Bear → TMDb, Disney Plus/Hulu, trailer, 4.6s.
+  - A cable info banner fails: it reads as "Breaking Bad S5 E14 'Ozymandias'", the TMDb lookup misses, and there's no where-to-stream (17s, vision path).
+  - A plain mid-scene frame wasn't tested.
+  - Fix: strip season/episode from a TV anchor before the TMDb lookup. Not built.
+
+CALLS MADE:
+1. **Category start map.** Movies and TV Shows start on the poster tip (with the TV tip gone, it's the closest); Books starts on "Snap it, then send it" (no book tip). Unknown → the first tip.
+2. **Pause on touch = hold**, plus one full interval after release so the tip can be finished.
+3. **"Visit" for reduced motion = a browser session** (sessionStorage flag, localStorage counter, both wrapped).
+4. **The bar's category now reaches the page as state** (`barCategory`). It was a ref only, so the tips couldn't follow it.
+5. **Typed wine and the strip retry still write all three lists.** Both are non-streamed and can't be cut without a prompt change; left as is.
+
+FOUND, NOT FIXED:
+- The camera-screen shelf tip now sits right under a rotating tip that often says nearly the same thing ("Snap a wine shelf to compare every bottle at once" / "Tip: snap one or two shelves to compare bottles"). Kept, per Brad; he may want one gone after seeing it.
+- **"Snap your cart" works for wine hauls only.** A grocery cart without wine isn't tracked.
+- **"Snap a label…your go-to" needs a starred go-to**; without one there's no comparison.
+- "Compare every bottle at once" is generous: the shelf is read whole, but 5 reks show, and a dense 3-shelf aisle can still fail.
+
+VALIDATION:
+- Harnesses: new validate-s10 26/26.
+  - Updated: s8b (wine's uses/alternatives now empty), s21 (positive control uses beer in place of wine).
+  - Every harness green: s1 50, s15 54, s2 97, s21 364, s23 35, s30 69, s36 59, s4a 82, s4b 48, s5 32, s6 36, s7 21, s8a 39, s8b 44, s8c 20, s9 9, s10 26.
+  - tsc and lint clean.
+- Caught by s8a during the build: my first cut also skipped the empty-read check, so a dense shelf that read nothing returned 200 instead of asking for strips. Restored before commit.
+- Playwright at 390×844 on local dev (19 checks, all pass):
+  - Movies starts on the poster tip; Wine on the shelf tip; the phrase is heavier (600 vs 400); it rotates in ~5s with an opacity fade.
+  - Touch holds through 9.5s and resumes after release; 5 tips cycle; no wine-list or TV tip.
+  - Camera-screen tip kept. Reduced motion: no transition, no timer, the next visit moves on.
+  - Wine result: no bottom tip, Snap the shelf present, no tabs.
