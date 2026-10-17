@@ -1809,6 +1809,21 @@ const RekSnapResults: React.FC<Props> = ({
           />
         )}
 
+        {/* S9 — the shelf shot, one tap from the anchor. Opens the same
+            camera as Snap another; the anchor stays where it is. */}
+        {anchorIsWine && !limitReached && wineMeta?.scene !== "haul" && (
+          <div className="mt-3 flex justify-center">
+            <button
+              type="button"
+              onClick={() => onSnapAgain?.()}
+              className="px-4 py-2 rounded-xl text-sm border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 flex items-center gap-1.5"
+            >
+              <Camera size={16} />
+              Snap the shelf
+            </button>
+          </div>
+        )}
+
         {/* S8b — after a single-bottle wine snap, one quiet line toward
             the shelf shot (dismissible, at most 3 times). */}
         {canClaimHaul && (
