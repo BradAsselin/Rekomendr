@@ -334,7 +334,11 @@ const RekSnapResults: React.FC<Props> = ({
       const health = isHealthMedical(
         (result.detected_item.category ?? "").trim().toLowerCase()
       );
-      setActiveMode(health ? "similar" : result.mode);
+      // S9 — a wine anchor has no tabs, so it always shows Similar
+      // (the model may infer uses/alternatives for a bottle).
+      setActiveMode(
+        health || isWineCategory(result.detected_item.category) ? "similar" : result.mode
+      );
       setThumbSignals({});
       setSavedNames(result.saved ? { [result.detected_item.name]: true } : {});
       setTrail([]);
@@ -1478,8 +1482,9 @@ const RekSnapResults: React.FC<Props> = ({
     ) : undefined;
   const anchorWatch = anchorIsMedia ? result.media?.watch ?? null : null;
   // TMDb-path media anchors offer Similar only; a row with one pill is not
-  // a choice (the S2.1 precedent).
-  const showModePills = !anchorIsHealthMedical && !result.media;
+  // a choice (the S2.1 precedent). S9: wine anchors drop the tabs too —
+  // the reks sit straight under the price chips.
+  const showModePills = !anchorIsHealthMedical && !result.media && !anchorIsWine;
 
   // "uses"-mode cards push through to a recipe only when the anchor is
   // actually something you eat or drink. S1.5 flipped this from a

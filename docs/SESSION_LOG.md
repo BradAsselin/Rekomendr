@@ -1287,3 +1287,33 @@ Checks run this session:
 2. **Short-name option for the go-to.** Let the user set what the lead calls it ("Bonanza" rather than "Caymus Bonanza"). The new lead text is VOICE, so it needs Brad's OK.
 3. **Carry the go-to and Bought list over on sign-in.** `/api/auth/merge` needs to move `wine_marks` rows from the anon id to the account.
 4. **The 10–12s wine snap.** Measure where the time goes (vision stream vs. shelf read vs. picks) before choosing a fix.
+
+---
+
+## Session 9 — wine-no-tabs (S9a + S9b) — 2026-10-17 — branches auto/s9-wine-no-tabs, auto/s9b-snap-the-shelf (local agent mode, §11)
+
+Brad's design call from field testing: on wine results, remove the Similar / Use it for / Instead try tabs so the reks sit straight under the price chips, and add one "Snap the shelf" button under the wine anchor that opens the camera. Wine only.
+
+SHIPPED (S9a, merge when green):
+- **No tabs on wine.** `showModePills` now also gates on `!anchorIsWine`. A wine result always opens on Similar, even when the vision model inferred "uses" or "alternatives" for the bottle; otherwise a tab-less result could have opened on a list with no chips.
+- **Tabs kept everywhere else.** Movies and TV still use them: a *snapped* movie or TV poster goes through the vision path and gets all three tabs. Only typed titles (TMDb path) were already tab-less. Left as is, per Brad.
+
+HELD FOR BRAD (S9b, PR open, not merged):
+- **"Snap the shelf"** under the wine anchor (after its Share row, above the chips). It opens the same camera as Snap another; the anchor stays in place. Hidden at the snap limit and on a checkout snap. Snap another stays at the bottom.
+- The label is new wording, so it waits for Brad's OK (standing rule, 2026-10-16).
+
+CALLS MADE:
+1. **Split into two PRs** so the tab removal can merge while the label waits.
+2. **Hide the button on a checkout snap.** At the register there is no shelf to snap; "I bought these" is the action there.
+3. **Keep the camera-screen shelf tip** at the bottom of wine results. It now says the same thing as the button; Brad may want one of them gone after seeing it.
+
+FOUND, NOT FIXED:
+- **Wine still generates the Use it for / Instead try lists server-side**, now never shown. That's wasted tokens and time on every wine snap; a candidate for the 10–12s follow-up.
+- **s4a was failing on main after S8c.** S8c's `/api/stats` wine readout queries `wine_marks`, which s4a's Supabase stub never seeded, so the harness crashed partway (stats section). My S8 report listed s4a as 82/82; that was from before the S8c stats change, and I didn't rerun it after. Fixed in S9a (stub seeds `wine_marks`); 82/82 now.
+
+FIELD RESULTS:
+- Katrina on the taste bars: "This is what I needed yesterday, and I wouldn't need Vivino."
+
+VALIDATION:
+- Harnesses: new validate-s9 (tab gates, plus button fences in S9b), s21 updated for the new Similar-forcing line, s4a stub fixed; every harness green (s1 50, s15 54, s2 97, s21 364, s23 35, s30 69, s36 59, s4a 82, s4b 48, s5 32, s6 36, s7 21, s8a 39, s8b 44, s8c 20). tsc and lint clean.
+- Playwright at 390×844 on local dev, end-cap fixture, live model: no Similar / Use it for / Instead try buttons; chips then reks; one Snap the shelf, above the chips; tap opens the file chooser; anchor unchanged; Snap another kept.
