@@ -1395,3 +1395,60 @@ VALIDATION:
   - Touch holds through 9.5s and resumes after release; 5 tips cycle; no wine-list or TV tip.
   - Camera-screen tip kept. Reduced motion: no transition, no timer, the next visit moves on.
   - Wine result: no bottom tip, Snap the shelf present, no tabs.
+
+---
+
+## Session 11 — tips-tv-banner — 2026-10-17 — branch auto/s11-tips-tv-banner (local agent mode, §11)
+
+Brad's instructions:
+- Remove the old camera-screen tip on the Wine bar.
+- Make the tips context-aware: cart on Wine only; the go-to label only once a go-to is starred, else "Snap a label to see how it compares" (approved).
+- Build the TV banner fix, then add back the TV tip.
+- Log a restaurant wine-list mode for a future session.
+- Merge when green.
+
+SHIPPED:
+- **Camera-screen shelf tip removed** ("Tip: snap one or two shelves to compare bottles"), and its `SHELF_TIP` constant retired. The single-bottle tip on wine results stays.
+- **Context-aware tips:**
+  - "Snap your cart…" only on the Wine bar.
+  - The label tip reads "…stacks up to your go-to" only once a go-to is starred, else "Snap a label to see how it compares". It switches live when a star is tapped (the favorite event).
+  - The TV tip is back: "Snap the TV to see what's playing and where to stream it". The TV Shows bar starts on it.
+- **TV banner fix.** On a snapped TV/unknown title, everything from the first season/episode marker on is cut before the TMDb show search.
+  - Markers: S5 E14, S05E14, S5:E14, 5x14, Season 5 Episode 14, Episode 14 / Ep. 14, with any episode title after them.
+  - Movie titles are never cut.
+  - Log line: `[media-snap] episode info stripped`.
+
+TV RESULTS (local dev, live vision + TMDb, bar on TV Shows, rendered TV screens, 2 snaps each, 8/8 pass):
+
+| screen | before S11 | after |
+|---|---|---|
+| Breaking Bad cable banner, `S5 E14 "Ozymandias"` | anchor "Breaking Bad S5 E14 'Ozymandias'", no TMDb, no where-to-stream, 17.3s | "Breaking Bad" → Netflix, trailer, 3.8–4.0s |
+| Succession guide banner, "Season 4, Episode 3 · Connor's Wedding" | not tested before | "Succession" → HBO Max, trailer, 4.1–5.4s (strip fired) |
+| The Office banner, "S02E01 · The Dundies" | not tested before | "The Office" → Peacock, YouTube TV, TBS, 3.8–4.3s (model already gave the show name) |
+| The Bear streaming title page | passed | passes → Disney Plus, Hulu, YouTube TV, 4.7–5.7s |
+
+- Not tested: a plain mid-scene frame with no on-screen title or banner. The tip promises "what's playing", which still depends on the model recognizing the scene.
+
+CALLS MADE:
+1. **The camera-screen tip is removed on every bar, not just Wine.** It only ever spoke about wine shelves, and the rotating tips now carry that message.
+2. **Rotation order:** shelf, label, poster, TV, cart (Wine only), send. Starts: Wine → shelf, Movies → poster, TV Shows → TV, Books → send.
+3. **Strip scope:** cut at the first marker, keep what's before it, and only when at least two characters remain. A name that starts with a marker is left alone.
+
+FOR A FUTURE SESSION (Brad, 2026-10-17): **restaurant wine-list mode.**
+- No anchor; read the list with its prices.
+- "On the list" instead of "on this shelf", with bottle vs. glass prices.
+- Color-consistent picks, tuned to the go-to.
+- The S10 test (a rendered 10-wine list) is the starting fixture: `winelist.cjs` in the session scratchpad.
+
+VALIDATION:
+- Harnesses: new validate-s11 40/40.
+  - Episode cases plus 11 titles that must survive: Se7en, S.W.A.T., Apollo 13, Episodes…
+  - The tip sets per category and go-to, the wording, and the starts.
+  - validate-s10 updated for the new tips API and the removed tip (25).
+  - Every harness green; tsc and lint clean.
+- Playwright at 390×844 on local dev, 14/14:
+  - Camera-screen tip gone on Movies and Wine.
+  - Starts: poster, TV, shelf.
+  - No cart on Movies; all six tips on Wine.
+  - "…how it compares" without a go-to; starring one switches it live; a stored go-to shows only the go-to version.
+  - Reduced motion: still no timer.
