@@ -76,9 +76,6 @@ export function stripPairingSentence(description: string): string {
   return [first, ...kept].join(" ");
 }
 
-// S8a — the shelf shot, taught in one line (camera screen + under "Snap
-// another" on a wine result). Plain voice: it is about the app's machinery.
-export const SHELF_TIP = "Tip: snap one or two shelves to compare bottles";
 
 // ---------------------------------------------------------------------------
 // S8a — the bottle, and where to buy it. Plain link handoffs, new tab, no

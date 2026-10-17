@@ -303,12 +303,33 @@ export async function resolveTypedTitleChecked(
 const PACKAGE_NOISE =
   /\b(dvd|blu[\s-]?ray|4k|uhd|ultra hd|vhs|digital|steelbook|special edition|collector'?s edition|box set|poster|movie|film|the complete series|complete series|season \d+)\b/gi;
 
+/* S11 — a cable info banner names the EPISODE ("Breaking Bad S5 E14
+   'Ozymandias'"), and TMDb's show search misses on that whole string. The
+   show is everything before the first season/episode marker: S5 E14,
+   S05E14, S5:E14, 5x14, Season 5 Episode 14, Episode 14 / Ep. 14. The
+   episode title after it (quoted or not) goes with it. TV and unknown
+   kinds only — a movie title is never cut. */
+const EPISODE_MARKER =
+  /(?:\(\s*)?(?:\bS\d{1,2}\s*[:.\-]?\s*Ep?\s*\d{1,3}\b|\b\d{1,2}x\d{1,3}\b|\bSeason\s+\d{1,2}\s*[,:\-]?\s*(?:Episode|Ep\.?)\s*\d{1,3}\b|\b(?:Episode|Ep\.)\s*\d{1,3}\b)/i;
+
+export function stripEpisodeInfo(name: string): string {
+  const m = EPISODE_MARKER.exec(name);
+  if (!m || m.index === 0) return name;
+  const show = name
+    .slice(0, m.index)
+    .replace(/[\s:,\-–—|·(]+$/, "")
+    .trim();
+  return show.length >= 2 ? show : name;
+}
+
 export async function resolveSnappedTitle(
   name: string,
   kindHint: MediaKind | "any"
 ): Promise<ResolvedTitle | null> {
   if (!key()) return null;
-  const { title, year } = splitTypedYear(name.replace(PACKAGE_NOISE, " ").replace(/\s+/g, " "));
+  const read = kindHint === "movie" ? name : stripEpisodeInfo(name);
+  if (read !== name) console.info("[media-snap] episode info stripped", { read: name, show: read });
+  const { title, year } = splitTypedYear(read.replace(PACKAGE_NOISE, " ").replace(/\s+/g, " "));
   const wanted = normalizeTitle(title);
   if (!wanted) return null;
   const kinds: MediaKind[] = kindHint === "any" ? ["movie", "tv"] : [kindHint];

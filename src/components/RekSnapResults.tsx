@@ -30,7 +30,6 @@ import WineFacts from "./WineFacts";
 import HaulConfirm from "./HaulConfirm";
 import {
   PRICE_CHIPS,
-  SHELF_TIP,
   SINGLE_BOTTLE_TIP,
   bottleImageUrl,
   formatPrice,
@@ -334,7 +333,11 @@ const RekSnapResults: React.FC<Props> = ({
       const health = isHealthMedical(
         (result.detected_item.category ?? "").trim().toLowerCase()
       );
-      setActiveMode(health ? "similar" : result.mode);
+      // S9 — a wine anchor has no tabs, so it always shows Similar
+      // (the model may infer uses/alternatives for a bottle).
+      setActiveMode(
+        health || isWineCategory(result.detected_item.category) ? "similar" : result.mode
+      );
       setThumbSignals({});
       setSavedNames(result.saved ? { [result.detected_item.name]: true } : {});
       setTrail([]);
@@ -1478,8 +1481,9 @@ const RekSnapResults: React.FC<Props> = ({
     ) : undefined;
   const anchorWatch = anchorIsMedia ? result.media?.watch ?? null : null;
   // TMDb-path media anchors offer Similar only; a row with one pill is not
-  // a choice (the S2.1 precedent).
-  const showModePills = !anchorIsHealthMedical && !result.media;
+  // a choice (the S2.1 precedent). S9: wine anchors drop the tabs too —
+  // the reks sit straight under the price chips.
+  const showModePills = !anchorIsHealthMedical && !result.media && !anchorIsWine;
 
   // "uses"-mode cards push through to a recipe only when the anchor is
   // actually something you eat or drink. S1.5 flipped this from a
@@ -1804,6 +1808,21 @@ const RekSnapResults: React.FC<Props> = ({
           />
         )}
 
+        {/* S9 — the shelf shot, one tap from the anchor. Opens the same
+            camera as Snap another; the anchor stays where it is. */}
+        {anchorIsWine && !limitReached && wineMeta?.scene !== "haul" && (
+          <div className="mt-3 flex justify-center">
+            <button
+              type="button"
+              onClick={() => onSnapAgain?.()}
+              className="px-4 py-2 rounded-xl text-sm border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 flex items-center gap-1.5"
+            >
+              <Camera size={16} />
+              Snap the shelf
+            </button>
+          </div>
+        )}
+
         {/* S8b — after a single-bottle wine snap, one quiet line toward
             the shelf shot (dismissible, at most 3 times). */}
         {canClaimHaul && (
@@ -2110,11 +2129,6 @@ const RekSnapResults: React.FC<Props> = ({
           <Camera size={16} />
           Snap another
         </button>
-      )}
-      {/* S8a — the shelf shot, taught where the next snap starts. Shares
-          its count (3) and its × with the camera screen's line. */}
-      {!limitReached && anchorIsWine && (
-        <QuietTip storageKey="shelf-shot" text={SHELF_TIP} className="mt-3 max-w-xs px-2" />
       )}
     </div>
   );

@@ -183,7 +183,9 @@ const IMAGE = "data:image/jpeg;base64,AAAA";
   check("no new-to-me notice", thin.json?.notice, undefined);
 
   out("\n3. Positive control: non-health anchors are unchanged");
-  for (const category of ["wine", "scotch", "food", "book", "cleaning"]) {
+  // S10: wine left this control — a wine snap now ships Similar only (its
+  // tabs are gone); beer stands in as the non-health drink.
+  for (const category of ["beer", "scotch", "food", "book", "cleaning"]) {
     logs = [];
     ai.next = visionAnswer(category, "uses");
     const r = await post({ image: IMAGE });
@@ -219,7 +221,7 @@ const IMAGE = "data:image/jpeg;base64,AAAA";
       /\{showModePills && \(\s*<div className="flex justify-center gap-2 mb-3">/.test(src),
     true
   );
-  check("activeMode forced to similar on health", src.includes('setActiveMode(health ? "similar" : result.mode)'), true);
+  check("activeMode forced to similar on health", src.includes('health || isWineCategory(result.detected_item.category) ? "similar" : result.mode'), true);
   check("every list emptied on health", src.includes("? { similar: [], uses: [], alternatives: [] }"), true);
   check("the plain line, exact wording", src.includes(`const HEALTH_ANCHOR_LINE = "Rekomendr doesn't recommend health products.";`), true);
   check("line shown on the anchor, health only", src.includes("markerLine={anchorIsHealthMedical ? HEALTH_ANCHOR_LINE : undefined}"), true);

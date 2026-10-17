@@ -2,9 +2,11 @@
 import React from 'react';
 import { Camera } from 'lucide-react';
 
-type Props = { onClick?: () => void };
+import SnapTips from './SnapTips';
 
-export default function RekSnapButton({ onClick }: Props) {
+type Props = { onClick?: () => void; category?: string };
+
+export default function RekSnapButton({ onClick, category }: Props) {
   return (
     <div className="flex flex-col items-center w-full mt-10">
       <button
@@ -17,9 +19,7 @@ export default function RekSnapButton({ onClick }: Props) {
         <span className="text-white font-medium text-xl tracking-wide">RekSnap</span>
       </button>
       <p className="mt-3 text-[11px] text-gray-400">powered by Reks Ray™</p>
-      <p className="mt-1.5 text-[11px] text-gray-400 text-center px-8">
-        Snap a menu, shelf, screen, or list — Rek anything.
-      </p>
+      <SnapTips category={category} />
     </div>
   );
 }

@@ -11,8 +11,6 @@ import RekSnapResults, {
 import RecipeModal from "../src/components/RecipeModal";
 import AuthControl from "../src/components/AuthControl";
 import InstallCoach from "../src/components/InstallCoach";
-import QuietTip from "../src/components/QuietTip";
-import { SHELF_TIP } from "../src/lib/wineShelf";
 import {
   installOfferSnoozed,
   isStandalone,
@@ -411,6 +409,8 @@ export default function Page() {
   // S8a — the bar's category, mirrored here (it rides each snap as a hint),
   // and the one way a snap moves the bar: bump `n` with the new value.
   const barCategoryRef = useRef<string>("Movies");
+  // S10 — the same bar category, as state: the snap tips start on its tip.
+  const [barCategory, setBarCategory] = useState<string | undefined>(undefined);
   const [barCategoryHint, setBarCategoryHint] = useState<{ value: Category | null; n: number }>({
     value: null,
     n: 0,
@@ -928,6 +928,7 @@ export default function Page() {
           onSnap={openSnapPicker}
           onCategoryChange={(c) => {
             barCategoryRef.current = c;
+            setBarCategory(c);
           }}
           categoryHint={barCategoryHint}
           registerVibePlay={(fn) => {
@@ -968,12 +969,7 @@ export default function Page() {
             )}
             {!hasSnapped && (
               <div className="sm:hidden">
-                <RekSnapButton onClick={openSnapPicker} />
-                <QuietTip
-                  storageKey="shelf-shot"
-                  text={SHELF_TIP}
-                  className="mx-auto mt-4 max-w-xs px-2"
-                />
+                <RekSnapButton onClick={openSnapPicker} category={barCategory} />
               </div>
             )}
             </>

@@ -46,3 +46,47 @@ export function extractCompleteObject(buf: string, key: string): Record<string, 
   }
   return null;
 }
+
+// S10 — the array at `"<key>": [ … ]` once it is complete in `buf`, else
+// null. The key is looked for only after `after` (when given), so a
+// `"similar"` inside the anchor's text can't be mistaken for the list.
+// A wine snap reads Similar this way and stops the stream there: Use it
+// for / Instead try are never shown on wine.
+export function extractCompleteArray(buf: string, key: string, after?: string): unknown[] | null {
+  const from = after ? buf.indexOf(`"${after}"`) : 0;
+  if (from < 0) return null;
+  const at = buf.indexOf(`"${key}"`, from);
+  if (at < 0) return null;
+  let i = buf.indexOf(":", at + key.length + 2);
+  if (i < 0) return null;
+  i++;
+  while (i < buf.length && /\s/.test(buf[i])) i++;
+  if (buf[i] !== "[") return null;
+  const start = i;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (; i < buf.length; i++) {
+    const ch = buf[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === "\\") escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') inString = true;
+    else if (ch === "[") depth++;
+    else if (ch === "]") {
+      depth--;
+      if (depth === 0) {
+        try {
+          const parsed = JSON.parse(buf.slice(start, i + 1));
+          return Array.isArray(parsed) ? parsed : null;
+        } catch {
+          return null;
+        }
+      }
+    }
+  }
+  return null;
+}

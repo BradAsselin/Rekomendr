@@ -28,7 +28,7 @@ import {
 } from "../../../src/lib/openaiFailure";
 import { capGate } from "../../../src/lib/apiUsage";
 import { mediaKindFor } from "../../../src/lib/snapTitleGuard";
-import { extractCompleteObject } from "../../../src/lib/jsonEarly";
+import { extractCompleteArray, extractCompleteObject } from "../../../src/lib/jsonEarly";
 import {
   loadMediaBundle,
   mediaCategoryFor,
@@ -1101,6 +1101,17 @@ async function startVisionStream(content: VisionContent) {
     detectedSettled = true;
     settle(v);
   };
+  // S10 — the Similar list, the moment it closes (wine reads it and stops).
+  let similarSettled = false;
+  let settleSim: (v: unknown[] | null) => void = () => {};
+  const similar = new Promise<unknown[] | null>((r) => {
+    settleSim = r;
+  });
+  const settleSimilar = (v: unknown[] | null) => {
+    if (similarSettled) return;
+    similarSettled = true;
+    settleSim(v);
+  };
 
   const consumed = (async () => {
     try {
@@ -1115,9 +1126,14 @@ async function startVisionStream(content: VisionContent) {
           const d = extractCompleteObject(buf, "detected_item");
           if (d) settleDetected(d);
         }
+        if (!similarSettled && detectedSettled) {
+          const sim = extractCompleteArray(buf, "similar", "results");
+          if (sim) settleSimilar(sim);
+        }
       }
     } finally {
       settleDetected(null);
+      settleSimilar(null);
     }
   })();
   // A deliberate stop is not an error; anything else surfaces via done().
@@ -1125,6 +1141,7 @@ async function startVisionStream(content: VisionContent) {
 
   return {
     detected,
+    similar,
     stop: () => {
       stopped = true;
       controller.abort();
@@ -1596,6 +1613,8 @@ export async function POST(req: Request) {
     let usage: { prompt_tokens?: number; completion_tokens?: number } | null = null;
     let finishReason: string | null = null;
     let refusal = "";
+    // S10 — the vision read stopped after Similar (a wine anchor).
+    let wineCut = false;
 
     // S8b — the wine shelf runs BESIDE the vision read. The shelf read
     // starts at once when the bar is on Wine, otherwise the moment the
@@ -1707,9 +1726,32 @@ export async function POST(req: Request) {
       if (early) {
         const media = await tryMediaSnap(early, clientId, vision.stop);
         if (media) return media;
-        startWine(early);
+        // S10 (Brad, 2026-10-17) — a wine result shows Similar only, so the
+        // stream stops once Similar closes (it is the engine's fallback);
+        // Use it for / Instead try are never written. If Similar never
+        // closes, the full read ships as before.
+        if (startWine(early)) {
+          const sim = await vision.similar;
+          if (sim) {
+            vision.stop();
+            const d = await vision.done();
+            text = JSON.stringify({
+              detected_item: early,
+              mode: "similar",
+              results: { similar: sim, uses: [], alternatives: [] },
+            });
+            ({ usage, finishReason, refusal } = d);
+            finishReason = finishReason ?? "wine_cut";
+            wineCut = true;
+            console.info("[wine] vision cut after Similar", {
+              anchor: early.name,
+              similar: sim.length,
+              charsRead: d.text.length,
+            });
+          }
+        }
       }
-      ({ text, usage, finishReason, refusal } = await vision.done());
+      if (!wineCut) ({ text, usage, finishReason, refusal } = await vision.done());
     }
 
     let parsed: any = null;
@@ -1835,6 +1877,8 @@ export async function POST(req: Request) {
     // result here means the photo could not be read, which is a different
     // (and honestly different-sounding) failure from "I read it fine and
     // the neighbours it offered were invented".
+    // S10: a cut wine read has only Similar to judge by — an empty one is
+    // still a failed read (S8a's strip retry depends on it).
     if (
       cleanedRaw.similar.length === 0 &&
       cleanedRaw.uses.length === 0 &&
@@ -1957,10 +2001,13 @@ export async function POST(req: Request) {
     // over canned-full).
     // Read from the guard's own output, before the health wall: a wall
     // that leaves a supplement with no list is not "new to me".
+    // S10: and only when nothing ships — a wine snap's engine picks fill
+    // Similar even when the cut vision read's own Similar guard-emptied.
     const guardEmptiedAll =
       similar.length === 0 &&
       uses.length === 0 &&
-      alternatives.length === 0;
+      alternatives.length === 0 &&
+      cleaned.similar.length === 0;
 
     const allowedModes = ["similar", "uses", "alternatives"] as const;
     let mode: (typeof allowedModes)[number] = allowedModes.includes(parsed?.mode)
