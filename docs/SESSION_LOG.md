@@ -1275,3 +1275,15 @@ Checks run this session:
 2. **Environment variables:** nothing new.
 3. **Migration:** already live (shared database). `wine_marks`, backup `backups/2026-10-16-1745-s8.sql`. Rollback is Block 5 of `docs/sql/s8-wine-marks.sql` (Brad's call only). The code fails soft without the table: `[wine-marks] … migration_pending`.
 4. **Revert SHAs:** #28 `3239ba1`, #29 `f7c7cf1`, #30 (its merge commit). Each with `git revert -m 1 <sha>`, newest first.
+
+### Brad's review of S8 — 2026-10-16
+
+**Standing rules (Brad, effective now):**
+- **Wording changes need Brad's OK before merge, even in a "merge when green" run.** Any change to text the app shows (VOICE) waits for him. S8's pairing-sentence deletion was a one-time exception, not a precedent. This settles S8 call on self-merging prompt-text PRs: next time, open the PR and stop.
+- **Never send Brad's email or other personal info to an outside service**, including in request headers (User-Agent and the like). Use a generic agent string.
+
+**Follow-ups (logged, not built):**
+1. **First set prefers the anchor's color on a shelf snap.** A red anchor's first set should rank in-range red shelf bottles before anything else; today it can skip the shelf's other-color bottles and go off-shelf. Enforce it in `finishWineReks`/`runWineSet`, not the prompt alone.
+2. **Short-name option for the go-to.** Let the user set what the lead calls it ("Bonanza" rather than "Caymus Bonanza"). The new lead text is VOICE, so it needs Brad's OK.
+3. **Carry the go-to and Bought list over on sign-in.** `/api/auth/merge` needs to move `wine_marks` rows from the anon id to the account.
+4. **The 10–12s wine snap.** Measure where the time goes (vision stream vs. shelf read vs. picks) before choosing a fix.
