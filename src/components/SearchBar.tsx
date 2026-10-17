@@ -33,6 +33,12 @@ interface SearchBarProps {
   // The camera icon (mobile only — desktop has none; a desktop user won't
   // file-pick a product photo) always opens the current RekSnap flow.
   onSnap?: () => void;
+
+  // S8a — the bar reports its category (the page sends it with each snap
+  // as a hint), and a successful snap can move it: a new `n` with a value
+  // re-aims the bar exactly as a tap on that category would.
+  onCategoryChange?: (category: string) => void;
+  categoryHint?: { value: string | null; n: number };
 }
 
 const CATEGORIES = ["Movies", "TV Shows", "Books", "Wine"];
@@ -46,7 +52,14 @@ const bubble = (active: boolean) =>
       : "border-gray-300 bg-white text-gray-800 hover:border-gray-400",
   ].join(" ");
 
-const SearchBar: React.FC<SearchBarProps> = ({ onSearch, setLoading, registerVibePlay, onSnap }) => {
+const SearchBar: React.FC<SearchBarProps> = ({
+  onSearch,
+  setLoading,
+  registerVibePlay,
+  onSnap,
+  onCategoryChange,
+  categoryHint,
+}) => {
   const [input, setInput] = useState("");
   const [isPulsing, setIsPulsing] = useState(false);
   const [category, setCategory] = useState("Movies");
@@ -60,6 +73,8 @@ const SearchBar: React.FC<SearchBarProps> = ({ onSearch, setLoading, registerVib
   const chipRef = useRef<Chip | null>(activeChip);
   useEffect(() => {
     categoryRef.current = category;
+    onCategoryChange?.(category);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [category]);
   useEffect(() => {
     chipRef.current = activeChip;
@@ -100,6 +115,16 @@ const SearchBar: React.FC<SearchBarProps> = ({ onSearch, setLoading, registerVib
     setRefiner(null);
     setInput("");
   };
+
+  // S8a — a snap moved the bar (wine snap → Wine). Same as a category tap
+  // (re-aims, never searches); a no-op when the bar is already there.
+  const hintN = categoryHint?.n ?? 0;
+  useEffect(() => {
+    const v = categoryHint?.value;
+    if (!hintN || !v || !CATEGORIES.includes(v) || v === categoryRef.current) return;
+    handleSelectCategory(v);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hintN]);
 
   // Row 1: one tap = results. A new lane starts unrefined.
   const tapChip = (c: Chip) => {

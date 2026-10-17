@@ -37,6 +37,31 @@ import {
 } from "../../../src/lib/tmdbMedia";
 import { chooseMediaReks, raceTaste } from "../../../src/lib/mediaReks";
 import { withRekTokens } from "../../../src/lib/rekTokens";
+import {
+  bandFor,
+  cleanAnchorInfo,
+  cleanShelfRead,
+  finishWineReks,
+  inBand,
+  isPriceChip,
+  isWineCategory,
+  matchShelf,
+  sameProducer,
+  sameWine,
+  stripPairingSentence,
+  type PriceBand,
+  type PriceChip,
+  type ShelfBottle,
+  type WineAnchorInfo,
+  type WineFavorite,
+  type WineRekOut,
+} from "../../../src/lib/wineShelf";
+import {
+  generateWineReks,
+  readShelf,
+  type ShelfRead,
+  type WineGenKind,
+} from "../../../src/lib/wineReks";
 
 export const runtime = "nodejs";
 
@@ -228,7 +253,7 @@ const buildBackfillPrompt = (mode: string) => {
 // (accepted in #19).
 // ---------------------------------------------------------------------------
 function refuseUnattested(
-  path: "backfill" | "anchorDetail" | "chain",
+  path: "backfill" | "anchorDetail" | "chain" | "wine",
   item: { name?: unknown; category?: unknown; description?: unknown },
   clientId: string | null,
   token: unknown
@@ -1035,7 +1060,7 @@ async function handleChain(chain: any): Promise<Response> {
 // in POST's outer catch with every named-failure voice intact.
 // ---------------------------------------------------------------------------
 type VisionContent = (
-  | { type: "image_url"; image_url: { url: string } }
+  | { type: "image_url"; image_url: { url: string; detail?: "high" | "low" | "auto" } }
   | { type: "text"; text: string }
 )[];
 
@@ -1061,6 +1086,10 @@ async function startVisionStream(content: VisionContent) {
 
   let buf = "";
   let usage: { prompt_tokens?: number; completion_tokens?: number } | null = null;
+  // S8a — what the model said when a read fails: the finish reason and any
+  // refusal text ride the [snap-read-fail] line.
+  let finishReason: string | null = null;
+  let refusal = "";
   let stopped = false;
   let detectedSettled = false;
   let settle: (v: Record<string, unknown> | null) => void = () => {};
@@ -1076,7 +1105,11 @@ async function startVisionStream(content: VisionContent) {
   const consumed = (async () => {
     try {
       for await (const chunk of stream) {
-        buf += chunk.choices?.[0]?.delta?.content ?? "";
+        const choice = chunk.choices?.[0];
+        buf += choice?.delta?.content ?? "";
+        const r = (choice?.delta as { refusal?: string | null } | undefined)?.refusal;
+        if (typeof r === "string") refusal += r;
+        if (choice?.finish_reason) finishReason = choice.finish_reason;
         if (chunk.usage) usage = chunk.usage;
         if (!detectedSettled) {
           const d = extractCompleteObject(buf, "detected_item");
@@ -1102,7 +1135,7 @@ async function startVisionStream(content: VisionContent) {
       } catch (err) {
         if (!stopped) throw err;
       }
-      return { text: buf, usage };
+      return { text: buf, usage, finishReason, refusal };
     },
   };
 }
@@ -1222,6 +1255,263 @@ async function classifyTypedWine(raw: unknown): Promise<string | null> {
   }
 }
 
+// ---------------------------------------------------------------------------
+// S8b — THE WINE SHELF. A wine anchor's Similar list comes from one wine
+// generator (src/lib/wineReks.ts) on every path — the first set, a price
+// chip, a thumbs-down replacement, More like this, the anchor re-roll —
+// and passes the same response-site guarantees (finishWineReks). The
+// anchor itself, Use it for and Instead try stay the vision prompt's.
+// ---------------------------------------------------------------------------
+
+// What the client sends about the visit: names shown so far, names
+// thumbed down, the starred favorite, the chosen price chip.
+type WineInput = {
+  seen: string[];
+  rejected: string[];
+  favorite: WineFavorite | null;
+  chip: PriceChip | null;
+};
+
+const cleanNameList = (raw: unknown, cap: number): string[] =>
+  Array.isArray(raw)
+    ? raw
+        .filter((n: unknown): n is string => typeof n === "string" && !!n.trim())
+        .map((n) => n.trim().slice(0, 120))
+        .slice(-cap)
+    : [];
+
+function cleanWineInput(raw: unknown): WineInput {
+  const r = (raw ?? {}) as Record<string, unknown>;
+  const f = (r.favorite ?? null) as Record<string, unknown> | null;
+  const tasteOf = (v: unknown) =>
+    typeof v === "number" && v >= 1 && v <= 5 ? Math.round(v) : null;
+  return {
+    seen: cleanNameList(r.seen, 400),
+    rejected: cleanNameList(r.rejected, 200),
+    favorite:
+      f && typeof f.name === "string" && f.name.trim()
+        ? {
+            name: f.name.trim().slice(0, 120),
+            description:
+              typeof f.description === "string" ? f.description.slice(0, 600) : null,
+            dry: tasteOf(f.dry),
+            body: tasteOf(f.body),
+          }
+        : null,
+    chip: isPriceChip(r.chip) ? r.chip : null,
+  };
+}
+
+// Every wine this client ever thumbed down — the never-return memory
+// (Brad: "Remember dislikes (e.g. Decoy) so they never return"). Unlike
+// the 60-day shading block this is a GUARANTEE, so it is not windowed.
+// Raced, because a snap must not hang on history; a timeout is logged
+// (the visit's own rejected list still holds within the visit).
+async function loadWineDislikes(clientId: string): Promise<string[]> {
+  const reader = await getSignalsReader();
+  if (!reader) return [];
+  const { data, error } = await reader
+    .from("reksnap_signals")
+    .select("item_name, item_category")
+    .eq("client_id", clientId)
+    .eq("action", "dislike")
+    .order("created_at", { ascending: false })
+    .limit(500);
+  if (error || !Array.isArray(data)) return [];
+  return data
+    .filter(
+      (r) =>
+        typeof r?.item_name === "string" &&
+        r.item_name.trim() &&
+        isWineCategory(typeof r.item_category === "string" ? r.item_category : "")
+    )
+    .map((r) => (r.item_name as string).trim());
+}
+
+const raceWineDislikes = (clientId: string | null): Promise<string[]> =>
+  !clientId
+    ? Promise.resolve([])
+    : Promise.race([
+        loadWineDislikes(clientId).catch(() => []),
+        new Promise<string[]>((resolve) =>
+          setTimeout(() => {
+            console.warn("[wine] dislike memory timed out — visit list only");
+            resolve([]);
+          }, 1500)
+        ),
+      ]);
+
+type WineSetResult = {
+  reks: WineRekOut[];
+  anchorInfo: WineAnchorInfo;
+  band: PriceBand | null;
+};
+
+async function runWineSet(args: {
+  kind: WineGenKind;
+  need: number;
+  anchor: { name: string; description: string; category: string };
+  anchorPrice: number | null;
+  anchorPriceSource: "tag" | "estimate" | null;
+  shelf: ShelfBottle[] | null;
+  shelfSnap: boolean;
+  input: WineInput;
+  chained: { name: string; description?: string } | null;
+  kept: string[];
+  clientId: string | null;
+}): Promise<WineSetResult> {
+  const { anchor, input } = args;
+  const disliked = [...input.rejected, ...(await raceWineDislikes(args.clientId))];
+  const seen = [...input.seen, ...(args.chained ? [args.chained.name] : [])];
+  const presetBand = bandFor(args.anchorPrice, input.chip);
+  // The shelf the model may still pick from: nothing shown, disliked, the
+  // anchor or the favorite, and no tag outside the price range.
+  const remaining = args.shelf
+    ? args.shelf.filter(
+        (b) =>
+          !sameWine(b.name, anchor.name) &&
+          !(input.favorite && sameWine(b.name, input.favorite.name)) &&
+          !seen.some((s) => sameWine(s, b.name)) &&
+          !disliked.some((d) => sameProducer(d, b.name)) &&
+          inBand(b.price, presetBand, "tag")
+      )
+    : null;
+  // Over-ask: the guarantees drop seen/disliked/out-of-band picks, and an
+  // honest-short set is the price of a miss — never padding (§2.4).
+  const count = args.kind === "backfill" ? 3 : 8;
+  const gen = await generateWineReks(openai, DIFFERENTIATOR_VOICE, {
+    kind: args.kind,
+    count,
+    anchor,
+    anchorPrice: args.anchorPrice,
+    anchorPriceSource: args.anchorPriceSource,
+    band: presetBand,
+    shelf: remaining,
+    shelfSnap: args.shelfSnap,
+    seen,
+    disliked,
+    favorite: input.favorite,
+    chained: args.chained,
+    kept: args.kept,
+  });
+  const anchorInfo = cleanAnchorInfo(
+    gen.anchor,
+    anchor.name,
+    args.shelf,
+    args.anchorPriceSource === "tag" ? args.anchorPrice : null
+  );
+  // A price the visit already settled on stays put across re-runs.
+  if (args.anchorPrice != null) {
+    anchorInfo.price = args.anchorPrice;
+    anchorInfo.priceSource = args.anchorPriceSource;
+  }
+  const band = presetBand ?? bandFor(anchorInfo.price, null);
+  const { reks, log } = finishWineReks(gen.reks, {
+    anchorName: anchor.name,
+    anchorCategory: anchor.category,
+    shelf: args.shelf,
+    shelfSnap: args.shelfSnap,
+    band,
+    seen,
+    disliked,
+    favoriteName: input.favorite?.name ?? null,
+    need: args.need,
+  });
+  console.info("[wine] picks", {
+    kind: args.kind,
+    anchor: anchor.name,
+    shelfSnap: args.shelfSnap,
+    shelfLeft: remaining?.length ?? 0,
+    band: band ? `${band.min}-${band.max}${band.chip ? ` (${band.chip})` : ""}` : null,
+    seen: seen.length,
+    disliked: disliked.length,
+    favorite: !!input.favorite,
+    ...log,
+  });
+  if (reks.length < args.need) {
+    console.warn("[wine] short set after guarantees", { kind: args.kind, out: reks.length, need: args.need });
+  }
+  return { reks, anchorInfo, band };
+}
+
+// S8b — the text-only wine branch: price chip, replacement, More like this
+// and the anchor re-roll on a wine anchor. Same attestation and walls as
+// backfill/chain; the shelf rides back from the client (it only shapes
+// this person's own picks).
+async function handleWine(w: any): Promise<Response> {
+  const item = w?.detectedItem;
+  const kind: WineGenKind | null =
+    w?.kind === "set" || w?.kind === "backfill" || w?.kind === "steer" ? w.kind : null;
+  if (!item || typeof item.name !== "string" || !item.name.trim() || !kind) {
+    return Response.json({ error: "Bad wine request" }, { status: 400 });
+  }
+  const chained =
+    kind === "steer" && typeof w?.chained?.name === "string" && w.chained.name.trim()
+      ? {
+          name: w.chained.name.trim().slice(0, 120),
+          description: typeof w.chained.description === "string" ? w.chained.description : "",
+        }
+      : null;
+  if (kind === "steer" && !chained) {
+    return Response.json({ error: "Bad wine request" }, { status: 400 });
+  }
+  const clientId = cleanClientId(w?.clientId);
+  const unattested = refuseUnattested("wine", item, clientId, w?.token);
+  if (unattested) return unattested;
+  const category = typeof item.category === "string" ? item.category.trim().toLowerCase() : "";
+  if (isHealthMedical(category) || !isWineCategory(category)) {
+    return Response.json({ error: "Not available for this category" }, { status: 403 });
+  }
+
+  const shelf = w?.shelf ? cleanShelfRead({ scene: "shelf", bottles: w.shelf }).bottles : [];
+  const anchorPrice =
+    typeof w?.anchorPrice === "number" && w.anchorPrice > 0 ? w.anchorPrice : null;
+  const set = await runWineSet({
+    kind,
+    need: kind === "backfill" ? 1 : 5,
+    anchor: {
+      name: item.name,
+      description: typeof item.description === "string" ? item.description : "",
+      category,
+    },
+    anchorPrice,
+    anchorPriceSource:
+      anchorPrice == null ? null : w?.anchorPriceSource === "tag" ? "tag" : "estimate",
+    shelf: shelf.length ? shelf : null,
+    shelfSnap: w?.shelfSnap === true && shelf.length > 0,
+    input: cleanWineInput(w),
+    chained,
+    kept: cleanNameList(w?.kept, 20),
+    clientId,
+  });
+  const signed = withRekTokens(set.reks, clientId, category);
+  if (kind === "backfill") {
+    return Response.json({ rek: signed[0] ?? null, band: set.band }, { status: 200 });
+  }
+  return Response.json(
+    {
+      reks: signed,
+      band: set.band,
+      anchor: set.anchorInfo,
+      ...(signed.length === 0 ? { notice: WINE_NONE_LEFT } : {}),
+    },
+    { status: 200 }
+  );
+}
+
+// Plain voice: the guarantees left nothing (the visit has seen every fit
+// in this price range). Honest-short, never canned-full.
+const WINE_NONE_LEFT =
+  "No new bottles left in this price range. Try another price above.";
+
+// S8a — the dense-shelf retry's framing, and its last word.
+const stripsNote = (n: number) =>
+  `This is ONE photo, cut into ${n} horizontal strips shown top to bottom. ` +
+  "Neighbouring strips overlap slightly, so a bottle on a cut line can appear in two strips — it is one bottle. " +
+  "Read the strips together as the single photo.";
+
+const DENSE_SHELF_MSG = "That's a lot of bottles. Try one or two shelves.";
+
 export async function POST(req: Request) {
   try {
     // Dev/preview-only: REKOMENDR_SIMULATE_OPENAI_FAILURE throws the
@@ -1238,6 +1528,7 @@ export async function POST(req: Request) {
       (body?.backfill && typeof body.backfill === "object" && body.backfill) ||
       (body?.anchorDetail && typeof body.anchorDetail === "object" && body.anchorDetail) ||
       (body?.chain && typeof body.chain === "object" && body.chain) ||
+      (body?.wine && typeof body.wine === "object" && body.wine) ||
       null;
     if (textBranch) {
       const capped = await capGate(textBranch.clientId, "reksnap-text");
@@ -1259,14 +1550,31 @@ export async function POST(req: Request) {
       return await handleChain(body.chain);
     }
 
+    // S8b — wine re-runs (price chip, replacement, More like this,
+    // re-roll) are text-only too.
+    if (body?.wine && typeof body.wine === "object") {
+      return await handleWine(body.wine);
+    }
+
     // S3.0 — a TYPED wine (or other non-media item) by name: the same
     // snap prompt, the name in place of the photo. Media titles never come
     // here (they resolve through /api/anchor against TMDb).
     const typed =
       body?.typed && typeof body.typed === "object" ? body.typed : null;
     const image = typeof body?.image === "string" ? body.image : "";
+    // S8a — the dense-shelf retry: the client cuts the ORIGINAL photo into
+    // horizontal strips (one per shelf) after a failed read and sends them
+    // here. Each strip reaches the model at roughly twice the resolution a
+    // whole photo gets (high detail scales the short side to 768px).
+    const strips: string[] = Array.isArray(body?.strips)
+      ? body.strips
+          .filter((s: unknown): s is string => typeof s === "string" && s.startsWith("data:image/"))
+          .slice(0, 4)
+      : [];
+    // The bar's category at snap time — a hint only (never a gate).
+    const wineHint = body?.category === "Wine";
 
-    if (!typed && !image.startsWith("data:image/")) {
+    if (!typed && !image.startsWith("data:image/") && strips.length === 0) {
       return Response.json({ error: "Missing image" }, { status: 400 });
     }
 
@@ -1286,6 +1594,49 @@ export async function POST(req: Request) {
 
     let text = "";
     let usage: { prompt_tokens?: number; completion_tokens?: number } | null = null;
+    let finishReason: string | null = null;
+    let refusal = "";
+
+    // S8b — the wine shelf runs BESIDE the vision read. The shelf read
+    // starts at once when the bar is on Wine, otherwise the moment the
+    // streamed anchor says wine; the picks start as soon as the anchor is
+    // known (they need only its name, profile and the shelf).
+    const wineInput = cleanWineInput(body?.wineVisit);
+    const shelfImages = strips.length > 0 ? strips : image ? [image] : [];
+    let shelfP: Promise<ShelfRead | null> | null = null;
+    const startShelfRead = () => {
+      if (!shelfP && !typed && shelfImages.length > 0) shelfP = readShelf(openai, shelfImages);
+    };
+    let wineP: Promise<WineSnap | null> | null = null;
+    const startWine = (item: Record<string, unknown>): Promise<WineSnap | null> | null => {
+      if (wineP) return wineP;
+      const name = typeof item.name === "string" ? item.name.trim() : "";
+      const cat = typeof item.category === "string" ? item.category.trim().toLowerCase() : "";
+      if (!name || !isWineCategory(cat) || isHealthMedical(cat) || healthLabelFromName(name)) {
+        return null;
+      }
+      startShelfRead();
+      wineP = wineSnap({
+        anchor: {
+          name,
+          description: stripPairingSentence(
+            typeof item.description === "string" ? item.description : ""
+          ),
+          category: cat,
+        },
+        shelfP,
+        input: wineInput,
+        clientId,
+        typed: !!typed,
+      }).catch((err) => {
+        console.warn("[wine] picks failed — the vision read's Similar ships, filtered", {
+          error: err instanceof Error ? err.message : String(err),
+        });
+        return null;
+      });
+      return wineP;
+    };
+    if (wineHint) startShelfRead();
 
     if (typed) {
       const typedName = await classifyTypedWine(typed.text);
@@ -1310,14 +1661,45 @@ export async function POST(req: Request) {
       text = completion.choices?.[0]?.message?.content ?? "";
       usage = completion.usage ?? null;
       console.info("[typed-anchor] wine by name", { name: typedName });
+    } else if (strips.length > 0) {
+      // Not streamed and no media path: this only runs after a failed read,
+      // and a strip set is a shelf, not a poster.
+      const completion = await openai.chat.completions.create({
+        model: "gpt-4o",
+        temperature: 0.7,
+        max_tokens: 4000,
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: SYSTEM_PROMPT },
+          {
+            role: "user",
+            content: [
+              { type: "text", text: stripsNote(strips.length) },
+              ...strips.map((url) => ({
+                type: "image_url" as const,
+                image_url: { url, detail: "high" as const },
+              })),
+              ...(priorBlock ? [{ type: "text" as const, text: priorBlock }] : []),
+            ],
+          },
+        ],
+      });
+      const choice = completion.choices?.[0];
+      text = choice?.message?.content ?? "";
+      usage = completion.usage ?? null;
+      finishReason = choice?.finish_reason ?? null;
+      refusal = (choice?.message as { refusal?: string | null } | undefined)?.refusal ?? "";
+      console.info("[snap-strips] read", { strips: strips.length, chars: text.length });
     } else {
+      // S8a — detail "high" explicit (the default "auto" leaves the choice
+      // to the API; a shelf of labels needs every pixel it can get).
       const vision = await startVisionStream(
         priorBlock
           ? [
-              { type: "image_url", image_url: { url: image } },
+              { type: "image_url", image_url: { url: image, detail: "high" } },
               { type: "text", text: priorBlock },
             ]
-          : [{ type: "image_url", image_url: { url: image } }]
+          : [{ type: "image_url", image_url: { url: image, detail: "high" } }]
       );
       // S3.0 — a movie or TV snap takes the TMDb path the moment the
       // anchor is identified; the rest of the vision output is not needed.
@@ -1325,18 +1707,50 @@ export async function POST(req: Request) {
       if (early) {
         const media = await tryMediaSnap(early, clientId, vision.stop);
         if (media) return media;
+        startWine(early);
       }
-      ({ text, usage } = await vision.done());
+      ({ text, usage, finishReason, refusal } = await vision.done());
     }
 
     let parsed: any = null;
+    // S8a — every failed read names itself (what the model actually said),
+    // and a failed whole-photo read asks the client for strips once.
+    const readFailed = (why: string): Response => {
+      const readCategory =
+        typeof parsed?.detected_item?.category === "string"
+          ? parsed.detected_item.category
+          : null;
+      console.warn("[snap-read-fail]", {
+        why,
+        attempt: typed ? "typed" : strips.length > 0 ? "strips" : "photo",
+        finishReason,
+        refusal: refusal ? refusal.slice(0, 200) : null,
+        outputChars: text.length,
+        head: text.slice(0, 300),
+        readCategory,
+        wineHint,
+        imageKB: image ? Math.round((image.length * 3) / 4 / 1024) : null,
+        promptTokens: usage?.prompt_tokens ?? null,
+        completionTokens: usage?.completion_tokens ?? null,
+      });
+      if (!typed && strips.length === 0) {
+        return Response.json(
+          { error: "Could not read that photo.", retry: "strips" },
+          { status: 502 }
+        );
+      }
+      const bottles = !typed && (wineHint || isWineCategory(readCategory));
+      return Response.json(
+        bottles
+          ? { error: DENSE_SHELF_MSG, dense: true }
+          : { error: "Could not read that photo." },
+        { status: 502 }
+      );
+    };
     try {
       parsed = JSON.parse(text);
     } catch {
-      return Response.json(
-        { error: "Could not read that photo." },
-        { status: 502 }
-      );
+      return readFailed("unparseable");
     }
 
     const detected = parsed?.detected_item;
@@ -1348,10 +1762,7 @@ export async function POST(req: Request) {
       !results ||
       typeof results !== "object"
     ) {
-      return Response.json(
-        { error: "Could not read that photo." },
-        { status: 502 }
-      );
+      return readFailed("no_detected_item");
     }
 
     const normalize = (s: string) => s.trim().toLowerCase();
@@ -1429,10 +1840,7 @@ export async function POST(req: Request) {
       cleanedRaw.uses.length === 0 &&
       cleanedRaw.alternatives.length === 0
     ) {
-      return Response.json(
-        { error: "Could not read that photo." },
-        { status: 502 }
-      );
+      return readFailed("all_lists_empty");
     }
 
     // S1.5 — THE REAL-TITLE GUARD. This is the exact site of the field
@@ -1491,11 +1899,56 @@ export async function POST(req: Request) {
       });
     }
 
-    const cleaned = {
+    const cleaned: Record<"similar" | "uses" | "alternatives", SnapRekOut[]> = {
       similar: anchorIsHealthMedical ? [] : reRank(similar),
       uses: anchorIsHealthMedical ? [] : reRank(uses),
       alternatives: anchorIsHealthMedical ? [] : reRank(alternatives),
     };
+
+    // S8b — a wine anchor's Similar is the wine shelf engine's. If the
+    // engine failed, the vision read's own Similar ships — through the same
+    // guarantees (no repeats, no disliked producers), never unfiltered.
+    let wineOut: WineResponse | null = null;
+    if (!anchorIsHealthMedical && isWineCategory(anchorCategory)) {
+      const ws = await (wineP ??
+        startWine({ name: detected.name, description: detected.description, category: anchorCategory }));
+      if (ws && ws.scene === "haul") {
+        wineOut = { scene: "haul", shelfSnap: false, shelf: ws.shelf, anchor: null, band: null, favoriteHere: null };
+      } else {
+        let picks = ws?.reks ?? [];
+        if (!ws || picks.length === 0) {
+          picks = finishWineReks(similar, {
+            anchorName: detected.name,
+            anchorCategory,
+            shelf: ws?.shelf ?? null,
+            shelfSnap: false,
+            band: null,
+            seen: wineInput.seen,
+            disliked: [...wineInput.rejected, ...(await raceWineDislikes(clientId))],
+            favoriteName: wineInput.favorite?.name ?? null,
+            need: 5,
+          }).reks;
+          console.warn("[wine] engine gave no picks — vision Similar shipped through the guarantees", {
+            anchor: detected.name,
+            engine: ws ? "empty" : "failed",
+            shipped: picks.length,
+          });
+        }
+        cleaned.similar = picks.map((r, i) => ({ ...r, rank: i + 1 }));
+        wineOut = ws
+          ? {
+              scene: ws.scene,
+              shelfSnap: ws.shelfSnap,
+              shelf: ws.shelf,
+              anchor: ws.anchor,
+              band: ws.band,
+              favoriteHere: ws.favoriteHere,
+            }
+          : null;
+        // A shelf is a choosing context: Similar leads.
+        if (ws?.shelfSnap) parsed.mode = "similar";
+      }
+    }
 
     // The guard emptied everything. NOT a 502 and NOT "Could not read
     // that photo" — the photo was read perfectly; the model just filled
@@ -1526,13 +1979,22 @@ export async function POST(req: Request) {
     // S2.5/S2.6: a health anchor's short is its category alone, built here —
     // the model's own sentence never leaves the server, and the token signs
     // the replacement, so no later path can carry the model's text.
+    const modelShort =
+      typeof detected.description === "string" ? detected.description : "";
+    // S8a — a wine anchor loses its pairing sentence ("Built for X, not
+    // Y"), Brad's voice decision. Cut HERE, before the token signs the
+    // short, so save, share and Show details all attest the cut text.
+    const anchorIsWine = !anchorIsHealthMedical && isWineCategory(anchorCategory);
     const shortText = anchorIsHealthMedical
       ? healthAnchorShort(anchorCategory)
-      : typeof detected.description === "string"
-        ? detected.description
-        : "";
+      : anchorIsWine
+        ? stripPairingSentence(modelShort)
+        : modelShort;
     if (anchorIsHealthMedical) {
       console.info("[health-wall] anchor short replaced", { anchorCategory });
+    }
+    if (anchorIsWine && shortText !== modelShort.trim()) {
+      console.info("[wine] pairing sentence cut", { anchor: detected.name });
     }
     const detectedItemToken = clientId
       ? signAnchor({
@@ -1562,6 +2024,8 @@ export async function POST(req: Request) {
         // Present ONLY when the guard left nothing to show. The client
         // renders it in plain voice where the five cards would have been.
         ...(guardEmptiedAll ? { notice: NEW_TO_ME_NOTICE } : {}),
+        // S8b — the shelf, the anchor's price/taste, the price band.
+        ...(wineOut ? { wine: wineOut } : {}),
       },
       { status: 200 }
     );
@@ -1582,4 +2046,72 @@ type SnapRekOut = {
   description: string;
   category: string;
   rank: number;
+  // S8b — wine cards only: price, shelf, taste, favorite comparison.
+  wine?: WineRekOut["wine"];
 };
+
+// S8b — one wine snap's shelf engine result, and what of it the client gets.
+type WineSnap = {
+  scene: ShelfRead["scene"];
+  shelfSnap: boolean;
+  shelf: ShelfBottle[];
+  anchor: WineAnchorInfo;
+  band: PriceBand | null;
+  reks: WineRekOut[];
+  favoriteHere: { name: string; price: number | null } | null;
+};
+
+type WineResponse = Omit<WineSnap, "reks" | "anchor"> & { anchor: WineAnchorInfo | null };
+
+async function wineSnap(args: {
+  anchor: { name: string; description: string; category: string };
+  shelfP: Promise<ShelfRead | null> | null;
+  input: WineInput;
+  clientId: string | null;
+  typed: boolean;
+}): Promise<WineSnap> {
+  const read = args.shelfP ? await args.shelfP : null;
+  const scene = read?.scene ?? (args.typed ? "single" : "other");
+  const shelf = read?.bottles ?? [];
+  const favoriteHere = (() => {
+    const fav = args.input.favorite;
+    const b = fav ? matchShelf(fav.name, shelf) : null;
+    return fav && b ? { name: fav.name, price: b.price } : null;
+  })();
+  if (scene === "haul") {
+    return {
+      scene,
+      shelfSnap: false,
+      shelf,
+      anchor: cleanAnchorInfo(null, args.anchor.name, shelf, null),
+      band: null,
+      reks: [],
+      favoriteHere: null,
+    };
+  }
+  // A shelf: the read says so, or it found several different bottles.
+  const shelfSnap = (scene === "shelf" && shelf.length >= 2) || shelf.length >= 4;
+  const tag = matchShelf(args.anchor.name, shelf)?.price ?? read?.anchorPrice ?? null;
+  const set = await runWineSet({
+    kind: "set",
+    need: 5,
+    anchor: args.anchor,
+    anchorPrice: tag,
+    anchorPriceSource: tag != null ? "tag" : null,
+    shelf: shelf.length ? shelf : null,
+    shelfSnap,
+    input: args.input,
+    chained: null,
+    kept: [],
+    clientId: args.clientId,
+  });
+  return {
+    scene: shelfSnap ? "shelf" : scene,
+    shelfSnap,
+    shelf,
+    anchor: set.anchorInfo,
+    band: set.band,
+    reks: set.reks,
+    favoriteHere,
+  };
+}

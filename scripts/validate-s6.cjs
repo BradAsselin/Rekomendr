@@ -264,7 +264,8 @@ const rowsFor = (name) => db.anchor_snapshots.filter((r) => r.item_name === name
   check("rek tokens survive every client remap", [(rsr.match(/token: asToken\(/g) || []).length, (page.match(/token: asToken\(/g) || []).length], [2, 1]);
   const routeSrc = fs.readFileSync(path.join(ROOT, "app/api/reksnap/route.ts"), "utf8");
   const anchorSrc = fs.readFileSync(path.join(ROOT, "app/api/anchor/route.ts"), "utf8");
-  check("every server rek path signs (snap ×3 lists, media snap, backfill, chain, typed)", [(routeSrc.match(/withRekTokens\(/g) || []).length, (anchorSrc.match(/withRekTokens\(/g) || []).length], [6, 1]);
+  // S8b added the seventh route site: the wine shelf engine's text branch.
+  check("every server rek path signs (snap ×3 lists, media snap, backfill, chain, typed, wine)", [(routeSrc.match(/withRekTokens\(/g) || []).length, (anchorSrc.match(/withRekTokens\(/g) || []).length], [7, 1]);
 
   out(`\n${pass} passed, ${fail} failed.`);
   process.exit(fail === 0 ? 0 : 1);

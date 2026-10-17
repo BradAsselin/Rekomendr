@@ -93,6 +93,11 @@ type Props = {
   // S6 — the card's Share row (ShareRow), last thing on the card, under
   // the verbs. Absent when the rek can't be shared.
   shareSlot?: React.ReactNode;
+  // S8b — wine cards: a short comparison that LEADS the description ("vs.
+  // your Caymus Bonanza: drier, less vanilla, similar body"), and the star
+  // (the go-to mark), first in the verdict cluster. Both unset elsewhere.
+  shortLead?: string;
+  starSlot?: React.ReactNode;
 };
 
 const RekCard: React.FC<Props> = ({
@@ -123,6 +128,8 @@ const RekCard: React.FC<Props> = ({
   className,
   style,
   shareSlot,
+  shortLead,
+  starSlot,
 }) => {
   const titleText = year != null ? `${title} (${year})` : title;
 
@@ -198,6 +205,7 @@ const RekCard: React.FC<Props> = ({
           className="flex items-center gap-2 ml-2 shrink-0"
           onClick={(e) => e.stopPropagation()}
         >
+          {starSlot}
           {rank != null && (
             <span className="text-xs text-gray-600 font-medium mr-1">
               #{rank}
@@ -232,6 +240,7 @@ const RekCard: React.FC<Props> = ({
       <p
         className={`${accent ? "text-base" : "text-[15px]"} font-normal text-gray-900 mb-2 leading-relaxed`}
       >
+        {shortLead && <span className="font-medium">{shortLead} </span>}
         {short}
         {(long || expandable) && (
           <>

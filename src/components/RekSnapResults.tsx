@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
-import { Camera, ChevronRight, Plus } from "lucide-react";
+import { Camera, ChevronRight, Plus, Star } from "lucide-react";
 
 import {
   isHealthMedical,
@@ -25,6 +25,34 @@ import RekCard from "./RekCard";
 import ShareRow from "./ShareRow";
 import RekSkeleton, { RekSkeletonCard } from "./RekSkeleton";
 import RekTrail, { TrailRow } from "./RekTrail";
+import QuietTip from "./QuietTip";
+import WineFacts from "./WineFacts";
+import HaulConfirm from "./HaulConfirm";
+import {
+  PRICE_CHIPS,
+  SHELF_TIP,
+  SINGLE_BOTTLE_TIP,
+  bottleImageUrl,
+  formatPrice,
+  isWineCategory,
+  shortWineName,
+  whereToBuyUrl as wineWhereToBuyUrl,
+  type PriceBand,
+  type PriceChip,
+  type ShelfBottle,
+  type WineAnchorInfo,
+  type WineFavorite,
+  type WineRekInfo,
+  type WineScene,
+} from "../lib/wineShelf";
+import {
+  getWineFavorite,
+  noteWineRejected,
+  noteWineShown,
+  onWineFavoriteChange,
+  setWineFavorite,
+  wineVisit,
+} from "../lib/wineVisit";
 
 export type SnapRek = {
   name: string;
@@ -41,6 +69,8 @@ export type SnapRek = {
   // S6 — the server's attestation of THIS rek (name, category, short):
   // what lets its Share mint a card. Absent → no Share on that card.
   token?: AnchorToken;
+  // S8b — wine cards: price, shelf, taste, favorite comparison.
+  wine?: WineRekInfo;
 };
 
 // S2 — the server's HMAC attestation of the anchor (Ledger #19). Opaque to
@@ -77,6 +107,17 @@ export type SnapResult = {
     // No US service lists it yet: the release window, plain text.
     availability?: string | null;
   };
+  // S8b — a wine anchor: what the shelf read found, the anchor's price and
+  // taste, the price band the reks were held to, and the favorite if it
+  // stands on this shelf.
+  wine?: {
+    scene: WineScene;
+    shelfSnap: boolean;
+    shelf: ShelfBottle[];
+    anchor: WineAnchorInfo | null;
+    band: PriceBand | null;
+    favoriteHere: { name: string; price: number | null } | null;
+  };
 };
 
 // Graduation upward: a marked card (thumbed-up or saved) LEAVES the five
@@ -111,6 +152,8 @@ type Props = {
   // on the anchor meanwhile stands).
   reksPending?: boolean;
   lateReks?: { reks: SnapRek[]; notice?: string } | null;
+  // S8c — a haul was saved (the page refreshes the Bought list).
+  onHaulSaved?: () => void;
 };
 
 // One failure voice, shared verbatim with the search lane's AI misses.
@@ -124,7 +167,7 @@ const LimitCard = () => (
     <div className="bg-white border border-blue-300 rounded-2xl p-4 shadow-sm text-center">
       <Camera size={20} className="inline-block text-[#2D5AB5] mb-1.5" />
       <p className="text-[15px] text-gray-800 leading-relaxed">
-        You've used your 5 free Reks this session — sign in to keep snapping.
+        You&apos;ve used your 5 free Reks this session — sign in to keep snapping.
       </p>
     </div>
   </div>
@@ -139,6 +182,7 @@ const RekSnapResults: React.FC<Props> = ({
   onOpenRecipe,
   reksPending,
   lateReks,
+  onHaulSaved,
 }) => {
   // Thumb marks and saves are independent per item name (a card can be
   // thumbed-up AND saved). Thumbs are one-active-within-thumbs and toggle on
@@ -261,6 +305,20 @@ const RekSnapResults: React.FC<Props> = ({
     alternatives: 0,
   });
 
+  // S8b — the wine shelf: the starred go-to (mirror; any card can change
+  // it), the price chip in force, and the band the last set was held to.
+  const [favorite, setFavorite] = useState<WineFavorite | null>(null);
+  useEffect(() => {
+    setFavorite(getWineFavorite());
+    return onWineFavoriteChange(() => setFavorite(getWineFavorite()));
+  }, []);
+  const [priceChip, setPriceChip] = useState<PriceChip | null>(null);
+  const priceChipRef = useRef<PriceChip | null>(null);
+  const [wineBand, setWineBand] = useState<PriceBand | null>(null);
+  // S8c — the haul confirm: open by itself on a cart/basket photo, or via
+  // "I bought these" under a multi-bottle snap. Closed = the normal result.
+  const [haulOpen, setHaulOpen] = useState(false);
+
   // Which intent list is on screen. Defaults to the model's inferred mode;
   // all three lists are already loaded, so switching is instant (no API call).
   const [activeMode, setActiveMode] = useState<SnapMode>(result?.mode ?? "similar");
@@ -318,6 +376,17 @@ const RekSnapResults: React.FC<Props> = ({
       setOpenRek(null);
       setWatchOpen(false);
       setLateNotice(null);
+      setPriceChip(null);
+      priceChipRef.current = null;
+      setHaulOpen(result.wine?.scene === "haul");
+      setWineBand(result.wine?.band ?? null);
+      // S8b — the visit remembers every wine it showed (no repeats).
+      if (!health && isWineCategory(result.detected_item.category)) {
+        noteWineShown(
+          [result.detected_item.name, ...result.results.similar.map((r) => r.name)],
+          result.detected_item.name
+        );
+      }
     }
   }, [result]);
 
@@ -331,6 +400,34 @@ const RekSnapResults: React.FC<Props> = ({
     lateReks.reks.forEach((r) => everShownRef.current.add(r.name));
     setLateNotice(lateReks.reks.length === 0 ? lateReks.notice ?? null : null);
   }, [lateReks]);
+
+  // S8b — is this list the wine shelf engine's? (Similar under a wine
+  // anchor; Use it for / Instead try keep the vision prompt's paths.)
+  const wineList = (forResult: SnapResult | null, mode: SnapMode) =>
+    !!forResult &&
+    mode === "similar" &&
+    isWineCategory(forResult.detected_item.category) &&
+    !isHealthMedical((forResult.detected_item.category ?? "").trim().toLowerCase());
+
+  // The shared body of every wine re-run: the anchor (attested), the shelf
+  // as read, the anchor's settled price, the chip, and the visit's memory.
+  const winePayload = (forResult: SnapResult, extra: Record<string, unknown>) => {
+    const visit = wineVisit();
+    return {
+      detectedItem: forResult.detected_item,
+      token: forResult.detected_item_token,
+      clientId: getAnonymousClientId(),
+      shelf: forResult.wine?.shelf ?? [],
+      shelfSnap: !!forResult.wine?.shelfSnap,
+      anchorPrice: forResult.wine?.anchor?.price ?? null,
+      anchorPriceSource: forResult.wine?.anchor?.priceSource ?? null,
+      chip: priceChipRef.current,
+      seen: Array.from(new Set([...visit.seen, ...buildExcludeNames()])),
+      rejected: Array.from(new Set([...visit.rejected, ...dismissedNamesRef.current])),
+      favorite: getWineFavorite(),
+      ...extra,
+    };
+  };
 
   const switchMode = (mode: SnapMode) => {
     if (!result || mode === activeMode) return;
@@ -460,6 +557,7 @@ const RekSnapResults: React.FC<Props> = ({
   // no frontier slot, so there is nothing to backfill.
   const handleDislikeFromTrail = (itemName: string, category?: string) => {
     if (!result) return;
+    if (isWineCategory(category || result.detected_item.category)) noteWineRejected(itemName);
     recordSnapSignal({
       itemName,
       itemCategory: category || result.detected_item.category,
@@ -669,6 +767,7 @@ const RekSnapResults: React.FC<Props> = ({
   const handleDislikeRek = (rek: SnapRek) => {
     if (!result || !lists) return;
 
+    if (isWineCategory(rek.category || result.detected_item.category)) noteWineRejected(rek.name);
     recordSnapSignal({
       itemName: rek.name,
       itemCategory: rek.category || result.detected_item.category,
@@ -735,18 +834,32 @@ const RekSnapResults: React.FC<Props> = ({
       const res = await fetch("/api/reksnap", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          backfill: {
-            detectedItem: forResult.detected_item,
-            mode,
-            excludeNames,
-            rejectedNames,
-            // Keys the server's cross-session dislike shading (fail-soft).
-            clientId: getAnonymousClientId(),
-            // S2 — the anchor's attestation; verified server-side first.
-            token: forResult.detected_item_token,
-          },
-        }),
+        body: JSON.stringify(
+          // S8b — a wine Similar slot is refilled by the shelf engine:
+          // the remaining shelf first, in the price band, never a repeat.
+          wineList(forResult, mode)
+            ? {
+                wine: winePayload(forResult, {
+                  kind: "backfill",
+                  seen: Array.from(
+                    new Set([...wineVisit().seen, ...buildExcludeNames(), ...excludeNames])
+                  ),
+                  rejected: Array.from(new Set([...wineVisit().rejected, ...rejectedNames])),
+                }),
+              }
+            : {
+                backfill: {
+                  detectedItem: forResult.detected_item,
+                  mode,
+                  excludeNames,
+                  rejectedNames,
+                  // Keys the server's cross-session dislike shading (fail-soft).
+                  clientId: getAnonymousClientId(),
+                  // S2 — the anchor's attestation; verified server-side first.
+                  token: forResult.detected_item_token,
+                },
+              }
+        ),
       });
       // A named service failure throws with its reason so the log line
       // below names it; the slot still just stays empty (list runs short).
@@ -764,6 +877,7 @@ const RekSnapResults: React.FC<Props> = ({
       // Every generated name joins the exclusion spine, even if the insert
       // below declines (capacity/dupe) — the model produced it, never re-ask.
       everShownRef.current.add(rek.name);
+      if (rek.wine) noteWineShown([rek.name], forResult.detected_item.name);
 
       setLists((prev) => {
         if (!prev) return prev;
@@ -789,6 +903,7 @@ const RekSnapResults: React.FC<Props> = ({
                   ? rek.category
                   : undefined,
               token: asToken(rek.token),
+              wine: rek.wine ?? undefined,
               rank: list.length + 1,
             },
           ],
@@ -943,7 +1058,9 @@ const RekSnapResults: React.FC<Props> = ({
   const fetchChainSet = async (
     payload: Record<string, unknown>,
     mode: SnapMode,
-    restoreList: SnapRek[]
+    restoreList: SnapRek[],
+    // S8b — "wine" sends the payload to the shelf engine's branch.
+    branch: "chain" | "wine" = "chain"
   ) => {
     const forResult = resultRef.current;
     if (!forResult) return;
@@ -951,7 +1068,7 @@ const RekSnapResults: React.FC<Props> = ({
       const res = await fetch("/api/reksnap", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ chain: payload }),
+        body: JSON.stringify({ [branch]: payload }),
       });
       // A named service failure (out of credit, key refused, …) carries
       // honest plain-voice copy from the route; it replaces the Reks Ray
@@ -964,7 +1081,13 @@ const RekSnapResults: React.FC<Props> = ({
         .filter(
           (
             r: unknown
-          ): r is { name: string; description?: unknown; category?: unknown; token?: unknown } =>
+          ): r is {
+            name: string;
+            description?: unknown;
+            category?: unknown;
+            token?: unknown;
+            wine?: WineRekInfo;
+          } =>
             !!r &&
             typeof (r as { name?: unknown }).name === "string" &&
             !!(r as { name: string }).name.trim()
@@ -978,9 +1101,11 @@ const RekSnapResults: React.FC<Props> = ({
               ? r.category
               : undefined,
           token: asToken(r.token),
+          wine: r.wine ?? undefined,
           rank: i + 1,
         }));
       if (resultRef.current !== forResult) return; // new snap mid-flight
+      if (branch === "wine" && data?.band !== undefined) setWineBand(data.band ?? null);
       if (cleaned.length === 0) {
         // S1.5 — the chain succeeded and the guard emptied it: every
         // title offered was fiction. That is not a chain FAILURE, so it
@@ -998,6 +1123,7 @@ const RekSnapResults: React.FC<Props> = ({
       }
 
       cleaned.forEach((r) => everShownRef.current.add(r.name));
+      if (branch === "wine") noteWineShown(cleaned.map((r) => r.name), forResult.detected_item.name);
       setLists((prev) => (prev ? { ...prev, [mode]: cleaned } : prev));
       setChainError(null);
     } catch (err) {
@@ -1053,15 +1179,22 @@ const RekSnapResults: React.FC<Props> = ({
         return;
       }
       void fetchChainSet(
-        buildSteerPayload({
-          chained: rek,
-          origin: "frontier",
-          depth,
-          mode,
-          trailEntries: wipe.trailForPrompt,
-        }),
+        wineList(forResult, mode)
+          ? winePayload(forResult, {
+              kind: "steer",
+              chained: { name: rek.name, description: rek.description },
+              kept: wipe.trailForPrompt.map((e) => e.rek.name),
+            })
+          : buildSteerPayload({
+              chained: rek,
+              origin: "frontier",
+              depth,
+              mode,
+              trailEntries: wipe.trailForPrompt,
+            }),
         mode,
-        wipe.restoreList
+        wipe.restoreList,
+        wineList(forResult, mode) ? "wine" : "chain"
       );
     }, 250);
   };
@@ -1096,15 +1229,22 @@ const RekSnapResults: React.FC<Props> = ({
       return;
     }
     void fetchChainSet(
-      buildSteerPayload({
-        chained: entry.rek,
-        origin: "trail",
-        depth,
-        mode,
-        trailEntries: wipe.trailForPrompt,
-      }),
+      wineList(forResult, mode)
+        ? winePayload(forResult, {
+            kind: "steer",
+            chained: { name: entry.rek.name, description: entry.rek.description },
+            kept: wipe.trailForPrompt.map((e) => e.rek.name),
+          })
+        : buildSteerPayload({
+            chained: entry.rek,
+            origin: "trail",
+            depth,
+            mode,
+            trailEntries: wipe.trailForPrompt,
+          }),
       mode,
-      wipe.restoreList
+      wipe.restoreList,
+      wineList(forResult, mode) ? "wine" : "chain"
     );
   };
 
@@ -1130,6 +1270,15 @@ const RekSnapResults: React.FC<Props> = ({
       chainBusyRef.current = false;
       return;
     }
+    if (wineList(forResult, mode)) {
+      void fetchChainSet(
+        winePayload(forResult, { kind: "set", kept: wipe.trailForPrompt.map((e) => e.rek.name) }),
+        mode,
+        wipe.restoreList,
+        "wine"
+      );
+      return;
+    }
     void fetchChainSet(
       {
         kind: "reroll",
@@ -1148,6 +1297,31 @@ const RekSnapResults: React.FC<Props> = ({
       },
       mode,
       wipe.restoreList
+    );
+  };
+
+  // S8b — a price chip: one tap re-runs the wine Similar list in that
+  // range; tapping the lit chip clears it (back to the anchor's ±35%).
+  // Same wipe + epoch machinery as the anchor re-roll (async lifespan).
+  const handlePriceChip = (chip: PriceChip) => {
+    const forResult = resultRef.current;
+    if (!forResult || chainBusyRef.current) return;
+    const next = priceChipRef.current === chip ? null : chip;
+    chainBusyRef.current = true;
+    priceChipRef.current = next;
+    setPriceChip(next);
+    setChainError(null);
+    if (activeMode !== "similar") setActiveMode("similar");
+    const wipe = commitChainWipe({ mode: "similar" });
+    if (!wipe) {
+      chainBusyRef.current = false;
+      return;
+    }
+    void fetchChainSet(
+      winePayload(forResult, { kind: "set", kept: wipe.trailForPrompt.map((e) => e.rek.name) }),
+      "similar",
+      wipe.restoreList,
+      "wine"
     );
   };
 
@@ -1279,6 +1453,19 @@ const RekSnapResults: React.FC<Props> = ({
   const anchorShareable =
     !anchorIsHealthMedical && !!result.detected_item_token;
   const anchorIsMedia = MEDIA_CATEGORIES.has(detectedCategory);
+  // S8a — a wine anchor: titles show the bottle (image search, new tab),
+  // and the anchor's verbs are the bottle and where to buy it instead of
+  // "View recipe" (the "Use it for" pairing cards keep theirs — food).
+  const anchorIsWine = !anchorIsHealthMedical && isWineCategory(detectedCategory);
+  // The title link for any card under this anchor: media → info page,
+  // wine → the bottle. A rek labeled with a non-wine category under a wine
+  // anchor (a cheese in "Use it for") keeps a plain title.
+  const titleLinkFor = (name: string, category?: string): string | undefined =>
+    anchorIsMedia
+      ? titleInfoUrl(name)
+      : anchorIsWine && isWineCategory(category ?? detectedCategory)
+        ? bottleImageUrl(name)
+        : undefined;
   // S6 — Share on every rek card: only with the rek's own attestation
   // (the server withholds it for anything health), and never under a
   // health anchor (whose lists are empty anyway — the client twin).
@@ -1302,6 +1489,85 @@ const RekSnapResults: React.FC<Props> = ({
   // "View recipe". Unknown now suppresses. Trail cards keep the
   // push-through of their ORIGIN mode.
   const usesGetRecipes = categoryGetsRecipe(detectedCategory);
+
+  // S8a — the wine anchor's two verbs. See the bottle (LEFT — learn) is
+  // the collapsed one; Where to buy (MIDDLE — complete) joins it expanded.
+  const seeBottleVerb = (
+    <a
+      href={bottleImageUrl(result.detected_item.name)}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="hover:underline"
+    >
+      See the bottle
+    </a>
+  );
+  const wineBuyVerb = (
+    <a
+      href={wineWhereToBuyUrl(result.detected_item.name)}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="hover:underline"
+    >
+      Where to buy
+    </a>
+  );
+
+  // S8b — the wine shelf on screen.
+  const wineMeta = anchorIsWine ? result.wine ?? null : null;
+  const anchorWine = wineMeta?.anchor ?? null;
+  const anchorShelfPrice =
+    wineMeta?.shelfSnap && anchorWine?.priceSource === "tag"
+      ? formatPrice(anchorWine.price, "tag")
+      : null;
+  const isFavoriteName = (name: string) =>
+    !!favorite && favorite.name.trim().toLowerCase() === name.trim().toLowerCase();
+  // The star: the go-to mark, separate from Save (one tap stars, one tap on
+  // the lit star un-stars; a new star replaces the old one).
+  const starFor = (
+    name: string,
+    description: string,
+    info: { dry: number | null; body: number | null; price?: number | null } | null,
+    category?: string
+  ) =>
+    anchorIsWine && isWineCategory(category ?? detectedCategory) ? (
+      <button
+        type="button"
+        aria-label={isFavoriteName(name) ? "Your go-to wine (tap to unstar)" : "Make this my go-to wine"}
+        aria-pressed={isFavoriteName(name)}
+        title={isFavoriteName(name) ? "Your go-to" : "Make it my go-to"}
+        onClick={() =>
+          void setWineFavorite(
+            isFavoriteName(name)
+              ? null
+              : {
+                  name,
+                  // Only the anchor's profile stands alone; a rek's line is
+                  // written relative to another bottle, so it isn't kept.
+                  description: name === result.detected_item.name ? description : null,
+                  dry: info?.dry ?? null,
+                  body: info?.body ?? null,
+                  price: info?.price ?? null,
+                }
+          )
+        }
+        className="p-1 -m-1 transition active:scale-90"
+      >
+        <Star
+          size={18}
+          strokeWidth={1.8}
+          className={isFavoriteName(name) ? "fill-amber-400 text-amber-500" : "text-gray-400 hover:text-amber-500"}
+        />
+      </button>
+    ) : undefined;
+  const wineLead = (rek: SnapRek) =>
+    favorite && rek.wine?.vsFavorite && !isFavoriteName(rek.name)
+      ? `vs. your ${shortWineName(favorite.name)}: ${rek.wine.vsFavorite}.`
+      : undefined;
+  const wineFactsFor = (rek: SnapRek) =>
+    rek.wine ? (
+      <WineFacts info={rek.wine} favorite={favorite} isFavorite={isFavoriteName(rek.name)} />
+    ) : undefined;
 
   /* Recipe open lives ONLY on this button (not the whole card) so it
      won't collide with the swipe-to-dismiss gesture (frontier) or the
@@ -1345,6 +1611,40 @@ const RekSnapResults: React.FC<Props> = ({
     </a>
   );
 
+  // S8c — names for the haul list: what the shelf read found, else the
+  // anchor alone.
+  const haulNames =
+    wineMeta && wineMeta.shelf.length > 0
+      ? wineMeta.shelf.map((b) => b.name)
+      : [result.detected_item.name];
+  // "I bought these" — a few bottles, not a whole aisle.
+  const canClaimHaul =
+    !!wineMeta && wineMeta.scene !== "haul" && wineMeta.shelf.length >= 2 && wineMeta.shelf.length <= 8;
+
+  if (haulOpen && anchorIsWine) {
+    return (
+      <div className="w-full flex flex-col items-center px-4 pt-2 pb-14">
+        <div className="w-full max-w-xl">
+          <HaulConfirm
+            key={`${result.detected_item.name}|${result.detected_item_token?.issued_at ?? 0}`}
+            initial={haulNames}
+            onCancel={() => setHaulOpen(false)}
+            onSaved={() => onHaulSaved?.()}
+          />
+        </div>
+        {!limitReached && (
+          <button
+            onClick={() => onSnapAgain?.()}
+            className="mt-6 px-4 py-2 rounded-xl text-sm border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 flex items-center gap-1.5"
+          >
+            <Camera size={16} />
+            Snap another
+          </button>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="w-full flex flex-col items-center px-4 pt-2 pb-14 select-none">
       {limitReached && (
@@ -1376,9 +1676,7 @@ const RekSnapResults: React.FC<Props> = ({
           }
           /* Media titles link out — same anchorIsMedia gate as the media
              verbs; expand stays reachable via "Show details". */
-          titleHref={
-            anchorIsMedia ? titleInfoUrl(result.detected_item.name) : undefined
-          }
+          titleHref={titleLinkFor(result.detected_item.name)}
           long={anchorIsHealthMedical ? undefined : anchorLong ?? undefined}
           expandable={!anchorIsHealthMedical}
           markerLine={anchorIsHealthMedical ? HEALTH_ANCHOR_LINE : undefined}
@@ -1396,8 +1694,19 @@ const RekSnapResults: React.FC<Props> = ({
               <div className="mb-1 text-[15px] text-gray-900">
                 {result.media.availability}
               </div>
+            ) : anchorWine ? (
+              <WineFacts
+                info={anchorWine}
+                favorite={favorite}
+                isFavorite={isFavoriteName(result.detected_item.name)}
+              />
             ) : undefined
           }
+          starSlot={starFor(
+            result.detected_item.name,
+            result.detected_item.description,
+            anchorWine
+          )}
           detailsLoading={anchorLoading}
           detailsOpen={anchorOpen}
           onToggleDetails={toggleAnchorDetails}
@@ -1427,6 +1736,8 @@ const RekSnapResults: React.FC<Props> = ({
                 name={result.detected_item.name}
                 href={result.media?.trailerUrl ?? undefined}
               />
+            ) : anchorIsWine ? (
+              seeBottleVerb
             ) : anchorOpen ? (
               showMeVerb
             ) : undefined
@@ -1444,6 +1755,14 @@ const RekSnapResults: React.FC<Props> = ({
                   </button>
                 ) : (
                   <WhereToWatchVerb name={result.detected_item.name} />
+                )
+              ) : undefined
+            ) : anchorIsWine ? (
+              anchorOpen ? (
+                anchorShelfPrice ? (
+                  <span className="text-gray-900">{anchorShelfPrice} here</span>
+                ) : (
+                  wineBuyVerb
                 )
               ) : undefined
             ) : usesGetRecipes ? (
@@ -1485,6 +1804,34 @@ const RekSnapResults: React.FC<Props> = ({
           />
         )}
 
+        {/* S8b — after a single-bottle wine snap, one quiet line toward
+            the shelf shot (dismissible, at most 3 times). */}
+        {canClaimHaul && (
+          <div className="mt-2 px-1 text-right">
+            <button
+              type="button"
+              onClick={() => setHaulOpen(true)}
+              className="text-[13px] text-blue-300 sm:text-[#1E3A8A] hover:underline"
+            >
+              I bought these
+            </button>
+          </div>
+        )}
+        {wineMeta?.scene === "single" && (
+          <QuietTip storageKey="shelf-after-single" text={SINGLE_BOTTLE_TIP} className="mt-3 px-1" />
+        )}
+
+        {/* S8b — the go-to, spotted on this shelf. */}
+        {wineMeta?.favoriteHere && (
+          <div className="mt-3 rounded-2xl border border-amber-300 bg-white p-3 text-[15px] text-gray-900 shadow-sm">
+            <Star size={16} className="mr-1.5 inline-block -mt-0.5 fill-amber-400 text-amber-500" />
+            Your {shortWineName(wineMeta.favoriteHere.name)} is here
+            {wineMeta.favoriteHere.price != null
+              ? `, $${wineMeta.favoriteHere.price.toFixed(2)}.`
+              : " on this shelf."}
+          </div>
+        )}
+
         {/* THE TRAIL — the user's decided keeps, compact, directly under
             the anchor and above the mode pills. Cross-mode: a keep from
             any list stays visible while browsing the others. Tapping a
@@ -1499,9 +1846,7 @@ const RekSnapResults: React.FC<Props> = ({
                 hint={entry.rek.description}
                 thumbed={thumbSignals[entry.rek.name] === "like"}
                 saved={!!savedNames[entry.rek.name]}
-                titleHref={
-                  anchorIsMedia ? titleInfoUrl(entry.rek.name) : undefined
-                }
+                titleHref={titleLinkFor(entry.rek.name, entry.rek.category)}
                 trailing={
                   /* Compact chain affordance — a trail chain is double-
                      weighted (verdict + pursuit). Health/medical: none. */
@@ -1529,9 +1874,7 @@ const RekSnapResults: React.FC<Props> = ({
                       cur === entry.rek.name ? null : entry.rek.name
                     )
                   }
-                  titleHref={
-                    anchorIsMedia ? titleInfoUrl(entry.rek.name) : undefined
-                  }
+                  titleHref={titleLinkFor(entry.rek.name, entry.rek.category)}
                   thumbSignal={thumbSignals[entry.rek.name] ?? null}
                   saved={!!savedNames[entry.rek.name]}
                   onThumbUp={() =>
@@ -1542,6 +1885,13 @@ const RekSnapResults: React.FC<Props> = ({
                   }
                   onSave={() => handleSave(entry.rek.name, entry.rek.category)}
                   shareSlot={rekShare(entry.rek, entry.mode)}
+                  infoSlot={wineFactsFor(entry.rek)}
+                  shortLead={wineLead(entry.rek)}
+                  starSlot={
+                    entry.rek.wine
+                      ? starFor(entry.rek.name, entry.rek.description, entry.rek.wine, entry.rek.category)
+                      : undefined
+                  }
                   /* Media reks carry their verbs into the trail; recipe
                      push-through keeps its ORIGIN mode. RIGHT = chain. */
                   verbLeft={
@@ -1608,6 +1958,42 @@ const RekSnapResults: React.FC<Props> = ({
         </div>
         )}
 
+        {/* S8b — price chips on a wine snap's Similar list. Same bubble as
+            the mood chips; one tap re-runs in that range, a second tap on
+            the lit chip clears it. With no chip the reks sit within ±35%
+            of the anchor's price, said in one quiet line. */}
+        {wineMeta && wineMeta.scene !== "haul" && activeMode === "similar" && (
+          <div className="mb-3">
+            <div
+              className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1"
+              style={{ scrollbarWidth: "thin" }}
+              aria-label="Price"
+            >
+              {PRICE_CHIPS.map((c) => (
+                <button
+                  key={c.id}
+                  type="button"
+                  onClick={() => handlePriceChip(c.id)}
+                  aria-pressed={priceChip === c.id}
+                  className={[
+                    "shrink-0 rounded-full border px-3 py-1.5 text-[13px] transition-colors",
+                    priceChip === c.id
+                      ? "border-[#2D5AB5] bg-[#2D5AB5]/5 text-[#2D5AB5]"
+                      : "border-gray-300 bg-white text-gray-800 hover:border-gray-400",
+                  ].join(" ")}
+                >
+                  {c.label}
+                </button>
+              ))}
+            </div>
+            {!priceChip && wineBand && (
+              <div className="mt-1 px-1 text-[12px] text-gray-300 sm:text-gray-600">
+                Near the price of this bottle: ${wineBand.min}–${wineBand.max}
+              </div>
+            )}
+          </div>
+        )}
+
         <div className="space-y-3">
           {/* S1.5 — honest-short. The photo was read, the anchor is right
               above, and every neighbour the model offered turned out not
@@ -1645,7 +2031,7 @@ const RekSnapResults: React.FC<Props> = ({
                 onToggleDetails={() =>
                   setOpenRek((cur) => (cur === rek.name ? null : rek.name))
                 }
-                titleHref={anchorIsMedia ? titleInfoUrl(rek.name) : undefined}
+                titleHref={titleLinkFor(rek.name, rek.category)}
                 // Swipe grammar (touch only): a committed swipe in either
                 // direction dismisses + backfills (thumbs-down). Liked or
                 // saved cards don't arm. The anchor card above never gets
@@ -1657,6 +2043,11 @@ const RekSnapResults: React.FC<Props> = ({
                 onThumbDown={() => handleDislikeRek(rek)}
                 onSave={() => handleSave(rek.name, rek.category)}
                 shareSlot={rekShare(rek, activeMode)}
+                infoSlot={wineFactsFor(rek)}
+                shortLead={wineLead(rek)}
+                starSlot={
+                  rek.wine ? starFor(rek.name, rek.description, rek.wine, rek.category) : undefined
+                }
                 className={[
                   "transition-all duration-300 ease-out",
                   migrating === rek.name
@@ -1719,6 +2110,11 @@ const RekSnapResults: React.FC<Props> = ({
           <Camera size={16} />
           Snap another
         </button>
+      )}
+      {/* S8a — the shelf shot, taught where the next snap starts. Shares
+          its count (3) and its × with the camera screen's line. */}
+      {!limitReached && anchorIsWine && (
+        <QuietTip storageKey="shelf-shot" text={SHELF_TIP} className="mt-3 max-w-xs px-2" />
       )}
     </div>
   );
