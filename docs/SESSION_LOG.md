@@ -1452,3 +1452,125 @@ VALIDATION:
   - No cart on Movies; all six tips on Wine.
   - "…how it compares" without a go-to; starring one switches it live; a stored go-to shows only the go-to version.
   - Reduced motion: still no timer.
+
+---
+
+## Session 12 — go-tos + steer (S12a + S12b) — 2026-10-18 — branches auto/s12a-gotos, auto/s12b-steer — PRs #38, #39 (local agent mode, §11)
+
+Brad's instructions: the S12 spec (plan on disk first: `docs/s12-gotos-steer-plan.md`); plumbing merges when green and checked on its preview; approved new wording only "Your go-tos", "+ More like this", "Steer by", "A classic to steer by", and the "vs. your [go-to]: …" lead for Movies/TV/Books; any other prompt or wording change waits; migrations per §11.2. Mid-run (bike ride): make the reasonable call, log it, keep going.
+
+**Merges (self-merged under that instruction, §10.3, each green and checked on its own preview):**
+- #38 S12a: `6588529`
+- #39 S12b: `3ccba4d`
+
+Each reverts on its own with `git revert -m 1 <sha>`, newest first.
+
+SHIPPED:
+
+**S12a — go-tos (#38)**
+- **The star on Movies, TV and Books**, same as wine's (left of Save, separate from Save). Snap-lane anchors and the reks under a media/book anchor; search-lane cards, frontier and trail. Many go-tos per category.
+  - Stored per anon id in the new `go_tos` table via `/api/gotos` (state / star / unstar / event), with a localStorage mirror. Server wins on load; a local star it never got is re-pushed.
+  - Screens are looked up on TMDb when starred (by id when the card knows it, else by name), so each go-to carries its TMDb id and genres.
+  - Category allow-list (`src/lib/goToCategory.ts`): health never gets a star; the health check runs first.
+- **"Your go-tos (n)"** on the home screen, above "Wine you bought": collapsed, a tap opens it; grouped Movies · TV Shows · Books · Wine. Wine's one go-to comes from `wine_marks`, untouched.
+- **"+ More like this"** on every go-to tile:
+  - Movies/TV: the go-to opens as the anchor (`/api/anchor` `open`, TMDb only), then the existing chooser picks five from its TMDb web.
+  - Books: a search on the book's name.
+  - Wine: the typed-wine anchor (its style and ±35% price band).
+  - Also on every "Wine you bought" row (same wine path; not counted as a go-to tap) and on the starred anchor itself (shown collapsed while starred).
+- **`/api/stats`**: go-tos starred per category (Movies / TV / Books / Wine), touchstones shown / starred / rate, + More like this from a go-to, Steer by switches, sets checked, **Repeats (must be 0)**.
+
+**S12b — Steer by + the slot recipe (#39)**
+- **Movies/TV mood chips now come from TMDb's own pools** (`src/lib/slotRecipe.ts`, `/api/slots`), by Brad's recipe:
+  - 0 go-tos: touchstone · touchstone · popular · **wildcard** (tier 3) · fresh.
+  - 1 go-to: touchstone · 2 close neighbors · **wildcard** neighbor (far end of its web) · fresh.
+  - 2+: steer by the nearest: 2 less-famous neighbors · **wildcard** neighbor · classic · new release.
+  - Pools: discover by the chip's genre + refiner, ranked by vote count, tiers of 50; touchstones = the top 20. Floor 6.9 (comedy 5.0, documentary 7.2), 500 votes (TV 150; fresh 200 / 60). Cached an hour per process.
+- **No repeats, guaranteed at the response site:** this visit's shown titles (sessionStorage), every go-to, watched and disliked are dropped from every pool before sampling. A dry slot falls to the next pool, never to a repeat. Every set that reaches the screen is also counted against the visit (`set_shown` → Repeats); the engine's seen set is seeded from the visit, so AI paths can't repeat a recipe title either.
+- **"vs. your <go-to>: …"**: with a steering go-to, one call to the existing chooser (its prompt verbatim) writes a line per card against the go-to. With no go-to, the card shows TMDb's synopsis (no model call). **No prompt text changed.**
+- **Nearest go-to**: +2 for the lane's genre, + genre overlap with the pool, + links from its TMDb web into the pool; ties → most recent.
+- **Steer by** row above the results (Movies/TV/Books, hidden with no go-tos), nearest first, then most recent; the steering go-to is lit. One tap re-runs steered (Books: the existing seeded search).
+- **Touchstone cards**: "A classic to steer by ☆"; the star in the label is the card's star.
+- Thumbs-down on a recipe card is replaced from the recipe (same slot, same steer).
+- Fallback: no TMDb key / TMDb down → the old AI chip search, logged `[slots] FALLBACK`.
+
+MIGRATION (§11.2, executed):
+- `docs/sql/s12-go-tos.sql`: two additive tables, `go_tos` and `goto_events`. RLS on, zero client policies, anon/authenticated revoked.
+- Backup: **`backups/2026-10-18-1309-s12.sql`** (658,778 bytes, dump complete).
+- Block 1: both NULL. Block 2: as expected. Block 3: as expected (service_role holds every privilege via Supabase defaults, as on wine_marks).
+- Block 4: both positive controls pass, 14 refusals pass, rolled back (0 rows persisted).
+
+CALLS I MADE (Brad was away; each is reversible):
+1. **New table, not wine_marks.** `go_tos` holds movies/TV/books; wine keeps its one live go-to in `wine_marks` exactly as S8 built it ("keep everything wine does unchanged"). "Many go-tos" therefore applies to Movies/TV/Books; wine stays one.
+2. **Two PRs:** go-tos (#38), then steer + recipe (#39), stacked.
+3. **No-go-to card text = TMDb's synopsis.** Writing a line without a go-to would need new prompt text, which waits for Brad. **This is the biggest feel change of the run**: chip results with no go-to no longer show the Reks Ray story voice. It also makes chip results much faster (one TMDb read, no model call; with a go-to, one ~3s chooser call instead of 12–25s).
+4. **The line writer is the typed-title chooser, verbatim**, given the go-to as its anchor and exactly the five picks. Its own wildcard is ignored (the recipe keeps its own).
+5. **"Comedy → Heartwarming" = Feel-good.** There is no Heartwarming chip; Feel-good is the nearest existing refiner.
+6. **The wildcard slot replaces one slot in each recipe** (popular / third neighbor / third less-famous neighbor) so every set stays five.
+7. **Refiners → discover filters:** Feel-good drops horror/thriller/war (unless the lane is one); Dark requires crime/thriller/mystery/horror; Smart raises the floor to 7.4; Classic = before 2000; New = last 2 years.
+8. **Animation/Family/Kids stay out of the chip pools** unless the lane is one of them. TMDb's most-voted comedies are mostly kids' animation (Up, Ratatouille, Madagascar).
+9. **Neighbors never leave the chip's genre.** With a go-to that doesn't fit the lane (Lioness under TV Comedy), the rest come from the lane pool, closest in genre to the go-to. Before this, Comedy showed spy dramas.
+10. **One star per touchstone card**, in its label.
+11. **"vs. your Grand Budapest Hotel"**: a leading The/A/An is dropped from the go-to's name in the lead. The line's first word is lower-cased only when it's an ordinary word, never a possible name.
+12. **Typed mood searches stay on the AI path.** The Steer by row still shows above them, nothing lit, and a tap re-runs as a recipe steered by that go-to.
+13. **Books best-effort:** chips stay AI; Steer by runs the existing seeded search (its sentence 3 already places against the go-to by name). No "vs." prefix for Books.
+14. **The nearest go-to is chosen from the client's go-to list** (sent with each call) so a star tapped a second ago already steers.
+15. **"+ More like this" on a Wine-you-bought row isn't counted** as a go-to tap (it isn't a go-to).
+
+FOUND, NOT FIXED:
+- **Chooser register leaks**: in a counted run (12 sets, 60 cards), 18 lines carried "navigates" / "explores" / "experience". This is the existing chooser's voice (the same lines typed-title anchors ship today), unchanged. One line echoed the prompt's own example, though it was accurate for that title (Condor). Joint voice round.
+- **No-go-to cards read as TMDb synopses** (call 3). If Brad wants the Reks Ray voice back there, it needs a new one-line prompt for anchor-less picks: VOICE, his OK.
+- **Go-tos don't follow `/api/auth/merge`** on sign-in (same gap as `wine_marks`).
+- **Harness runner on this machine:** the tsc-spawning harnesses (s1, s2, s15…) need a shell for `npx` on Windows. I ran them with a scratchpad `-r` shim; the harnesses themselves are unchanged.
+
+TEST RESIDUE (one database): `go_tos` 12 agent rows, `goto_events` 43 agent rows (`anon_agent_s12*`). `/api/stats` excludes them. Zero non-agent go-tos exist yet.
+
+BRAD MUST:
+- Run the phone checklist below on the main preview, then promote `main` → `release/v2` (yours alone).
+- Decide call 3 (synopsis vs. a voiced line on no-go-to chip results).
+
+NEXT SESSION SHOULD KNOW:
+- **Recipe sets carry `rek.slot`, `rek.tmdbId`, `rek.vsGoTo`.** ResultsV4 routes their backfill through `/api/slots` (`backfillOverride`); any remap must keep `slot`.
+- **`noteSetShown` (src/lib/screenVisit.ts) is the repeat counter.** Every new landing site for movies/TV/books should call it.
+- **`mediaReks.linesVsGoTo`** is the one place go-to lines are written.
+- The recipe's tunables are all in `slotRecipe.ts`: floors, tiers, refiner filters, excluded kids' genres.
+- Validation scripts from this run (ui-s12a, ui-s12a-wine, ui-s12b, ui-s12b-steer) are in the session scratchpad, not committed.
+
+VALIDATION:
+- Harnesses: new validate-s12a 63/63 and validate-s12b 53/53. Every earlier harness green: s1 50, s15 54, s2 97, s21 364, s23 35, s30 69, s36 59, s4a 82 (stub gains go_tos/goto_events), s4b 48, s5 32, s6 36, s7 21, s8a 39, s8b 44, s8c 20, s9 9, s10 25, s11 40. tsc and lint clean.
+- Previews (bypass header, 390×844):
+  - S12a: 13/13 plus wine tiles 4/4.
+  - S12b: acceptance 16/16. Comedy → Feel-good ×3 = **15/15 different**; starring a touchstone → next five on the one-go-to recipe (1 touchstone, 3 neighbors), 5/5 "vs. your …"; **25/25 unique** over five sets; thumbs-down replaced from the recipe.
+  - Steer 14/14: two go-tos → "many", nearest lit; tap Heat → "vs. your Heat:" ×5, no repeats; Books steer; stats repeats 0.
+
+### Brad's twenty minutes — the phone checklist (main preview first, then production after promotion)
+
+**What to do**
+1. **Movies → Comedy.** Two cards say "A classic to steer by ☆". Tap Feel-good three times: 15 different titles, none from the first set.
+2. **Star a touchstone** (the ☆ in its label). A "Steer by" row appears with it. Tap Feel-good again: the cards now lead "vs. your <it>: …", one touchstone, three neighbors.
+3. **TV Shows**: type **Lioness** → star the anchor. Its "+ More like this" now shows without expanding. Star a second show from the reks. Tap **Thriller**: Steer by shows both, the nearest lit. Tap the other: the five re-run and lead "vs. your <other>: …".
+4. **Home** (tap the wordmark): "Your go-tos" → Movies / TV Shows tiles → "+ More like this" on Lioness: Lioness on top, five from its web.
+5. **Books**: snap or search a book, star it, tap a Books chip, then its Steer by chip: five books placed against it.
+6. **Wine**: in "Your go-tos" tap the wine tile's "+ More like this" (your Bonanza): reks in its style and price band. Do the same on a "Wine you bought" row.
+7. **Readout:** `/api/stats?key=<STATS_KEY>` shows go-tos starred per category, touchstone rate, More like this from a go-to, Steer by switches, and **Repeats 0**.
+
+**What it should feel like**
+- [ ] The star is the same star as wine's, never confused with Save.
+- [ ] A chip tap is fast now (a second or two without a go-to, a few with one).
+- [ ] The "vs. your …" lead is the first thing you read, and it names your show, never "your taste".
+- [ ] Steer by feels like the mood chips: one tap, results.
+- [ ] Nothing repeats in a visit.
+- [ ] Your feel calls (§12.4):
+  - no-go-to cards show TMDb's synopsis instead of the Reks Ray voice (call 3);
+  - touchstones as "classics" when they're recent hits (TMDb's most-voted);
+  - kids' animation kept out of Comedy.
+
+**What to screenshot if it's wrong:** any repeat, a card off the chip's genre, a "vs." lead that names the wrong title, the Steer by row with the wrong chip lit, `/api/stats`.
+
+**Log lines:** `[slots]`, `[slots] FALLBACK`, `[slots] lines vs go-to`, `[slots] short set`, `[go-tos]`, `[go-tos] REPEAT shown`, `[screen-visit] REPEAT on screen`, `[go-to-open]`.
+
+### Production promotion steps (§11.8)
+1. Brad opens `main → release/v2` and merges after the checklist passes on the main preview.
+2. **Environment variables:** nothing new (`TMDB_API_KEY`, `STATS_KEY` already in Production).
+3. **Migration:** already live (shared database): `go_tos` and `goto_events`, backup `backups/2026-10-18-1309-s12.sql`. Rollback is Block 5 of `docs/sql/s12-go-tos.sql` (Brad's call only). The code fails soft without the tables: `[go-tos] … migration_pending`.
+4. **Revert SHAs:** #39 `3ccba4d`, then #38 `6588529`, each with `git revert -m 1 <sha>`.
