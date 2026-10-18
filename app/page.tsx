@@ -217,7 +217,17 @@ async function resolveTypedAnchor(text: string, category: Category): Promise<Sna
       throw new AIServiceError(data.error, data.reason);
     }
     if (!res.ok) throw new Error(data?.error || "Typed wine failed");
-    if (data?.detected_item && Array.isArray(data?.results?.similar)) return data as SnapResult;
+    // The Wine bar's category wins: an anchor that isn't a wine never lands
+    // here (the server refuses one too); the wine search runs instead.
+    if (data?.detected_item && Array.isArray(data?.results?.similar)) {
+      if (data.media || !isWineCategory(data.detected_item.category)) {
+        console.warn("[typed-anchor] wine bar got a non-wine anchor — wine search instead", {
+          category: data.detected_item.category ?? null,
+        });
+        return null;
+      }
+      return data as SnapResult;
+    }
     return null;
   }
   return null;
