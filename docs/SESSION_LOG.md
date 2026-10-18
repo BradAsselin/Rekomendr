@@ -1574,3 +1574,31 @@ VALIDATION:
 2. **Environment variables:** nothing new (`TMDB_API_KEY`, `STATS_KEY` already in Production).
 3. **Migration:** already live (shared database): `go_tos` and `goto_events`, backup `backups/2026-10-18-1309-s12.sql`. Rollback is Block 5 of `docs/sql/s12-go-tos.sql` (Brad's call only). The code fails soft without the tables: `[go-tos] … migration_pending`.
 4. **Revert SHAs:** #39 `3ccba4d`, then #38 `6588529`, each with `git revert -m 1 <sha>`.
+
+## Fix — typed name: the selected category wins — 2026-10-18 — branch auto/typed-category-wins — PR #44 (also #43: charter §0)
+
+**Field bug (production):** on the Wine bar, typing "Bonanza" landed the TV western as the anchor, with Gunsmoke, Little House and Rawhide as reks. Reproduced 3/3 on the main preview.
+
+**Cause:** not S12 and not the TMDb typed-title lookup. `/api/anchor` resolve was already Movies/TV-only. The typed-wine path in `/api/reksnap` (S3.0/S8) first confirmed the name was a specific wine, then sent only the name to the general snap read, with no category. That read chose the show.
+
+**Fix (merged `4122979`):**
+- The read is told the name is a wine typed on the Wine bar, and that every rek is a wine.
+- A read that still lands outside wine is retried once, then refused (`{ anchor: null, fallback: "not_wine" }`, error-level log). The wine search then runs on the text.
+- The client refuses a non-wine anchor on the Wine bar.
+- No app wording changes.
+
+**Validation:**
+- New `scripts/validate-typed-category.cjs`: 31/31 (8 fail on the old code).
+- `validate-s12b`'s wording check now diffs S12's own range: diffing `main` has been empty since the merge.
+- Every harness, tsc and lint are green.
+- Preview, 390×844: 8/8 on the UI checks.
+  - Wine + Bonanza → the Bonanza wine, wine reks: 5/5 more on the API.
+  - TV + Bonanza → the show.
+  - Movies + Lioness → still the show.
+  - Books + Dune → no TMDb call, book results.
+
+**Known, unchanged:** Books has no typed-title anchor. "Dune" on Books runs the books search, not a Dune anchor (it never becomes the movie).
+
+**§0 check:** consistent. The selected category winning is the shorter path to the choice the person asked for.
+
+**Promotion:** `main → release/v2` is Brad's. Nothing new in env or the database. Revert: `git revert -m 1 4122979`.
