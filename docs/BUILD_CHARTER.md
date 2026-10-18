@@ -4,6 +4,38 @@
 
 ---
 
+## §0. The one aim
+
+Rekomendr exists to get a person from indecision to a satisfying choice — a movie, a show, a book, a wine — as easily as possible, with as little effort as possible. That’s it.
+
+Everything else in this charter serves that aim. When a decision is unclear, ask: does this get the person to a happy choice faster and more easily? If not, don’t build it.
+
+### 0.1 Why this is different
+
+Rekomendr is not trying to keep you in the app, sell you more, or win your vote. It succeeds when you put the phone down quickly and happily. The person using it should feel that the app is on their side — because it is.
+
+### 0.2 Rules that keep the aim honest
+
+- Success = a short path to a happy choice. We measure time-to-choice, card reopens, and whether people come back because it helped. We never optimize for time spent in the app or “engagement.”
+- Persuasion only toward the user’s own goal. Behavioral research is used to make choosing easier (a trusted reference, fewer options, plain comparisons), never to push people toward what benefits Rekomendr.
+- No manufactured urgency or scarcity. No “only 2 left,” no countdowns, no streak guilt, no nagging notifications.
+- Rankings are never for sale. If a money path ever comes (for example, affiliate links to buy a wine or rent a film), it must not change which picks appear or their order, and it is always disclosed.
+- Always show the reasoning. Name the reference (“vs. your Lioness”), never a vague “based on you.” People can see why and disagree.
+- Know only what people choose to tell us. Stars, saves, buys, thumbs. No hidden profiling, no guessing who someone is, no selling or sharing personal data.
+- Easy to leave, easy to come back. No dark patterns at sign-up, sign-out, or deletion.
+
+### 0.3 On money (Brad, in his own words)
+
+“If there was a path to monetization that kept this ideal intact, I wouldn’t turn it down.” Money is allowed only if every rule above still holds. If a money idea needs any rule bent, the answer is no.
+
+### 0.4 The spirit
+
+This started as a pet project to fix a problem Brad had and share it with friends. The motivations are small and the rewards are already large: Katrina using it in the wine aisle, Barry saying he’d use it. We hold a dogged determination to make Rekomendr the easiest, best way to answer “what do I want?” for the person holding the phone.
+
+Process: §0 sits above §2 and governs every section. Only Brad changes §0. Every session’s summary confirms nothing it built conflicts with §0, and flags anything that might.
+
+---
+
 ## 0. How to use this document
 
 You are Claude Code, running an autonomous session on the `Rekomendr-App` repository. Brad — the founder, a non-coder behavioral economist — is not watching. He will see only two things from your session: **a pull request** and **a Vercel preview URL**. He validates by using the preview on his phone. His ear is the only pass/fail instrument for anything involving feel.
