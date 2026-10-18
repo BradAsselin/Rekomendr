@@ -25,7 +25,9 @@ import {
   mediaCategoryFor,
   mediaConfigured,
   resolveExactTitle,
+  resolveSnappedTitle,
   resolveTypedTitleChecked,
+  type MediaBundle,
   type MediaKind,
 } from "../../../src/lib/tmdbMedia";
 import { chooseMediaReks, raceTaste } from "../../../src/lib/mediaReks";
@@ -90,18 +92,6 @@ async function resolve(body: any): Promise<Response> {
     return Response.json({ anchor: null, fallback: "bundle_failed" }, { status: 200 });
   }
 
-  const category = mediaCategoryFor(bundle.kind);
-  const clientId = cleanClientId(body?.clientId);
-  const token = clientId
-    ? signAnchor({
-        name: bundle.title,
-        category,
-        short: bundle.overview,
-        long: null,
-        clientId,
-      })
-    : null;
-
   console.info("[typed-anchor] resolved", {
     title: bundle.title,
     kind: bundle.kind,
@@ -114,29 +104,71 @@ async function resolve(body: any): Promise<Response> {
     ms: Date.now() - started,
   });
 
-  return Response.json(
-    {
-      anchor: {
-        detected_item: {
-          name: bundle.title,
-          description: bundle.overview,
-          category,
-          year: bundle.year,
-        },
-        ...(token ? { detected_item_token: token } : {}),
-        mode: "similar",
-        results: { similar: [], uses: [], alternatives: [] },
-        media: {
-          kind: bundle.kind,
-          id: bundle.id,
-          trailerUrl: bundle.completion.trailerUrl,
-          watch: bundle.completion.watch,
-          availability: bundle.completion.availability,
-        },
-      },
+  return Response.json({ anchor: anchorFrom(bundle, cleanClientId(body?.clientId)) }, { status: 200 });
+}
+
+// The anchor shape every media anchor lands in (typed, or a go-to opened).
+function anchorFrom(bundle: MediaBundle, clientId: string | null) {
+  const category = mediaCategoryFor(bundle.kind);
+  const token = clientId
+    ? signAnchor({
+        name: bundle.title,
+        category,
+        short: bundle.overview,
+        long: null,
+        clientId,
+      })
+    : null;
+  return {
+    detected_item: {
+      name: bundle.title,
+      description: bundle.overview,
+      category,
+      year: bundle.year,
     },
-    { status: 200 }
-  );
+    ...(token ? { detected_item_token: token } : {}),
+    mode: "similar",
+    results: { similar: [], uses: [], alternatives: [] },
+    media: {
+      kind: bundle.kind,
+      id: bundle.id,
+      trailerUrl: bundle.completion.trailerUrl,
+      watch: bundle.completion.watch,
+      availability: bundle.completion.availability,
+    },
+  };
+}
+
+// S12 — "+ More like this" on a go-to tile: the go-to itself becomes the
+// anchor (TMDb only, no model call — the reks follow through "reks", the
+// chooser over its recommendation web). By TMDb id when the go-to has one,
+// else by name with the snapped rule.
+async function open(body: any): Promise<Response> {
+  if (!mediaConfigured()) {
+    console.error("[go-to-open] TMDB_API_KEY missing — go-to tiles cannot open");
+    return Response.json({ anchor: null, fallback: "disabled" }, { status: 200 });
+  }
+  const kindIn: MediaKind | null = body?.kind === "movie" || body?.kind === "tv" ? body.kind : null;
+  let id = Number(body?.id);
+  let kind = kindIn;
+  if (!kind || !Number.isInteger(id) || id <= 0) {
+    const name = typeof body?.name === "string" ? body.name.trim().slice(0, 200) : "";
+    const laneKind = laneKindFor(body?.category);
+    if (!name) return Response.json({ error: "Bad request" }, { status: 400 });
+    const hit = await resolveSnappedTitle(name, laneKind ?? "any");
+    if (!hit) {
+      console.warn("[go-to-open] no TMDb title for the go-to", { lane: laneKind });
+      return Response.json({ anchor: null, fallback: "not_found" }, { status: 200 });
+    }
+    id = hit.id;
+    kind = hit.kind;
+  }
+  const bundle = await loadMediaBundle(kind, id);
+  if (!bundle) {
+    console.error("[go-to-open] bundle failed", { kind, id });
+    return Response.json({ anchor: null, fallback: "bundle_failed" }, { status: 200 });
+  }
+  return Response.json({ anchor: anchorFrom(bundle, cleanClientId(body?.clientId)) }, { status: 200 });
 }
 
 // S7 — Share on a search-lane card (Brad's call B, 2026-10-15): movies and
@@ -228,6 +260,7 @@ export async function POST(req: Request): Promise<Response> {
     const body = await req.json().catch(() => ({}));
     if (body?.action === "resolve") return await resolve(body);
     if (body?.action === "card") return await card(body);
+    if (body?.action === "open") return await open(body);
     if (body?.action === "reks") {
       maybeSimulateOpenAIFailure();
       return await reks(body);

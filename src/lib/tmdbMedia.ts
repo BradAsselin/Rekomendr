@@ -57,6 +57,8 @@ export type MediaBundle = {
   title: string;
   year: number | null;
   overview: string;
+  // S12 — TMDb's genre ids for the title (the nearest-go-to match).
+  genreIds: number[];
   completion: MediaCompletion;
   candidates: TmdbCandidate[];
 };
@@ -557,6 +559,10 @@ export async function loadMediaBundle(kind: MediaKind, id: number): Promise<Medi
     title,
     year: yearOf(kind === "movie" ? raw.release_date : raw.first_air_date),
     overview: String(raw.overview ?? "").trim(),
+    genreIds: (Array.isArray(raw.genres) ? raw.genres : [])
+      .map((g: any) => Number(g?.id))
+      .filter((n: number) => Number.isInteger(n) && n > 0)
+      .slice(0, 12),
     completion: (() => {
       const watch = parseWatch(raw["watch/providers"], title);
       return {
