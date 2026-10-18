@@ -94,6 +94,85 @@ async function wineReadout(
   };
 }
 
+// S12 — go-tos and steering. Stars are the LIVE go-tos starred since the
+// test start (wine: its one live go-to, from wine_marks). The rest are
+// goto_events counts. "Repeats" must stay 0: it is the client's own count
+// of titles that reached the screen twice in one visit.
+type GoToReadout = {
+  stars_movies: number;
+  stars_tv: number;
+  stars_books: number;
+  stars_wine: number;
+  touchstones_shown: number;
+  touchstone_stars: number;
+  touchstone_star_rate_pct: number | null;
+  more_from_goto: number;
+  steer_switches: number;
+  sets_counted: number;
+  repeats: number;
+};
+
+const GOTO_LABELS: [keyof GoToReadout, string][] = [
+  ["stars_movies", "Go-tos starred: Movies"],
+  ["stars_tv", "Go-tos starred: TV"],
+  ["stars_books", "Go-tos starred: Books"],
+  ["stars_wine", "Go-tos starred: Wine"],
+  ["touchstones_shown", "Touchstones shown"],
+  ["touchstone_stars", "Touchstones starred"],
+  ["touchstone_star_rate_pct", "Touchstone star rate (%)"],
+  ["more_from_goto", "+ More like this from a go-to"],
+  ["steer_switches", "Steer by switches"],
+  ["sets_counted", "Sets checked for repeats"],
+  ["repeats", "Repeats (must be 0)"],
+];
+
+async function goToReadout(
+  store: NonNullable<Awaited<ReturnType<typeof getSnapshotStore>>>,
+  since: string,
+  agentsOnly: boolean
+): Promise<GoToReadout | null> {
+  const [stars, wine, events] = await Promise.all([
+    store.from("go_tos").select("client_id, category").is("cleared_at", null).gte("created_at", since).limit(20000),
+    store
+      .from("wine_marks")
+      .select("client_id")
+      .eq("kind", "favorite")
+      .is("cleared_at", null)
+      .gte("created_at", since)
+      .limit(20000),
+    store.from("goto_events").select("client_id, kind, repeats").gte("created_at", since).limit(50000),
+  ]);
+  if (stars.error || wine.error || events.error) {
+    console.warn("[stats] go-to readout unavailable", {
+      stars: stars.error?.code ?? null,
+      wine: wine.error?.code ?? null,
+      events: events.error?.code ?? null,
+    });
+    return null;
+  }
+  const mine = (r: { client_id: unknown }) =>
+    agentsOnly ? String(r.client_id).startsWith("anon_agent") : !String(r.client_id).startsWith("anon_agent");
+  const st = (stars.data ?? []).filter(mine);
+  const ev = (events.data ?? []).filter(mine);
+  const n = (kind: string) => ev.filter((e) => e.kind === kind).length;
+  const shown = n("touchstone_shown");
+  const starred = n("touchstone_star");
+  const sets = ev.filter((e) => e.kind === "set_shown");
+  return {
+    stars_movies: st.filter((r) => r.category === "movies").length,
+    stars_tv: st.filter((r) => r.category === "tv").length,
+    stars_books: st.filter((r) => r.category === "books").length,
+    stars_wine: (wine.data ?? []).filter(mine).length,
+    touchstones_shown: shown,
+    touchstone_stars: starred,
+    touchstone_star_rate_pct: shown > 0 ? Math.round((starred / shown) * 1000) / 10 : null,
+    more_from_goto: n("goto_more"),
+    steer_switches: n("steer_switch"),
+    sets_counted: sets.length,
+    repeats: sets.reduce((a, e) => a + (Number(e.repeats) || 0), 0),
+  };
+}
+
 export async function GET(req: Request): Promise<Response> {
   const url = new URL(req.url);
   if (!keyOk(url.searchParams.get("key"))) return notFound();
@@ -118,16 +197,21 @@ export async function GET(req: Request): Promise<Response> {
     return Response.json({ error: "unavailable" }, { status: 503 });
   }
 
-  const wine = await wineReadout(store, since, url.searchParams.get("agents") === "1");
+  const agentsOnly = url.searchParams.get("agents") === "1";
+  const [wine, goTos] = await Promise.all([
+    wineReadout(store, since, agentsOnly),
+    goToReadout(store, since, agentsOnly),
+  ]);
 
   const headers = { "Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow" };
   if (url.searchParams.get("format") === "json") {
-    return Response.json({ ...readout, ...(wine ?? {}) }, { headers });
+    return Response.json({ ...readout, ...(wine ?? {}), ...(goTos ?? {}) }, { headers });
   }
 
   const rows =
     LABELS.map(([k, label]) => `<tr><td>${label}</td><td>${readout[k] ?? "—"}</td></tr>`).join("") +
-    WINE_LABELS.map(([k, label]) => `<tr><td>${label}</td><td>${wine ? wine[k] : "—"}</td></tr>`).join("");
+    WINE_LABELS.map(([k, label]) => `<tr><td>${label}</td><td>${wine ? wine[k] : "—"}</td></tr>`).join("") +
+    GOTO_LABELS.map(([k, label]) => `<tr><td>${label}</td><td>${goTos ? goTos[k] ?? "—" : "—"}</td></tr>`).join("");
   return new Response(
     `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex"><title>Rekomendr test readout</title>
 <style>body{font-family:-apple-system,system-ui,sans-serif;margin:16px;color:#111827}table{border-collapse:collapse;width:100%;max-width:28rem}td{padding:8px 4px;border-bottom:1px solid #e5e7eb;font-size:16px}td:last-child{text-align:right;font-variant-numeric:tabular-nums;font-weight:600}p{color:#4b5563;font-size:14px}</style>

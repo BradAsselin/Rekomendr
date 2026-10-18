@@ -7,6 +7,7 @@ import DescriptorLine from "./DescriptorLine";
 import { TrailerVerb, WhereToWatchVerb, titleInfoUrl } from "./MediaVerbs";
 import RekCard from "./RekCard";
 import ShareRow from "./ShareRow";
+import GoToStar from "./GoToStar";
 import { postJson, tmdbCardSnapshot } from "../lib/shareSnapshot";
 import RekSkeleton, { RekSkeletonCard } from "./RekSkeleton";
 import RekTrail, { TrailRow } from "./RekTrail";
@@ -591,6 +592,12 @@ const ResultsV4: React.FC<ResultsProps> = ({
       />
     ) : undefined;
 
+  // S12 — the go-to star (Movies, TV, Books; none for Wine here — wine's
+  // star lives on the snap lane, S8b).
+  const starFor = (rek: Rek) => (
+    <GoToStar item={{ category, name: rek.title, year: rek.year ?? null }} />
+  );
+
   // S1 — "Watched it". Media only: the charter's watched arc is the
   // can't-wait-to-watch arc, and the media-adjacent verb pairs (Listen /
   // Read for music and books) are explicitly a later, prepared-only item.
@@ -719,6 +726,7 @@ const ResultsV4: React.FC<ResultsProps> = ({
                     onThumbDown={() => handleDislikeFromTrail(rek)}
                     onSave={() => handleSave(rek)}
                     shareSlot={shareFor(rek)}
+                    starSlot={starFor(rek)}
                     /* Media verbs stay expansion-gated in this lane; RIGHT
                        stays empty — no chaining from the trail. */
                     verbLeft={
@@ -781,6 +789,7 @@ const ResultsV4: React.FC<ResultsProps> = ({
                 onThumbDown={() => handleDislike(rek)}
                 onSave={() => handleSave(rek)}
                 shareSlot={shareFor(rek)}
+                starSlot={starFor(rek)}
                 /* Media verbs stay expansion-gated in this lane (logic
                    unchanged, position only); MLT is the RIGHT chain verb —
                    search lane only, where its plumbing lives. */

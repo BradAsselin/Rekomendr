@@ -34,6 +34,10 @@ import {
 } from "../src/lib/wineVisit";
 import WineBought from "../src/components/WineBought";
 import WineFollowup from "../src/components/WineFollowup";
+import GoTosList, { type GoToTarget } from "../src/components/GoTosList";
+import { getGoTos, logGoToEvent, onGoTosChange, syncGoTos, type GoTo } from "../src/lib/goTos";
+import { BAR_CATEGORY } from "../src/lib/goToCategory";
+import { onWineFavoriteChange } from "../src/lib/wineVisit";
 
 // S8b — what every wine call carries: the visit's shown/rejected names and
 // the starred go-to (the server holds the no-repeat guarantee with it).
@@ -426,6 +430,22 @@ export default function Page() {
     if (withFollowup) setFollowup(st.followup ?? null);
   };
 
+  // S12 — the go-tos (movies, shows, books) and wine's one go-to, for the
+  // home list. Mirrors first, then the server's copy wins.
+  const [goTos, setGoTos] = useState<GoTo[]>([]);
+  const [wineGoTo, setWineGoTo] = useState<{ name: string } | null>(null);
+  useEffect(() => {
+    setGoTos(getGoTos());
+    setWineGoTo(getWineFavorite());
+    const offA = onGoTosChange(() => setGoTos(getGoTos()));
+    const offB = onWineFavoriteChange(() => setWineGoTo(getWineFavorite()));
+    void syncGoTos();
+    return () => {
+      offA();
+      offB();
+    };
+  }, []);
+
   useEffect(() => {
     setHasSnapped(getSnapCount() >= 1);
     // S8b — the starred go-to: the server's copy wins on load. S8c — the
@@ -625,6 +645,71 @@ export default function Page() {
     // Mount-once: the arrival URL is read exactly once.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // S12 — a screen go-to opened as the anchor: TMDb by id (no model call),
+  // then the chooser's five from its recommendation web — the typed-title
+  // path, entered from the tile. A miss falls back to the typed search of
+  // its name, said in the log.
+  const openMediaGoTo = async (t: { category: "movies" | "tv"; name: string; tmdbKind: "movie" | "tv" | null; tmdbId: number | null }) => {
+    const snapId = ++snapIdRef.current;
+    searchIdRef.current++;
+    lastActivityRef.current = Date.now();
+    setSnapError(null);
+    setSnapResult(null);
+    setLateReks(null);
+    setReksPending(false);
+    setSearchError(null);
+    setSnapLoading(true);
+    setBarCategoryHint((h) => ({ value: BAR_CATEGORY[t.category], n: h.n + 1 }));
+    let anchor: SnapResult | null = null;
+    try {
+      const res = await fetch("/api/anchor", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "open",
+          kind: t.tmdbKind,
+          id: t.tmdbId,
+          name: t.name,
+          category: BAR_CATEGORY[t.category],
+          clientId: getAnonymousClientId(),
+        }),
+      });
+      const data = await res.json().catch(() => null);
+      anchor = res.ok && data?.anchor?.detected_item ? (data.anchor as SnapResult) : null;
+    } catch {
+      anchor = null;
+    }
+    if (snapId !== snapIdRef.current) return;
+    if (!anchor?.media) {
+      console.warn("[go-to-open] fallback to the typed search", { category: t.category });
+      setSnapLoading(false);
+      void handleSearch(`${BAR_CATEGORY[t.category]}||||${t.name}||mode:ai`, BAR_CATEGORY[t.category]);
+      return;
+    }
+    setSnapResult(anchor);
+    setSnapLoading(false);
+    setReksPending(true);
+    const late = await fetchTypedReks(anchor.media, null);
+    if (snapId !== snapIdRef.current) return;
+    setLateReks(late);
+    setReksPending(false);
+  };
+
+  // S12 — "+ More like this" on a go-to tile (and on a "Wine you bought"
+  // tile, which isn't a go-to and isn't counted as one).
+  const moreFromGoTo = (t: GoToTarget, opts: { counted: boolean } = { counted: true }) => {
+    if (opts.counted) logGoToEvent("goto_more", t.category);
+    if ((t.category === "movies" || t.category === "tv") && "tmdbId" in t) {
+      void openMediaGoTo({ ...t, category: t.category });
+      return;
+    }
+    // Books → a search seeded on the book (its name as the typed text);
+    // wine → the typed-wine anchor: that bottle's style and price band.
+    const bar = t.category === "wine" ? "Wine" : BAR_CATEGORY[t.category];
+    setBarCategoryHint((h) => ({ value: bar, n: h.n + 1 }));
+    void handleSearch(`${bar}||||${t.name}||mode:ai`, bar);
+  };
 
   const openSnapPicker = () => {
     if (ENFORCE_SNAP_LIMIT && getSnapCount() >= SNAP_LIMIT) {
@@ -961,10 +1046,14 @@ export default function Page() {
             <>
             {/* S8c — the one follow-up question on this open, and the
                 Bought list. Home screen only: never over a result. */}
-            {(followup || bought.length > 0) && (
+            {(followup || bought.length > 0 || goTos.length > 0 || wineGoTo) && (
               <div className="mb-6 space-y-3">
                 {followup && <WineFollowup item={followup} />}
-                <WineBought items={bought} />
+                <GoTosList goTos={goTos} wine={wineGoTo} onMore={(t) => moreFromGoTo(t)} />
+                <WineBought
+                  items={bought}
+                  onMore={(name) => moreFromGoTo({ category: "wine", name }, { counted: false })}
+                />
               </div>
             )}
             {!hasSnapped && (

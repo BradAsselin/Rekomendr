@@ -147,7 +147,7 @@ const findImg = (node) => {
 };
 
 /* ---------------- Supabase stub: a tiny in-memory table engine ---------------- */
-const db = { anchor_snapshots: [], client_profiles: [], card_events: [], wine_marks: [] }; // wine_marks: S8c's /api/stats wine readout
+const db = { anchor_snapshots: [], client_profiles: [], card_events: [], wine_marks: [], go_tos: [], goto_events: [] }; // wine_marks: S8c's /api/stats wine readout; go_tos + goto_events: S12
 let nextEventId = 1;
 const fail_ = { table: null };
 function query(table) {

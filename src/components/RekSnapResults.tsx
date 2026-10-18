@@ -27,6 +27,9 @@ import RekSkeleton, { RekSkeletonCard } from "./RekSkeleton";
 import RekTrail, { TrailRow } from "./RekTrail";
 import QuietTip from "./QuietTip";
 import WineFacts from "./WineFacts";
+import GoToStar from "./GoToStar";
+import { goToCategoryFor } from "../lib/goToCategory";
+import { isGoTo, logGoToEvent, onGoTosChange } from "../lib/goTos";
 import HaulConfirm from "./HaulConfirm";
 import {
   PRICE_CHIPS,
@@ -311,6 +314,10 @@ const RekSnapResults: React.FC<Props> = ({
     setFavorite(getWineFavorite());
     return onWineFavoriteChange(() => setFavorite(getWineFavorite()));
   }, []);
+  // S12 — re-render when any go-to star moves (the starred anchor shows
+  // its "+ More like this" collapsed).
+  const [, setGoToTick] = useState(0);
+  useEffect(() => onGoTosChange(() => setGoToTick((n) => n + 1)), []);
   const [priceChip, setPriceChip] = useState<PriceChip | null>(null);
   const priceChipRef = useRef<PriceChip | null>(null);
   const [wineBand, setWineBand] = useState<PriceBand | null>(null);
@@ -1526,6 +1533,11 @@ const RekSnapResults: React.FC<Props> = ({
       : null;
   const isFavoriteName = (name: string) =>
     !!favorite && favorite.name.trim().toLowerCase() === name.trim().toLowerCase();
+  const anchorIsStarred =
+    !anchorIsHealthMedical &&
+    (anchorIsWine
+      ? isFavoriteName(result.detected_item.name)
+      : isGoTo(detectedCategory, result.detected_item.name));
   // The star: the go-to mark, separate from Save (one tap stars, one tap on
   // the lit star un-stars; a new star replaces the old one).
   const starFor = (
@@ -1534,7 +1546,20 @@ const RekSnapResults: React.FC<Props> = ({
     info: { dry: number | null; body: number | null; price?: number | null } | null,
     category?: string
   ) =>
-    anchorIsWine && isWineCategory(category ?? detectedCategory) ? (
+    // S12 — movies, shows and books: the go-to star (go_tos, many per
+    // category). Under a non-media anchor a rek keeps no star unless it
+    // is a book under a book anchor; health never reaches here.
+    !anchorIsHealthMedical && goToCategoryFor(category ?? detectedCategory) ? (
+      <GoToStar
+        item={{
+          category: category ?? detectedCategory,
+          name,
+          year: name === result.detected_item.name ? result.detected_item.year ?? null : null,
+          tmdbKind: name === result.detected_item.name ? result.media?.kind ?? null : null,
+          tmdbId: name === result.detected_item.name ? result.media?.id ?? null : null,
+        }}
+      />
+    ) : anchorIsWine && isWineCategory(category ?? detectedCategory) ? (
       <button
         type="button"
         aria-label={isFavoriteName(name) ? "Your go-to wine (tap to unstar)" : "Make this my go-to wine"}
@@ -1783,8 +1808,17 @@ const RekSnapResults: React.FC<Props> = ({
             ) : undefined
           }
           verbRight={
-            anchorIsHealthMedical || !anchorOpen ? undefined : (
-              <button onClick={handleAnchorReroll} className="hover:underline">
+            /* S12 — a starred anchor (a go-to) keeps "+ More like this"
+               visible collapsed: it is the reason to have starred it. */
+            anchorIsHealthMedical ||
+            !(anchorOpen || anchorIsStarred) ? undefined : (
+              <button
+                onClick={() => {
+                  if (anchorIsStarred) logGoToEvent("goto_more", anchorIsWine ? "wine" : detectedCategory);
+                  handleAnchorReroll();
+                }}
+                className="hover:underline"
+              >
                 + More like this
               </button>
             )
@@ -1907,8 +1941,8 @@ const RekSnapResults: React.FC<Props> = ({
                   infoSlot={wineFactsFor(entry.rek)}
                   shortLead={wineLead(entry.rek)}
                   starSlot={
-                    entry.rek.wine
-                      ? starFor(entry.rek.name, entry.rek.description, entry.rek.wine, entry.rek.category)
+                    entry.rek.wine || goToCategoryFor(entry.rek.category)
+                      ? starFor(entry.rek.name, entry.rek.description, entry.rek.wine ?? null, entry.rek.category)
                       : undefined
                   }
                   /* Media reks carry their verbs into the trail; recipe
@@ -2065,7 +2099,9 @@ const RekSnapResults: React.FC<Props> = ({
                 infoSlot={wineFactsFor(rek)}
                 shortLead={wineLead(rek)}
                 starSlot={
-                  rek.wine ? starFor(rek.name, rek.description, rek.wine, rek.category) : undefined
+                  rek.wine || goToCategoryFor(rek.category)
+                    ? starFor(rek.name, rek.description, rek.wine ?? null, rek.category)
+                    : undefined
                 }
                 className={[
                   "transition-all duration-300 ease-out",
