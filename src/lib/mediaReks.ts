@@ -258,6 +258,66 @@ export async function chooseMediaReks(args: {
 }
 
 /* ------------------------------------------------------------------
+   S12 — LINES ONLY, against a go-to. The slot recipe has already chosen
+   the five (src/lib/slotRecipe.ts); this asks the SAME chooser — the
+   prompt above, verbatim, no new instruction — for one comparison line
+   per candidate, with the person's go-to as the anchor. The candidates
+   are exactly the five, so its "choose five" job returns them all; its
+   own-knowledge wildcard is ignored (the recipe keeps its own). The card
+   then leads "vs. your <go-to>: <line>" — the approved wording.
+   Returns a line per candidate id; a missing line means that card keeps
+   TMDb's synopsis and no lead.
+------------------------------------------------------------------- */
+export async function linesVsGoTo(args: {
+  goTo: { title: string; year: number | null; kind: MediaKind; overview: string };
+  candidates: TmdbCandidate[];
+  taste: Taste;
+  lane?: string | null;
+}): Promise<Map<number, string>> {
+  const out = new Map<number, string>();
+  if (args.candidates.length === 0) return out;
+  const started = Date.now();
+  const completion = await openai.chat.completions.create({
+    model: CHOOSER_MODEL,
+    temperature: 0.5,
+    max_tokens: 900,
+    response_format: { type: "json_object" },
+    messages: [
+      { role: "system", content: CHOOSER_PROMPT + ownSlotsNote(args.candidates.length) },
+      {
+        role: "user",
+        content: buildUserMessage({
+          anchor: args.goTo,
+          lane: args.lane?.trim() || null,
+          taste: args.taste,
+          candidates: args.candidates,
+        }),
+      },
+    ],
+  });
+  let parsed: any = null;
+  try {
+    parsed = JSON.parse(completion.choices?.[0]?.message?.content ?? "");
+  } catch {
+    console.warn("[slots] line writer returned non-JSON", { goTo: args.goTo.title });
+    return out;
+  }
+  for (const p of Array.isArray(parsed?.picks) ? parsed.picks : []) {
+    const n = Number(p?.n);
+    const c = Number.isInteger(n) ? args.candidates[n - 1] : undefined;
+    const line = lineOf(p?.line);
+    if (c && line && !out.has(c.id)) out.set(c.id, line);
+  }
+  console.info("[slots] lines vs go-to", {
+    goTo: args.goTo.title,
+    asked: args.candidates.length,
+    lines: out.size,
+    ms: Date.now() - started,
+  });
+  return out;
+}
+
+/* ------------------------------------------------------------------
    TASTE — server-side read of this client's media taste, raced so no
    rek ever waits on history (the same posture as the snap path's prior
    dislikes). user_likes (search lane: like/save/more_like_this, dislike,

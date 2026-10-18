@@ -72,7 +72,7 @@ check("snap lane: the anchor star carries its TMDb id", snap.includes("tmdbId: n
 check("snap lane: rek cards get the star (frontier + trail)", (snap.match(/rek\.wine \|\| goToCategoryFor\(/g) || []).length, 2);
 check("snap lane: wine star path kept", snap.includes("anchorIsWine && isWineCategory(category ?? detectedCategory) ? ("), true);
 const res = read("src/components/ResultsV4.tsx");
-check("search lane: star on frontier + trail cards", (res.match(/starSlot=\{starFor\(rek\)\}/g) || []).length, 2);
+check("search lane: star on frontier + trail cards", (res.match(/starSlot=\{starFor\(rek\)( \?\? <GoToStar item=\{goToItem\(rek\)\} \/>)?\}/g) || []).length, 2);
 
 console.log("\n5. + More like this");
 check("starred anchor shows it collapsed", snap.includes("!(anchorOpen || anchorIsStarred) ? undefined"), true);
@@ -94,7 +94,9 @@ const added = diff.split("\n").filter((l) => l.startsWith("+") && !l.startsWith(
 const jsxText = added
   .flatMap((l) => [...l.matchAll(/>\s*([A-Za-z][^<>{}]*?)\s*</g)].map((m) => m[1].trim()))
   .filter(Boolean);
-const allowed = new Set(["Your go-tos", "+ More like this", "Wine"]);
+// S12b's approved "Steer by" and a TypeScript generic (Promise<…>) also
+// appear once S12b is stacked on this.
+const allowed = new Set(["Your go-tos", "+ More like this", "Wine", "Steer by", "Promise"]);
 check("visible JSX text added", [...new Set(jsxText)].filter((t) => !allowed.has(t)), []);
 
 console.log("\n7. /api/stats");

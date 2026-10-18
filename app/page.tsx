@@ -16,7 +16,12 @@ import {
   isStandalone,
   pointManifestAt,
 } from "../src/lib/installPrompt";
-import { getTop5FromEngine, type Rek } from "../src/engine/rekomendrEngine";
+import { getMoreLikeThisSet, getTop5FromEngine, type Rek } from "../src/engine/rekomendrEngine";
+import SteerByRow from "../src/components/SteerByRow";
+import { fetchSlots, type SlotRequest } from "../src/lib/slotsClient";
+import { noteSetShown, seedEngineFromVisit } from "../src/lib/screenVisit";
+import { goToCategoryFor } from "../src/lib/goToCategory";
+import type { Chip, Refiner } from "../src/lib/moodChips";
 import {
   getAnonymousClientId,
   loadPrefsForCategory,
@@ -37,6 +42,10 @@ import WineFollowup from "../src/components/WineFollowup";
 import GoTosList, { type GoToTarget } from "../src/components/GoTosList";
 import { getGoTos, logGoToEvent, onGoTosChange, syncGoTos, type GoTo } from "../src/lib/goTos";
 import { BAR_CATEGORY } from "../src/lib/goToCategory";
+
+// S12b — a chip's refiner, as the slot route reads it.
+const slotRefiner = (r: Refiner | null): SlotRequest["refiner"] =>
+  !r ? null : r.kind === "tone" ? { kind: "tone", vibe: r.vibe } : { kind: "era", era: r.era };
 import { onWineFavoriteChange } from "../src/lib/wineVisit";
 
 // S8b — what every wine call carries: the visit's shown/rejected names and
@@ -440,11 +449,23 @@ export default function Page() {
     const offA = onGoTosChange(() => setGoTos(getGoTos()));
     const offB = onWineFavoriteChange(() => setWineGoTo(getWineFavorite()));
     void syncGoTos();
+    // S12b — the engine's seen set starts from this visit's shown titles.
+    seedEngineFromVisit();
     return () => {
       offA();
       offB();
     };
   }, []);
+
+  // S12b — the set on screen came from the slot recipe (its request and
+  // the go-to steering it), and the order/selection for the Steer by row.
+  const slotReqRef = useRef<{ req: SlotRequest; steer: string | null } | null>(null);
+  const lastQueryRef = useRef<string | null>(null);
+  const [steerAnswer, setSteerAnswer] = useState<{
+    category: Category;
+    order: string[];
+    selected: string | null;
+  } | null>(null);
 
   useEffect(() => {
     setHasSnapped(getSnapCount() >= 1);
@@ -803,8 +824,15 @@ export default function Page() {
     }
   };
 
-  const handleSearch = async (query: string, _cat: string) => {
+  const handleSearch = async (
+    query: string,
+    _cat: string,
+    meta?: { chip: Chip; refiner: Refiner | null },
+    // S12b — a Steer by tap: the recipe request to re-run, steered.
+    steerOpts?: { req: SlotRequest; steer: string }
+  ) => {
     const searchId = ++searchIdRef.current;
+    lastQueryRef.current = query;
     lastActivityRef.current = Date.now();
 
     // A new search dismisses any RekSnap results and clears a stale notice.
@@ -818,6 +846,12 @@ export default function Page() {
     setLateReks(null);
 
     const nextCategory = categoryFromQuery(query);
+    // S12b — Movies/TV chip taps (and every steer) run the slot recipe.
+    const slotReq: SlotRequest | null =
+      steerOpts?.req ??
+      (meta && (nextCategory === "Movies" || nextCategory === "TV Shows")
+        ? { category: nextCategory, lane: meta.chip.lane || null, refiner: slotRefiner(meta.refiner) }
+        : null);
 
     setHasSearched(true);
     setCategory(nextCategory);
@@ -869,6 +903,23 @@ export default function Page() {
         prefs.shortlist.filter((e) => !watchedNow.has(e.title.trim().toLowerCase()))
       );
 
+      if (slotReq) {
+        const ans = await fetchSlots(slotReq, { steer: steerOpts?.steer ?? null });
+        if (searchId !== searchIdRef.current) return;
+        if (ans && ans.reks.length > 0) {
+          slotReqRef.current = { req: slotReq, steer: ans.steer };
+          setSteerAnswer({ category: nextCategory, order: ans.order, selected: ans.steer });
+          noteSetShown(nextCategory, ans.reks.map((r) => r.title));
+          setReks(ans.reks);
+          return;
+        }
+        // Named, never silent: fetchSlots logged the reason (or the pools
+        // ran dry); the AI chip search runs as before.
+        console.warn("[slots] FALLBACK — running the AI chip search", { empty: !!ans });
+      }
+      slotReqRef.current = null;
+      setSteerAnswer({ category: nextCategory, order: [], selected: null });
+
       const next = await getTop5FromEngine({
         rawQuery: query,
         likedTitles: prefs.likedTitles,
@@ -878,6 +929,7 @@ export default function Page() {
       });
       if (searchId !== searchIdRef.current) return;
 
+      noteSetShown(nextCategory, next.reks.map((r) => r.title));
       setReks(next.reks);
       // S1.5 — two different empties, two different voices. A set the
       // real-title guard emptied carries its own plain-voice notice (the
@@ -899,6 +951,75 @@ export default function Page() {
       }
     }
   };
+
+  // S12b — Steer by. Movies/TV re-run the recipe steered by the tapped
+  // go-to (the chip's lane and refiner kept; none after a typed search).
+  // Books (no TMDb) run the existing search seeded on the go-to.
+  const handleSteer = async (name: string) => {
+    logGoToEvent("steer_switch", goToCategoryFor(category));
+    if (category === "Movies" || category === "TV Shows") {
+      const req = slotReqRef.current?.req ?? { category, lane: null, refiner: null };
+      void handleSearch(lastQueryRef.current ?? `${category}||||||mode:ai`, category, undefined, { req, steer: name });
+      return;
+    }
+    if (category !== "Books") return;
+    const searchId = ++searchIdRef.current;
+    lastActivityRef.current = Date.now();
+    setSearchError(null);
+    setLoading(true);
+    setSteerAnswer({ category: "Books", order: [], selected: name });
+    try {
+      const prefs = await loadPrefsForCategory("Books");
+      const set = await getMoreLikeThisSet({
+        seed: { id: -1, title: name, year: 0, short: "", long: "" },
+        category: "Books",
+        likedTitles: prefs.likedTitles,
+        dislikedTitles: prefs.dislikedTitles,
+        watchedTitles: prefs.watchedTitles,
+      });
+      if (searchId !== searchIdRef.current) return;
+      noteSetShown("Books", set.map((r) => r.title));
+      setReks(set);
+      if (set.length === 0) setSearchError(AI_SEARCH_FAILED_MSG);
+    } catch (err) {
+      if (searchId !== searchIdRef.current) return;
+      setReks([]);
+      setSearchError(isAIServiceError(err) ? err.message : AI_SEARCH_FAILED_MSG);
+    } finally {
+      if (searchId === searchIdRef.current) setLoading(false);
+    }
+  };
+
+  // S12b — a thumbs-down on a recipe card is replaced from the recipe: the
+  // same slot, the same steer, never a title already on screen or shown.
+  const slotBackfill = async (removed: Rek, current: Rek[]): Promise<Rek | null> => {
+    const s = slotReqRef.current;
+    if (!s) return null;
+    const ans = await fetchSlots(s.req, {
+      steer: s.steer,
+      count: 1,
+      slot: removed.slot,
+      extraSeen: current.map((r) => r.title),
+    }).catch(() => null);
+    return ans?.reks[0] ?? null;
+  };
+
+  // The row's chips: the last recipe's order (nearest first, then most
+  // recent), then any go-to starred since, newest first.
+  const steerCat = goToCategoryFor(category);
+  const liveSteer = steerCat ? goTos.filter((g) => g.category === steerCat).map((g) => g.name) : [];
+  const answered =
+    steerAnswer?.category === category
+      ? steerAnswer.order.filter((n) => liveSteer.some((l) => l.toLowerCase() === n.toLowerCase()))
+      : [];
+  const steerNames = [
+    ...answered,
+    ...liveSteer.filter((n) => !answered.some((a) => a.toLowerCase() === n.toLowerCase())),
+  ];
+  const steerSelected =
+    steerAnswer?.category === category && steerAnswer.selected && steerNames.includes(steerAnswer.selected)
+      ? steerAnswer.selected
+      : null;
 
   // S1 — "Watched it". Optimistic: the chip leaves the strip immediately,
   // because the tap is a verdict and a verdict that lags feels broken. If
@@ -984,6 +1105,8 @@ export default function Page() {
     setSessionWatchedTitles([]);
     setWatchPendingTitle(null);
     setWatchFailedTitle(null);
+    slotReqRef.current = null;
+    setSteerAnswer(null);
     setSearchBarKey((k) => k + 1); // remount SearchBar → pristine bar + lane
   };
   resetToHomeRef.current = resetToHome;
@@ -1083,6 +1206,17 @@ export default function Page() {
                 onWatched={handleWatched}
                 watchPendingTitle={watchPendingTitle}
                 watchFailedTitle={watchFailedTitle}
+                steerRow={
+                  steerCat ? (
+                    <SteerByRow
+                      names={steerNames}
+                      selected={steerSelected}
+                      busy={loading}
+                      onSteer={(n) => void handleSteer(n)}
+                    />
+                  ) : undefined
+                }
+                backfillOverride={slotBackfill}
               />
             </>
           )}

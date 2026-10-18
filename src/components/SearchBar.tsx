@@ -22,7 +22,9 @@ import {
 } from "../lib/moodChips";
 
 interface SearchBarProps {
-  onSearch: (query: string, category: string) => void;
+  // S12b — a chip tap also says which chip and refiner (the Movies/TV
+  // slot recipe needs them structured); typed searches send no meta.
+  onSearch: (query: string, category: string, meta?: { chip: Chip; refiner: Refiner | null }) => void;
   setLoading?: (loading: boolean) => void;
   hasHistory?: boolean;
 
@@ -85,10 +87,10 @@ const SearchBar: React.FC<SearchBarProps> = ({
     setTimeout(() => setIsPulsing(false), 1000);
   };
 
-  const startSearch = (query: string, cat: string) => {
+  const startSearch = (query: string, cat: string, meta?: { chip: Chip; refiner: Refiner | null }) => {
     setLoading?.(true);
     triggerPulse();
-    onSearch(query, cat);
+    onSearch(query, cat, meta);
   };
 
   const getPlaceholder = () => {
@@ -132,7 +134,7 @@ const SearchBar: React.FC<SearchBarProps> = ({
     setActiveChip(c);
     setRefiner(null);
     setInput("");
-    startSearch(chipQuery(categoryRef.current, c, null), categoryRef.current);
+    startSearch(chipQuery(categoryRef.current, c, null), categoryRef.current, { chip: c, refiner: null });
   };
 
   // Row 2: one refiner at a time; tapping the active one clears it. Either
@@ -142,7 +144,7 @@ const SearchBar: React.FC<SearchBarProps> = ({
     if (!lane) return;
     const next = refiner?.label === r.label ? null : r;
     setRefiner(next);
-    startSearch(chipQuery(categoryRef.current, lane, next), categoryRef.current);
+    startSearch(chipQuery(categoryRef.current, lane, next), categoryRef.current, { chip: lane, refiner: next });
   };
 
   // "Try another lane" (ResultsV4's pool exhaustion card): the next row-1

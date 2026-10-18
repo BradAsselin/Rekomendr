@@ -43,6 +43,11 @@ const USE_DEER_TRAILS = true;
 ------------------------------------------------------------------- */
 export interface Rek {
   id: number;
+  // S12b — slot-recipe cards (TMDb pools): which slot, TMDb's id, and the
+  // go-to the card's line compares against ("vs. your Lioness: …").
+  slot?: string;
+  tmdbId?: number;
+  vsGoTo?: string | null;
   title: string;
   year: number;
   short: string;
@@ -124,6 +129,16 @@ function getSessionSeen(category: Category): Set<string> {
 // deckSelector (normalizeTitle) mirrors this normalization.
 function seenKey(title: string): string {
   return (title ?? "").trim().toLowerCase();
+}
+
+// S12b — titles shown by the slot recipe (TMDb pools, outside this engine)
+// join the session's seen set, so no AI path (backfill, MLT, a typed
+// search) can re-serve one this visit. The page also seeds it from the
+// visit's sessionStorage list on load.
+export function noteSessionSeen(category: string, titles: string[]): void {
+  const { category: c } = parseRawQuery(`${category}||`);
+  const seen = getSessionSeen(c);
+  for (const t of titles) if (t) seen.add(seenKey(t));
 }
 
 const lastIntentByCategory: Record<Category, Intent | null> = {
