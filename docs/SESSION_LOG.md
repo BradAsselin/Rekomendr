@@ -1518,8 +1518,8 @@ CALLS I MADE (Brad was away; each is reversible):
 15. **"+ More like this" on a Wine-you-bought row isn't counted** as a go-to tap (it isn't a go-to).
 
 FOUND, NOT FIXED:
-- **Chooser register leaks**: in a counted run (12 sets, 60 cards), 18 lines carried "navigates" / "explores" / "experience". This is the existing chooser's voice (the same lines typed-title anchors ship today), unchanged. One line echoed the prompt's own example, though it was accurate for that title (Condor). Joint voice round.
-- **No-go-to cards read as TMDb synopses** (call 3). If Brad wants the Reks Ray voice back there, it needs a new one-line prompt for anchor-less picks: VOICE, his OK.
+- **Chooser register leaks**: in a counted run (12 sets, 60 cards), 18 lines carried "navigates" / "explores" / "experience". This is the existing chooser's voice (the same lines typed-title anchors ship today), unchanged. One line echoed the prompt's own example, though it was accurate for that title (Condor). Joint voice round. **Brad 2026-10-18: logged for the joint voice round** (18 of 60 lines).
+- **No-go-to cards read as TMDb synopses** (call 3). **DECIDED by Brad 2026-10-18: keep TMDb's official synopsis.** It's the Oct 12 rule (official synopsis; the AI picks and compares). No new prompt text.
 - **Go-tos don't follow `/api/auth/merge`** on sign-in (same gap as `wine_marks`).
 - **Harness runner on this machine:** the tsc-spawning harnesses (s1, s2, s15…) need a shell for `npx` on Windows. I ran them with a scratchpad `-r` shim; the harnesses themselves are unchanged.
 
@@ -1527,7 +1527,7 @@ TEST RESIDUE (one database): `go_tos` 12 agent rows, `goto_events` 43 agent rows
 
 BRAD MUST:
 - Run the phone checklist below on the main preview, then promote `main` → `release/v2` (yours alone).
-- Decide call 3 (synopsis vs. a voiced line on no-go-to chip results).
+- ~~Decide call 3~~: decided 2026-10-18, keep the synopsis.
 
 NEXT SESSION SHOULD KNOW:
 - **Recipe sets carry `rek.slot`, `rek.tmdbId`, `rek.vsGoTo`.** ResultsV4 routes their backfill through `/api/slots` (`backfillOverride`); any remap must keep `slot`.
@@ -1561,7 +1561,7 @@ VALIDATION:
 - [ ] Steer by feels like the mood chips: one tap, results.
 - [ ] Nothing repeats in a visit.
 - [ ] Your feel calls (§12.4):
-  - no-go-to cards show TMDb's synopsis instead of the Reks Ray voice (call 3);
+  - no-go-to cards show TMDb's synopsis instead of the Reks Ray voice (call 3: decided, keep);
   - touchstones as "classics" when they're recent hits (TMDb's most-voted);
   - kids' animation kept out of Comedy.
 
