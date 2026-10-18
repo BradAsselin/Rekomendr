@@ -1662,23 +1662,44 @@ export async function POST(req: Request) {
       if (!typedName) {
         return Response.json({ anchor: null }, { status: 200 });
       }
-      const completion = await openai.chat.completions.create({
-        model: "gpt-4o",
-        temperature: 0.7,
-        max_tokens: 4000,
-        response_format: { type: "json_object" },
-        messages: [
-          { role: "system", content: SYSTEM_PROMPT },
-          {
-            role: "user",
-            content:
-              `No photo this time: the user typed the item's name instead — "${typedName}". Treat that named item as the item in the photo.` +
-              (priorBlock ? `\n${priorBlock}` : ""),
-          },
-        ],
-      });
-      text = completion.choices?.[0]?.message?.content ?? "";
-      usage = completion.usage ?? null;
+      // The Wine bar's category wins (field bug 2026-10-18: "Bonanza" read
+      // as the TV western). The read is told the name is a wine, and a read
+      // that still lands outside wine is never shipped: one retry, then
+      // { anchor: null }, so the wine search runs on the text instead.
+      let typedCategory = "";
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        const completion = await openai.chat.completions.create({
+          model: "gpt-4o",
+          temperature: attempt === 1 ? 0.7 : 0.3,
+          max_tokens: 4000,
+          response_format: { type: "json_object" },
+          messages: [
+            { role: "system", content: SYSTEM_PROMPT },
+            {
+              role: "user",
+              content:
+                `No photo this time: the user typed a wine's name on the Wine bar instead — "${typedName}". Treat that named wine as the item in the photo. It is a wine: its category is wine, and every rek is a wine.` +
+                (priorBlock ? `\n${priorBlock}` : ""),
+            },
+          ],
+        });
+        text = completion.choices?.[0]?.message?.content ?? "";
+        usage = completion.usage ?? null;
+        try {
+          const cat = JSON.parse(text)?.detected_item?.category;
+          typedCategory = typeof cat === "string" ? cat : "";
+        } catch {
+          typedCategory = "";
+        }
+        if (isWineCategory(typedCategory)) break;
+        console.error("[typed-anchor] wine bar read landed outside wine", {
+          attempt,
+          category: typedCategory || null,
+        });
+      }
+      if (!isWineCategory(typedCategory)) {
+        return Response.json({ anchor: null, fallback: "not_wine" }, { status: 200 });
+      }
       console.info("[typed-anchor] wine by name", { name: typedName });
     } else if (strips.length > 0) {
       // Not streamed and no media path: this only runs after a failed read,

@@ -150,7 +150,9 @@ const row = read("src/components/SteerByRow.tsx");
 check("Steer by row hidden with no go-tos", row.includes("if (names.length === 0) return null;"), true);
 
 console.log("\n9. New wording: only the approved strings");
-const diff = execSync("git diff main -- src app", { cwd: root, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+// S12's own range (6588529~1 = pre-S12 main → the #39 merge), so the check keeps its
+// meaning after the merge; a later diff against main would be empty.
+const diff = execSync("git diff 6588529~1 3ccba4d -- src app", { cwd: root, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
 const added = diff.split("\n").filter((l) => l.startsWith("+") && !l.startsWith("+++"));
 const jsxText = added.flatMap((l) => [...l.matchAll(/>\s*([A-Za-z][^<>{}]*?)\s*</g)].map((m) => m[1].trim())).filter(Boolean);
 // "Promise" is a TypeScript generic (Promise<Rek | null>), not JSX text.
