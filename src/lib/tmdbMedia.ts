@@ -49,6 +49,10 @@ export type TmdbCandidate = {
   title: string;
   year: number | null;
   overview: string;
+  // S12 — for the slot recipe: genre match, popularity tier, quality floor.
+  genreIds?: number[];
+  votes?: number;
+  rating?: number;
 };
 
 export type MediaBundle = {
@@ -57,6 +61,8 @@ export type MediaBundle = {
   title: string;
   year: number | null;
   overview: string;
+  // S12 — TMDb's genre ids for the title (the nearest-go-to match).
+  genreIds: number[];
   completion: MediaCompletion;
   candidates: TmdbCandidate[];
 };
@@ -91,7 +97,7 @@ export function mediaConfigured(): boolean {
 
 // S3.1: every failure carries its reason to the caller (`onFail`), so a
 // lookup that FAILED can never be mistaken for a clean "no such title".
-async function tmdbGet(
+export async function tmdbGet(
   path: string,
   params: Record<string, string> = {},
   onFail?: (reason: string) => void
@@ -133,7 +139,7 @@ const yearOf = (d: unknown): number | null => {
   return Number.isFinite(y) ? y : null;
 };
 
-type Row = {
+export type Row = {
   id: number;
   title?: string;
   name?: string;
@@ -143,14 +149,16 @@ type Row = {
   first_air_date?: string;
   overview?: string;
   vote_count?: number;
+  vote_average?: number;
+  genre_ids?: number[];
   popularity?: number;
   adult?: boolean;
 };
 
-const rowTitle = (r: Row, kind: MediaKind) => (kind === "movie" ? r.title : r.name) ?? "";
+export const rowTitle = (r: Row, kind: MediaKind) => (kind === "movie" ? r.title : r.name) ?? "";
 const rowOriginal = (r: Row, kind: MediaKind) =>
   (kind === "movie" ? r.original_title : r.original_name) ?? "";
-const rowYear = (r: Row, kind: MediaKind) =>
+export const rowYear = (r: Row, kind: MediaKind) =>
   yearOf(kind === "movie" ? r.release_date : r.first_air_date);
 
 async function search(
@@ -523,7 +531,16 @@ function parseCandidates(raw: any, kind: MediaKind, anchorId: number): TmdbCandi
       const title = rowTitle(r, kind).trim();
       if (!title || !overview || (r.vote_count ?? 0) < MIN_CANDIDATE_VOTES) continue;
       seen.add(r.id);
-      out.push({ id: r.id, kind, title, year: rowYear(r, kind), overview });
+      out.push({
+        id: r.id,
+        kind,
+        title,
+        year: rowYear(r, kind),
+        overview,
+        genreIds: Array.isArray(r.genre_ids) ? r.genre_ids : [],
+        votes: r.vote_count ?? 0,
+        rating: r.vote_average ?? 0,
+      });
       if (out.length >= MAX_CANDIDATES) return out;
     }
   }
@@ -557,6 +574,10 @@ export async function loadMediaBundle(kind: MediaKind, id: number): Promise<Medi
     title,
     year: yearOf(kind === "movie" ? raw.release_date : raw.first_air_date),
     overview: String(raw.overview ?? "").trim(),
+    genreIds: (Array.isArray(raw.genres) ? raw.genres : [])
+      .map((g: any) => Number(g?.id))
+      .filter((n: number) => Number.isInteger(n) && n > 0)
+      .slice(0, 12),
     completion: (() => {
       const watch = parseWatch(raw["watch/providers"], title);
       return {

@@ -34,6 +34,9 @@ type Props = {
   // tap target, no icon, no colour — the card must read as an answer,
   // never as a badge (charter §2.5). Unset on every other card.
   markerLine?: string;
+  // S12b — the same quiet line, with a tap target in it (the touchstone's
+  // "A classic to steer by ☆"). Unset everywhere else.
+  markerSlot?: React.ReactNode;
   // Snap cards show their list position next to the thumbs.
   rank?: number;
   short: string;
@@ -105,6 +108,7 @@ const RekCard: React.FC<Props> = ({
   year,
   genreLine,
   markerLine,
+  markerSlot,
   rank,
   short,
   long,
@@ -233,6 +237,11 @@ const RekCard: React.FC<Props> = ({
           no chrome of its own (charter §7 call #2, marked: default). */}
       {markerLine && (
         <div className="-mt-1 mb-2 text-[13px] text-gray-600">{markerLine}</div>
+      )}
+      {markerSlot && (
+        <div className="-mt-1 mb-2 text-[13px] text-gray-600" onClick={(e) => e.stopPropagation()}>
+          {markerSlot}
+        </div>
       )}
 
       {/* SHORT DESCRIPTION + EXPAND (expand when a long body exists, or when

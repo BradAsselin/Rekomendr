@@ -7,6 +7,11 @@ import DescriptorLine from "./DescriptorLine";
 import { TrailerVerb, WhereToWatchVerb, titleInfoUrl } from "./MediaVerbs";
 import RekCard from "./RekCard";
 import ShareRow from "./ShareRow";
+import GoToStar from "./GoToStar";
+import { logGoToEvent } from "../lib/goTos";
+import { goToCategoryFor } from "../lib/goToCategory";
+import { noteSetShown } from "../lib/screenVisit";
+import { goToShortName } from "../lib/slotsClient";
 import { postJson, tmdbCardSnapshot } from "../lib/shareSnapshot";
 import RekSkeleton, { RekSkeletonCard } from "./RekSkeleton";
 import RekTrail, { TrailRow } from "./RekTrail";
@@ -72,6 +77,12 @@ interface ResultsProps {
   watchFailedTitle?: string | null;
   initialVertical?: Category;
   autoRunVertical?: boolean;
+  // S12b — the Steer by row (built by the page), rendered above the
+  // results and outside the loading branch so it stays put while a steer
+  // re-runs. And, for a slot-recipe set, the one-card replacement comes
+  // from the same recipe (the no-repeat guarantee covers it).
+  steerRow?: React.ReactNode;
+  backfillOverride?: (removed: Rek, current: Rek[]) => Promise<Rek | null>;
 }
 
 const ResultsV4: React.FC<ResultsProps> = ({
@@ -86,6 +97,8 @@ const ResultsV4: React.FC<ResultsProps> = ({
   onWatched,
   watchPendingTitle,
   watchFailedTitle,
+  steerRow,
+  backfillOverride,
 }) => {
   const [reks, setReks] = useState<Rek[]>([]);
   // Mark state (graduation model, same as the snap lane): thumbs-up marks
@@ -230,13 +243,16 @@ const ResultsV4: React.FC<ResultsProps> = ({
           : []),
       ];
 
-      const { rek: next, exhausted } = await getBackfillRek({
-        current: currentNow,
-        category,
-        likedTitles: allLikedTitlesRef.current,
-        dislikedTitles: allDislikedTitlesRef.current,
-        trailTitles,
-      });
+      const { rek: next, exhausted } =
+        backfillOverride && removed.slot
+          ? { rek: await backfillOverride(removed, currentNow), exhausted: false }
+          : await getBackfillRek({
+              current: currentNow,
+              category,
+              likedTitles: allLikedTitlesRef.current,
+              dislikedTitles: allDislikedTitlesRef.current,
+              trailTitles,
+            });
 
       // Epoch guard BEFORE any response handling: a backfill that crossed
       // an MLT wipe or a new search belongs to a list that no longer
@@ -284,6 +300,7 @@ const ResultsV4: React.FC<ResultsProps> = ({
       }
 
       clearExhausted();
+      noteSetShown(category, [next.title]);
 
       setReks((prev) => {
         // Marked cards live in the trail now, so the frontier list itself
@@ -397,6 +414,7 @@ const ResultsV4: React.FC<ResultsProps> = ({
       );
 
       // Keepers are already visible — only the fresh cards stagger in.
+      noteSetShown(category, fresh.map((r) => r.title));
       setReks((prev) => [...prev, ...fresh]);
       fresh.forEach((r, index) => {
         setTimeout(() => setVisibleIds((p) => [...p, r.id]), index * 80);
@@ -591,6 +609,43 @@ const ResultsV4: React.FC<ResultsProps> = ({
       />
     ) : undefined;
 
+  // S12 — the go-to star (Movies, TV, Books; none for Wine here — wine's
+  // star lives on the snap lane, S8b). A touchstone's star lives in its
+  // label instead (one star per card).
+  const goToItem = (rek: Rek) => ({
+    category,
+    name: rek.title,
+    year: rek.year || null,
+    tmdbKind: rek.tmdbId ? (category === "TV Shows" ? ("tv" as const) : ("movie" as const)) : null,
+    tmdbId: rek.tmdbId ?? null,
+  });
+  const starFor = (rek: Rek) =>
+    rek.slot === "touchstone" ? undefined : <GoToStar item={goToItem(rek)} />;
+
+  // S12b — "A classic to steer by ☆" on a touchstone card; one tap stars it.
+  const touchstoneLabel = (rek: Rek) =>
+    rek.slot === "touchstone" ? (
+      <span className="inline-flex items-center gap-1">
+        A classic to steer by
+        <GoToStar
+          item={goToItem(rek)}
+          size={15}
+          onStar={() => logGoToEvent("touchstone_star", goToCategoryFor(category))}
+        />
+      </span>
+    ) : undefined;
+  const touchstonesLogged = useRef(new Set<string>());
+  useEffect(() => {
+    for (const r of reks) {
+      if (r.slot !== "touchstone" || touchstonesLogged.current.has(r.title)) continue;
+      touchstonesLogged.current.add(r.title);
+      logGoToEvent("touchstone_shown", goToCategoryFor(category));
+    }
+  }, [reks, category]);
+
+  // S12b — "vs. your Lioness: …" leads a card steered by a go-to.
+  const vsLead = (rek: Rek) => (rek.vsGoTo ? `vs. your ${goToShortName(rek.vsGoTo)}:` : undefined);
+
   // S1 — "Watched it". Media only: the charter's watched arc is the
   // can't-wait-to-watch arc, and the media-adjacent verb pairs (Listen /
   // Read for music and books) are explicitly a later, prepared-only item.
@@ -666,6 +721,8 @@ const ResultsV4: React.FC<ResultsProps> = ({
         </div>
       )}
 
+      {steerRow}
+
       {/* Top 5 Cards — or the full skeleton while a fresh AI search
           generates. An MLT regeneration keeps the marked keepers on screen
           and pulses beneath them instead (see below). */}
@@ -719,6 +776,8 @@ const ResultsV4: React.FC<ResultsProps> = ({
                     onThumbDown={() => handleDislikeFromTrail(rek)}
                     onSave={() => handleSave(rek)}
                     shareSlot={shareFor(rek)}
+                    starSlot={starFor(rek) ?? <GoToStar item={goToItem(rek)} />}
+                    shortLead={vsLead(rek)}
                     /* Media verbs stay expansion-gated in this lane; RIGHT
                        stays empty — no chaining from the trail. */
                     verbLeft={
@@ -781,6 +840,9 @@ const ResultsV4: React.FC<ResultsProps> = ({
                 onThumbDown={() => handleDislike(rek)}
                 onSave={() => handleSave(rek)}
                 shareSlot={shareFor(rek)}
+                starSlot={starFor(rek)}
+                markerSlot={touchstoneLabel(rek)}
+                shortLead={vsLead(rek)}
                 /* Media verbs stay expansion-gated in this lane (logic
                    unchanged, position only); MLT is the RIGHT chain verb —
                    search lane only, where its plumbing lives. */

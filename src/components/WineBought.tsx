@@ -10,10 +10,13 @@ import { ChevronDown } from "lucide-react";
 
 import { bottleImageUrl } from "../lib/wineShelf";
 import type { BoughtItem } from "../lib/wineVisit";
+import { MoreLikeThisButton } from "./GoTosList";
 
 const MARK: Record<string, string> = { like: "👍", dislike: "👎", favorite: "⭐" };
 
-const WineBought: React.FC<{ items: BoughtItem[] }> = ({ items }) => {
+// S12 — each bottle carries "+ More like this": reks in its style and
+// price band (the page runs it as the typed-wine anchor).
+const WineBought: React.FC<{ items: BoughtItem[]; onMore?: (name: string) => void }> = ({ items, onMore }) => {
   const [open, setOpen] = useState(false);
   if (!items.length) return null;
   return (
@@ -41,9 +44,10 @@ const WineBought: React.FC<{ items: BoughtItem[] }> = ({ items }) => {
               >
                 {it.name}
               </a>
-              <span className="shrink-0 text-gray-500">
+              <span className="flex shrink-0 items-center gap-1 text-gray-500">
                 {it.followup && MARK[it.followup] ? `${MARK[it.followup]} ` : ""}
                 {new Date(it.at).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+                {onMore && <MoreLikeThisButton onClick={() => onMore(it.name)} />}
               </span>
             </li>
           ))}
