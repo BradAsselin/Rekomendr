@@ -46,7 +46,10 @@ counted runs — see the comparison section of `docs/s13-opus-comparison.md`):
 | lines | Sonnet 5.5 | 9/9 full sets, 0 stock phrases (Haiku 8/9) |
 | mood | Haiku 5.5 | 36/36, 1.2 s |
 | classify | Haiku 5.5 | a yes/no parse, like mood |
-| search, snap, detail, recipe | measured in S14 | |
+| search | Haiku 5.5 | 13 stock phrases in 30 cards (4o-mini 43), 19–25 s, $0.0035; Sonnet 1 phrase at $0.05 |
+| snap | Sonnet 5.5 | backfill 2.3–2.8 s, chain 5.6–7.7 s |
+| detail | Haiku 5.5 | keeps the 3-sentence limit (Sonnet wrote 4–5), 2–3 s |
+| recipe | Haiku 5.5 | high-stakes gate held 6/6, 3–6 s |
 
 ## Mechanism
 

@@ -143,7 +143,7 @@ const resetEnv = () => { for (const k of ENV_KEYS) delete process.env[k]; delete
   process.env.REKS_MODEL_PROVIDER = "anthropic";
   check("global flag → every step on its Claude model (S14 defaults)", llm.LLM_STEPS.map((s) => llm.resolveStep(s).model),
     ["claude-sonnet-5-5", "claude-opus-5-5", "claude-sonnet-5-5", "claude-sonnet-5-5", "claude-haiku-5-5",
-     "claude-sonnet-5-5", "claude-sonnet-5-5", "claude-sonnet-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"]);
+     "claude-haiku-5-5", "claude-sonnet-5-5", "claude-haiku-5-5", "claude-haiku-5-5", "claude-haiku-5-5"]);
   process.env.REKS_PROVIDER_LINES = "openai";
   check("per-step override wins", llm.resolveStep("lines"), { provider: "openai", model: "gpt-4o-mini" });
   process.env.REKS_MODEL_SHELF = "claude-sonnet-5-5";

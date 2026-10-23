@@ -89,16 +89,16 @@ const clearEnv = () => {
   console.log("\n2. Key present → Claude per step");
   process.env.ANTHROPIC_API_KEY = "stub";
   const CLAUDE = ["claude-sonnet-5-5", "claude-opus-5-5", "claude-sonnet-5-5", "claude-sonnet-5-5", "claude-haiku-5-5",
-    "claude-sonnet-5-5", "claude-sonnet-5-5", "claude-sonnet-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"];
+    "claude-haiku-5-5", "claude-sonnet-5-5", "claude-haiku-5-5", "claude-haiku-5-5", "claude-haiku-5-5"];
   check("providerSummary", STEPS.map((s) => llm.providerSummary()[s]), CLAUDE.map((m) => `anthropic:${m}`));
   process.env.REKS_MODEL_PROVIDER = "openai";
   check("REKS_MODEL_PROVIDER=openai rolls every step back", STEPS.map((s) => llm.resolveStep(s).model), OLD);
   process.env.REKS_PROVIDER_SEARCH = "anthropic";
-  check("…and one step can stay on Claude", llm.resolveStep("search"), { provider: "anthropic", model: "claude-sonnet-5-5" });
+  check("…and one step can stay on Claude", llm.resolveStep("search"), { provider: "anthropic", model: "claude-haiku-5-5" });
   delete process.env.REKS_MODEL_PROVIDER;
   delete process.env.REKS_PROVIDER_SEARCH;
-  process.env.REKS_MODEL_SEARCH = "claude-haiku-5-5";
-  check("REKS_MODEL_<STEP> picks the Claude model", llm.resolveStep("search").model, "claude-haiku-5-5");
+  process.env.REKS_MODEL_SEARCH = "claude-sonnet-5-5";
+  check("REKS_MODEL_<STEP> picks the Claude model", llm.resolveStep("search").model, "claude-sonnet-5-5");
   delete process.env.REKS_MODEL_SEARCH;
 
   console.log("\n3. The json flag (search prompt mode)");
@@ -111,7 +111,7 @@ const clearEnv = () => {
   check("json unset → json_object (every other site, as before)", calls.openai.at(-1).response_format, { type: "json_object" });
   delete process.env.REKS_MODEL_PROVIDER;
   const r = await llm.llmCall({ step: "search", json: false, maxTokens: 6000, system: "S", user: "U" });
-  check("Claude search call: Sonnet, no temperature, +8000 thinking headroom", [calls.anthropic.at(-1).model, "temperature" in calls.anthropic.at(-1), calls.anthropic.at(-1).max_tokens], ["claude-sonnet-5-5", false, 14000]);
+  check("Claude search call: Haiku, no temperature, +8000 thinking headroom", [calls.anthropic.at(-1).model, "temperature" in calls.anthropic.at(-1), calls.anthropic.at(-1).max_tokens], ["claude-haiku-5-5", false, 14000]);
   check("a fenced array reply still holds the array (extractJsonArray finds it)", /\[[\s\S]*\]/.exec(r.text)[0], '[{"title":"A"}]');
 
   console.log("\n4. Every generation site goes through llmCall");

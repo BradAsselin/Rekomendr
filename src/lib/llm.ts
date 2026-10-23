@@ -79,10 +79,17 @@ const CLAUDE_DEFAULT: Record<LlmStep, string> = {
   wine: "claude-sonnet-5-5",
   lines: "claude-sonnet-5-5",
   mood: "claude-haiku-5-5",
-  search: "claude-sonnet-5-5",
+  // S14 measured: Haiku 13 stock phrases in 30 cards vs 4o-mini 43, at
+  // 19–25 s (4o-mini 11–15 s) and $0.0035 a search. Sonnet: 1 phrase,
+  // 17–21 s, $0.05 — REKS_MODEL_SEARCH=claude-sonnet-5-5 if Brad wants it.
+  search: "claude-haiku-5-5",
+  // Backfill 2.3–2.8 s (Haiku 3–4 s), chain 5.6–7.7 s.
   snap: "claude-sonnet-5-5",
-  detail: "claude-sonnet-5-5",
-  recipe: "claude-sonnet-5-5",
+  // Haiku keeps the prompt's 3-sentence limit; Sonnet wrote 4–5. 2–3 s.
+  detail: "claude-haiku-5-5",
+  // Haiku held the high-stakes gate 6/6 (tartare, carpaccio, ceviche,
+  // canning, foraged mushrooms, sashimi), 3–6 s, $0.0005.
+  recipe: "claude-haiku-5-5",
   classify: "claude-haiku-5-5",
 };
 
