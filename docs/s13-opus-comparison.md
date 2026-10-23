@@ -143,3 +143,94 @@ Also, typed "Lioness": gpt-4o's second card was "Condor … grapples with the mo
 | wine | keep OpenAI | 18 s on Opus |
 | lines | keep OpenAI for now | 2× slower. The register win is real, but voice is a joint-session call (§5). Revisit with Sonnet 5.5 or prompt caching |
 | mood | keep OpenAI | 4o-mini is fast enough; see S13c's numbers |
+
+---
+
+# S13d — Sonnet 5.5 and Haiku 5.5 on the steps that stayed on OpenAI
+
+Run on 2026-10-23, local dev, live models, same fixtures and harness as above.
+
+- **One step at a time.** Only the named step moves (dev header `x-reks-steps`); every other step stays on today's OpenAI default. In the wine runs, for example, the shelf and photo reads are still gpt-4o.
+- **Settings:** effort `low`, streamed.
+- **Runs:** 3 per case; 6 for Lioness lines after the fix below.
+- **Opus rows** come from the all-Opus runs above. There every step was Opus, including the shelf read, which is why Opus's on-shelf numbers are higher. Its step times compare directly.
+- **Costs** are the step's own calls at list prices:
+  - Sonnet 5.5: $2 / $10 per million tokens (in/out).
+  - Haiku 5.5: $0.10 / $0.50.
+
+**A fix this run needed.** Without a schema, Sonnet 5.5 sometimes dropped a quote in the chooser's JSON (`"line":Same infiltrate…`). It failed **7 of 15** replies, each shipping an empty set.
+- Claude calls on the lines step now send the chooser's reply shape as a structured-output schema. It's the same shape the prompt already states; no prompt words changed, and OpenAI calls are untouched.
+- With it: Sonnet **9/9** full sets.
+- The lines rows below are with the schema.
+
+## Wine picks (step `wine`)
+
+Median total / the wine call itself / on-shelf picks / in price band / cost of the wine call:
+
+| case | OpenAI gpt-4o | Opus 5.5 | Sonnet 5.5 | Haiku 5.5 |
+|---|---|---|---|---|
+| Cab/red shelf | 11.5 s / 7.0 s / 8/15 / 15/15 / $0.014 | 29.9 s / 18.4 s / 9/15 / 15/15 / $0.052 | 15.0 s / 9.6 s / 8/15 / 15/15 / $0.020 | 14.1 s / 10.1 s / 7/15 / 15/15 / $0.0015 |
+| End cap | 12.1 s / 6.2 s / 10/15 / 15/15 / $0.014 | 26.3 s / 17.4 s / 15/15 / 15/15 / $0.049 | 15.6 s / 9.4 s / 8/15 / 15/15 / $0.019 | 18.8 s / 13.6 s / 13/15 / 15/15 / $0.0020 |
+| Two-shelf white | 12.1 s / 8.8 s / 3/15 / 15/15 / $0.014 | 24.2 s / 18.1 s / 11/15 / 15/15 / $0.047 | 12.2 s / 8.7 s / 3/15 / 15/15 / $0.019 | 19.4 s / 16.1 s / **0/15** / 15/15 / $0.0021 |
+| Single bottle | 9.1 s / 5.9 s / — / 15/15 / $0.013 | 24.9 s / 18.4 s / — / 15/15 / $0.048 | 12.3 s / 9.4 s / — / 15/15 / $0.019 | 15.7 s / 13.0 s / — / 15/15 / $0.0018 |
+| stock phrases (60 lines each) | 1 | 0 | 0 | 0 |
+
+Every run of every model gave five picks.
+
+## Poster / TV photo read (step `vision`)
+
+Median total / the vision call / anchor right + on TMDb / cost of the vision call:
+
+| case | OpenAI gpt-4o | Opus 5.5 | Sonnet 5.5 | Haiku 5.5 |
+|---|---|---|---|---|
+| Breaking Bad banner | 5.0 s / 1.6 s / 3/3 / $0.014 | 8.3 s / 3.7 s / 3/3 / $0.033 | 5.6 s / 2.4 s / 3/3 / $0.017 | 5.5 s / 1.8 s / 3/3 / $0.0008 |
+| The Bear title page | 5.0 s / 1.9 s / 3/3 / $0.014 | 17.2 s / 12.2 s / 3/3 / $0.033 | 5.4 s / 2.5 s / 3/3 / $0.017 | **16.5 s / 12.0 s** / 3/3 / $0.0008 |
+| Poster (Winchester '73) | 5.0 s / 2.1 s / 3/3 / $0.014 | 16.3 s / 8.1 s / 3/3 / $0.038 | 6.5 s / 3.0 s / 3/3 / $0.019 | 5.0 s / 2.2 s / 3/3 / $0.0009 |
+
+- Every model named all three correctly.
+- Haiku stalled ~12 s before writing on The Bear, as Opus did. Sonnet never stalled.
+
+## "vs." lines (step `lines`: typed-title reks and chip lines against a go-to)
+
+Median total / the lines call / full five / stock phrases / cost of the call:
+
+| case | OpenAI 4o-mini | Opus 5.5 | Sonnet 5.5 | Haiku 5.5 |
+|---|---|---|---|---|
+| Typed "Lioness" | 3.1 s / 2.4 s / 3/3 / 3 of 15 / $0.0005 | 5.2 s / 4.7 s / 3/3 / 0 / $0.022 | 4.2 s / 3.6 s / **6/6** / 0 of 30 / $0.012 | 3.8 s / 3.0 s / 5/6 (one set of 2) / 0 of 27 / $0.0007 |
+| Comedy → Feel-good, go-to Grand Budapest | 2.9 s / 2.6 s / 3/3 / 3 of 15 / $0.0003 | 7.2 s / 6.9 s / 3/3 / 0 / $0.016 | 4.5 s / 4.1 s / 3/3 / 0 of 15 / $0.008 | 3.9 s / 3.5 s / 3/3 / 0 of 15 / $0.0006 |
+
+## Mood parser (step `mood`)
+
+12 spoken moods × 3 runs. Scored on the expected category + lane (+ refiner, price or named title where one was said). Includes the cross-bar cases ("a horror movie" on the Wine bar), "something bubbly to celebrate", "a cozy british mystery series", and nonsense.
+
+| | accuracy | median end to end | median model call | cost per parse |
+|---|---|---|---|---|
+| OpenAI 4o-mini | 36/36 | 1.28 s | 0.91 s | $0.00012 |
+| Opus 5.5 | 36/36 | 2.44 s | 2.00 s | $0.0060 |
+| Sonnet 5.5 | 36/36 | 2.03 s | 1.69 s | $0.0024 |
+| Haiku 5.5 | 36/36 | 1.22 s | 0.89 s | $0.00014 |
+
+## Three cards each
+
+| | Sonnet 5.5 | Haiku 5.5 |
+|---|---|---|
+| Wine, end cap | **Rocca Chianti** · $10.99 on this shelf — Similarly dry, but lighter in body and higher in acidity. The sour cherry leads and a dusty, earthy edge follows, with tannin that grips at the finish. Trades the weight for brightness — if the earthiness is what you love, this keeps it in a leaner frame. | **Ruffino Chianti** · $10.99 on this shelf — Similarly dry, but lighter on the body. The cherry leads and the tannin stays soft through the finish, with the dark fruit pulled back. Trades the weight for brightness: if the full dark fruit is what you love, this will read thin, but if you want something lighter on the palate, this is it. |
+| Typed "Lioness" | **Homeland**: Same CIA-versus-terror pressure, but the lead is a volatile officer, Carrie Mathison, and her mentor Saul Berenson guides her instead of a station chief. | **Homeland**: Same CIA pressure and a handler at its center, but Carrie Mathison's bipolar volatility makes the spycraft far more personal than Cruz's recruitment. |
+| Comedy → Feel-good, vs. Grand Budapest (the recipe picks the title; the model writes the line) | **The Wolf of Wall Street**: vs. your Grand Budapest Hotel: louder and far more debauched, following a New York stockbroker Jordan Belfort whose fraud-fueled excess drives the dark comedy. | **Ted**: vs. your Grand Budapest Hotel: lighter and sillier, with a grown man torn between his girlfriend Lori and a teddy bear brought to life. |
+
+The shelf names in the two wine cards differ ("Rocca" vs "Ruffino" Chianti) because the gpt-4o shelf read, still on in these runs, named that bottle differently each time. The label is a Fontella Chianti, which the Opus shelf read gets right.
+
+## Recommendation, per step (Brad flips)
+
+| step | recommend | why |
+|---|---|---|
+| shelf | **Opus** (unchanged) | see above |
+| wine | keep OpenAI | Sonnet: same on-shelf, ~+3 s, +$0.005. Haiku: 10× cheaper but 13–16 s and 0/15 on-shelf on the white aisle |
+| vision | keep OpenAI | No accuracy difference on these three; OpenAI is fastest. Sonnet is the safe second (+0.5–1.5 s, never stalled); Haiku stalled 12 s on The Bear |
+| lines | OpenAI today; **Haiku 5.5 if you want the register** | Haiku: 0 stock phrases vs 6 in 30, +0.6–0.9 s, about the same cost ($0.0006 vs $0.0004), one short set in 9. Sonnet: also 0, 9/9 full, ~+1.5 s, ~25× the cost. The register change is a voice call (§5): read the cards first |
+| mood | keep OpenAI | All four are perfect; Haiku ties 4o-mini on time and cost, so there's no reason to move |
+
+**How to flip one step** (Production env, Brad's step):
+- `REKS_PROVIDER_<STEP>=anthropic` plus `REKS_MODEL_<STEP>=claude-haiku-5-5` (or `claude-sonnet-5-5`).
+- Example: `REKS_PROVIDER_LINES=anthropic`, `REKS_MODEL_LINES=claude-haiku-5-5`.
+- An Anthropic step with no model name runs Opus 5.5.

@@ -330,6 +330,18 @@ export function stripEpisodeInfo(name: string): string {
   return show.length >= 2 ? show : name;
 }
 
+/* S13d — a banner that names the episode after a dash with no S/E marker
+   ("Breaking Bad - Ozymandias", field case in the S13 comparison). Cut at
+   the first spaced dash or colon; used ONLY as a TV retry after the full
+   name missed, so a real title with a dash ("Mission: Impossible - Dead
+   Reckoning") is never cut on a hit, and never retried as a movie. */
+export function headBeforeSeparator(name: string): string {
+  const m = /\s+[-–—]\s+|:\s+/.exec(name);
+  if (!m || m.index === 0) return name;
+  const head = name.slice(0, m.index).trim();
+  return head.length >= 2 ? head : name;
+}
+
 export async function resolveSnappedTitle(
   name: string,
   kindHint: MediaKind | "any"
@@ -337,6 +349,16 @@ export async function resolveSnappedTitle(
   if (!key()) return null;
   const read = kindHint === "movie" ? name : stripEpisodeInfo(name);
   if (read !== name) console.info("[media-snap] episode info stripped", { read: name, show: read });
+  const hit = await resolveRead(read, kindHint);
+  if (hit || kindHint === "movie") return hit;
+  const head = headBeforeSeparator(read);
+  if (head === read) return null;
+  const retry = await resolveRead(head, "tv");
+  console.info("[media-snap] episode title cut at the dash — TV retry", { read, show: head, hit: !!retry });
+  return retry;
+}
+
+async function resolveRead(read: string, kindHint: MediaKind | "any"): Promise<ResolvedTitle | null> {
   const { title, year } = splitTypedYear(read.replace(PACKAGE_NOISE, " ").replace(/\s+/g, " "));
   const wanted = normalizeTitle(title);
   if (!wanted) return null;

@@ -74,6 +74,33 @@ const CHOOSER_PROMPT =
 
 // When TMDb's web is thin (a brand-new title with no neighbours yet), the
 // own-knowledge slots grow to fill five — every one still verified.
+// S13d — the chooser's reply shape, for Claude's structured outputs (the
+// prompt's own "Return JSON only" line, as a schema; OpenAI ignores it).
+const titleLine = {
+  type: "object",
+  additionalProperties: false,
+  properties: { title: { type: "string" }, year: { type: "integer" }, line: { type: "string" } },
+  required: ["title", "year", "line"],
+};
+const CHOOSER_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    picks: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: { n: { type: "integer" }, line: { type: "string" } },
+        required: ["n", "line"],
+      },
+    },
+    wildcard: { anyOf: [titleLine, { type: "null" }] },
+    own: { type: "array", items: titleLine },
+  },
+  required: ["picks", "wildcard"],
+};
+
 const ownSlotsNote = (candidates: number) =>
   candidates >= 5
     ? ""
@@ -143,6 +170,7 @@ export async function chooseMediaReks(args: {
   const started = Date.now();
   const completion = await llmCall({
     step: "lines",
+    schema: CHOOSER_SCHEMA,
     temperature: 0.5,
     maxTokens: 900,
     system: CHOOSER_PROMPT + ownSlotsNote(candidates.length),
@@ -152,7 +180,7 @@ export async function chooseMediaReks(args: {
   try {
     parsed = JSON.parse(jsonText(completion.text));
   } catch {
-    console.warn("[media-reks] chooser returned non-JSON", { path, anchor: anchor.title });
+    console.warn("[media-reks] chooser returned non-JSON", { path, anchor: anchor.title, model: completion.model, head: completion.text.slice(0, 160) });
     return [];
   }
 
@@ -274,6 +302,7 @@ export async function linesVsGoTo(args: {
   const started = Date.now();
   const completion = await llmCall({
     step: "lines",
+    schema: CHOOSER_SCHEMA,
     temperature: 0.5,
     maxTokens: 900,
     system: CHOOSER_PROMPT + ownSlotsNote(args.candidates.length),
@@ -288,7 +317,7 @@ export async function linesVsGoTo(args: {
   try {
     parsed = JSON.parse(jsonText(completion.text));
   } catch {
-    console.warn("[slots] line writer returned non-JSON", { goTo: args.goTo.title });
+    console.warn("[slots] line writer returned non-JSON", { goTo: args.goTo.title, model: completion.model, head: completion.text.slice(0, 160) });
     return out;
   }
   for (const p of Array.isArray(parsed?.picks) ? parsed.picks : []) {
