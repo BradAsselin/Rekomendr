@@ -59,8 +59,12 @@ export function classifyOpenAIError(err: unknown): OpenAIFailure {
   });
 
   if (code === "insufficient_quota") return make("quota", 503);
+  // S13a — the same four kinds for Anthropic (src/lib/llm.ts): out of
+  // credit is a 400 whose message says so; 529 is "overloaded".
+  const message = err instanceof Error ? err.message : "";
+  if (upstreamStatus === 400 && /credit balance/i.test(message)) return make("quota", 503);
   if (upstreamStatus === 401) return make("auth", 503);
-  if (upstreamStatus === 429) return make("rate_limit", 429);
+  if (upstreamStatus === 429 || upstreamStatus === 529) return make("rate_limit", 429);
   if (
     err instanceof OpenAI.APIConnectionError ||
     name === "APIConnectionError" ||

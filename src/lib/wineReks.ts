@@ -20,8 +20,7 @@
 if (typeof window !== "undefined") {
   throw new Error("wineReks.ts was imported in a browser bundle.");
 }
-import type OpenAI from "openai";
-
+import { jsonText, llmCall } from "./llm";
 import {
   bandText,
   cleanShelfRead,
@@ -61,40 +60,27 @@ export type ShelfRead = {
   anchorPrice: number | null;
 };
 
-export async function readShelf(
-  openai: OpenAI,
-  images: string[]
-): Promise<ShelfRead | null> {
+export async function readShelf(images: string[]): Promise<ShelfRead | null> {
   const started = Date.now();
   try {
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o",
+    const completion = await llmCall({
+      step: "shelf",
       temperature: 0,
-      max_tokens: 2500,
-      response_format: { type: "json_object" },
-      messages: [
-        { role: "system", content: SHELF_READ_PROMPT },
-        {
-          role: "user",
-          content: [
-            ...(images.length > 1
-              ? [
-                  {
-                    type: "text" as const,
-                    text: `This is ONE photo, cut into ${images.length} horizontal strips shown top to bottom. Neighbouring strips overlap slightly, so a bottle on a cut line can appear twice — list it once.`,
-                  },
-                ]
-              : []),
-            ...images.map((url) => ({
-              type: "image_url" as const,
-              image_url: { url, detail: "high" as const },
-            })),
-          ],
-        },
+      maxTokens: 2500,
+      system: SHELF_READ_PROMPT,
+      user: [
+        ...(images.length > 1
+          ? [
+              {
+                type: "text" as const,
+                text: `This is ONE photo, cut into ${images.length} horizontal strips shown top to bottom. Neighbouring strips overlap slightly, so a bottle on a cut line can appear twice — list it once.`,
+              },
+            ]
+          : []),
+        ...images.map((url) => ({ type: "image" as const, url, detail: "high" as const })),
       ],
     });
-    const text = completion.choices?.[0]?.message?.content ?? "";
-    const read = cleanShelfRead(JSON.parse(text));
+    const read = cleanShelfRead(JSON.parse(jsonText(completion.text)));
     console.info("[wine] shelf read", {
       scene: read.scene,
       bottles: read.bottles.length,
@@ -103,6 +89,7 @@ export async function readShelf(
       staffPicks: read.bottles.filter((b) => b.staffPick).length,
       anchorPrice: read.anchorPrice,
       strips: images.length > 1 ? images.length : 0,
+      provider: completion.provider,
       ms: Date.now() - started,
     });
     return read;
@@ -251,22 +238,17 @@ export function buildWineReksUser(ctx: WineGenContext): string {
 }
 
 export async function generateWineReks(
-  openai: OpenAI,
   voice: string,
   ctx: WineGenContext
 ): Promise<{ anchor: unknown; reks: RawWineRek[] }> {
-  const completion = await openai.chat.completions.create({
-    model: "gpt-4o",
+  const completion = await llmCall({
+    step: "wine",
     temperature: 0.7,
-    max_tokens: Math.min(4000, 400 + ctx.count * 260),
-    response_format: { type: "json_object" },
-    messages: [
-      { role: "system", content: buildWineReksPrompt(voice, ctx) },
-      { role: "user", content: buildWineReksUser(ctx) },
-    ],
+    maxTokens: Math.min(4000, 400 + ctx.count * 260),
+    system: buildWineReksPrompt(voice, ctx),
+    user: buildWineReksUser(ctx),
   });
-  const text = completion.choices?.[0]?.message?.content ?? "";
-  const parsed = JSON.parse(text);
+  const parsed = JSON.parse(jsonText(completion.text));
   return {
     anchor: parsed?.anchor ?? null,
     reks: Array.isArray(parsed?.reks) ? parsed.reks : [],

@@ -122,10 +122,11 @@ check("vs. your Lioness", SC.goToShortName("Lioness"), "Lioness");
 check("a one-word 'The X' keeps its article when the rest is tiny", SC.goToShortName("The It"), "The It");
 
 console.log("\n7. No prompt text changed");
-const promptDiff = execSync("git diff main -- src/lib/mediaReks.ts", { cwd: root, encoding: "utf8" });
+// S13a: S12's own range (main has moved on; S13 routes the call through llm.ts).
+const promptDiff = execSync("git diff 6588529~1 3ccba4d -- src/lib/mediaReks.ts", { cwd: root, encoding: "utf8" });
 const removed = promptDiff.split("\n").filter((l) => l.startsWith("-") && !l.startsWith("---"));
 check("mediaReks.ts: nothing removed (CHOOSER_PROMPT untouched)", removed.length, 0);
-check("lines call uses CHOOSER_PROMPT verbatim", read("src/lib/mediaReks.ts").includes("{ role: \"system\", content: CHOOSER_PROMPT + ownSlotsNote(args.candidates.length) },"), true);
+check("lines call uses CHOOSER_PROMPT verbatim", /(content|system): CHOOSER_PROMPT \+ ownSlotsNote\(args\.candidates\.length\)/.test(read("src/lib/mediaReks.ts")), true);
 const engineDiff = execSync("git diff main -- src/engine/rekomendrEngine.ts", { cwd: root, encoding: "utf8" });
 check("engine: buildAIPrompt untouched", /^[-+].*(buildAIPrompt|You are Rekomendr)/m.test(engineDiff), false);
 const route = read("app/api/slots/route.ts");
@@ -161,8 +162,8 @@ check("visible JSX text added", [...new Set(jsxText)].filter((t) => !allowed.has
 check("touchstone label text", added.some((l) => l.includes("A classic to steer by")), true);
 
 console.log("\n10. Wine unchanged");
-const wineDiff = execSync("git diff main --stat -- app/api/wine src/lib/wineVisit.ts src/lib/wineShelf.ts src/lib/wineReks.ts src/components/WineFacts.tsx src/components/HaulConfirm.tsx src/components/WineFollowup.tsx", { cwd: root, encoding: "utf8" });
-check("wine route + libs byte-identical to main", wineDiff.trim(), "");
+const wineDiff = execSync("git diff 6588529~1 3ccba4d --stat -- app/api/wine src/lib/wineVisit.ts src/lib/wineShelf.ts src/lib/wineReks.ts src/components/WineFacts.tsx src/components/HaulConfirm.tsx src/components/WineFollowup.tsx", { cwd: root, encoding: "utf8" });
+check("wine route + libs byte-identical across S12", wineDiff.trim(), "");
 
 console.log(`\n${passed} passed, ${failed} failed.`);
 process.exit(failed ? 1 : 0);

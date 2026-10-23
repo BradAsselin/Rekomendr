@@ -19,7 +19,7 @@ if (typeof window !== "undefined") {
 }
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { openai } from "./openaiClient";
+import { jsonText, llmCall } from "./llm";
 import { normalizeTitle, logFakeTitles } from "./tmdbVerify";
 import {
   mediaCategoryFor,
@@ -49,7 +49,6 @@ export type Taste = {
 
 export const EMPTY_TASTE: Taste = { liked: [], disliked: [], watched: [] };
 
-const CHOOSER_MODEL = "gpt-4o-mini";
 const OVERVIEW_CHARS = 280;
 const TASTE_TITLES = 15;
 
@@ -142,20 +141,16 @@ export async function chooseMediaReks(args: {
   const droppedByTaste = args.candidates.length - candidates.length;
 
   const started = Date.now();
-  const completion = await openai.chat.completions.create({
-    model: CHOOSER_MODEL,
+  const completion = await llmCall({
+    step: "lines",
     temperature: 0.5,
-    max_tokens: 900,
-    response_format: { type: "json_object" },
-    messages: [
-      { role: "system", content: CHOOSER_PROMPT + ownSlotsNote(candidates.length) },
-      { role: "user", content: buildUserMessage({ anchor, lane, taste, candidates }) },
-    ],
+    maxTokens: 900,
+    system: CHOOSER_PROMPT + ownSlotsNote(candidates.length),
+    user: buildUserMessage({ anchor, lane, taste, candidates }),
   });
-  const text = completion.choices?.[0]?.message?.content ?? "";
   let parsed: any = null;
   try {
-    parsed = JSON.parse(text);
+    parsed = JSON.parse(jsonText(completion.text));
   } catch {
     console.warn("[media-reks] chooser returned non-JSON", { path, anchor: anchor.title });
     return [];
@@ -277,27 +272,21 @@ export async function linesVsGoTo(args: {
   const out = new Map<number, string>();
   if (args.candidates.length === 0) return out;
   const started = Date.now();
-  const completion = await openai.chat.completions.create({
-    model: CHOOSER_MODEL,
+  const completion = await llmCall({
+    step: "lines",
     temperature: 0.5,
-    max_tokens: 900,
-    response_format: { type: "json_object" },
-    messages: [
-      { role: "system", content: CHOOSER_PROMPT + ownSlotsNote(args.candidates.length) },
-      {
-        role: "user",
-        content: buildUserMessage({
-          anchor: args.goTo,
-          lane: args.lane?.trim() || null,
-          taste: args.taste,
-          candidates: args.candidates,
-        }),
-      },
-    ],
+    maxTokens: 900,
+    system: CHOOSER_PROMPT + ownSlotsNote(args.candidates.length),
+    user: buildUserMessage({
+      anchor: args.goTo,
+      lane: args.lane?.trim() || null,
+      taste: args.taste,
+      candidates: args.candidates,
+    }),
   });
   let parsed: any = null;
   try {
-    parsed = JSON.parse(completion.choices?.[0]?.message?.content ?? "");
+    parsed = JSON.parse(jsonText(completion.text));
   } catch {
     console.warn("[slots] line writer returned non-JSON", { goTo: args.goTo.title });
     return out;
