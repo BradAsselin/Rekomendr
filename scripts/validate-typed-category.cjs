@@ -122,6 +122,15 @@ class FakeOpenAI {
             return { choices: [{ message: { content: JSON.stringify({ picks: [], wildcard: null }) } }] };
           }
           const next = ai.reads.length > 1 ? ai.reads.shift() : ai.reads[0];
+          // S14: the typed read's first attempt streams (the photo path's reader).
+          if (req.stream) {
+            const text = JSON.stringify(next);
+            return (async function* () {
+              yield { choices: [{ delta: { content: text } }] };
+              yield { choices: [{ delta: {}, finish_reason: "stop" }] };
+              yield { choices: [], usage: { prompt_tokens: 1, completion_tokens: 2 } };
+            })();
+          }
           return { choices: [{ message: { content: JSON.stringify(next) } }], usage: { prompt_tokens: 1, completion_tokens: 2 } };
         },
       },

@@ -1040,7 +1040,8 @@ async function handleChain(chain: any): Promise<Response> {
 // the non-streamed call returned. A stream error rejects `done` and lands
 // in POST's outer catch with every named-failure voice intact.
 // ---------------------------------------------------------------------------
-type VisionContent = LlmPart[];
+// S14 — a typed wine streams its text through the same reader.
+type VisionContent = string | LlmPart[];
 
 async function startVisionStream(content: VisionContent) {
   const controller = new AbortController();
@@ -1674,24 +1675,63 @@ async function handlePost(req: Request, hooks: SnapHooks = {}) {
       // that still lands outside wine is never shipped: one retry, then
       // { anchor: null }, so the wine search runs on the text instead.
       let typedCategory = "";
-      for (let attempt = 1; attempt <= 2; attempt++) {
-        const completion = await llmCall({
-          step: "vision",
-          temperature: attempt === 1 ? 0.7 : 0.3,
-          maxTokens: 4000,
-          system: SYSTEM_PROMPT,
-          user:
+      // The first read's category as streamed (a stopped read won't parse).
+      let streamedCategory = "";
+      const typedUser =
             `No photo this time: the user typed a wine's name on the Wine bar instead — "${typedName}". Treat that named wine as the item in the photo. It is a wine: its category is wine, and every rek is a wine.` +
             (priorBlock ? `
-${priorBlock}` : ""),
-        });
-        text = jsonText(completion.text);
-        usage = completion.usage;
+${priorBlock}` : "");
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        if (attempt === 1) {
+          // S14 — the first read streams, with the photo path's wine cut
+          // (S10): the picks start the moment the bottle is named and the
+          // stream stops once Similar closes. Claude writes all three lists
+          // in full (~1,800 tokens, ~17 s on Sonnet); waiting for them made
+          // a typed wine ~30 s.
+          const vision = await startVisionStream(typedUser);
+          const early = await vision.detected;
+          const earlyCat = typeof early?.category === "string" ? early.category.trim().toLowerCase() : "";
+          streamedCategory = earlyCat;
+          if (early && isWineCategory(earlyCat) && startWine(early)) {
+            const sim = await vision.similar;
+            if (sim) {
+              vision.stop();
+              const d = await vision.done();
+              text = JSON.stringify({
+                detected_item: early,
+                mode: "similar",
+                results: { similar: sim, uses: [], alternatives: [] },
+              });
+              ({ usage, finishReason, refusal } = d);
+              finishReason = finishReason ?? "wine_cut";
+              wineCut = true;
+              console.info("[wine] typed read cut after Similar", {
+                anchor: early.name,
+                similar: sim.length,
+                charsRead: d.text.length,
+              });
+            }
+          } else if (early) {
+            // Not a wine: this read is retried below, so stop writing it.
+            vision.stop();
+          }
+          if (!wineCut) ({ text, usage, finishReason, refusal } = await vision.done());
+        } else {
+          const completion = await llmCall({
+            step: "vision",
+            temperature: 0.3,
+            maxTokens: 4000,
+            system: SYSTEM_PROMPT,
+            user: typedUser,
+          });
+          text = jsonText(completion.text);
+          usage = completion.usage;
+        }
         try {
           const cat = JSON.parse(text)?.detected_item?.category;
           typedCategory = typeof cat === "string" ? cat : "";
         } catch {
-          typedCategory = "";
+          typedCategory = attempt === 1 ? streamedCategory : "";
         }
         if (isWineCategory(typedCategory)) break;
         console.error("[typed-anchor] wine bar read landed outside wine", {

@@ -138,6 +138,14 @@ const clearEnv = () => {
   check("openai + recipe routes wrapped for the dev hook", ["app/api/openai/route.ts", "app/api/recipe/route.ts"].map((f) =>
     /export async function POST\(req: Request\) \{\s*return withLlmContext\(req, \(\) => handle\(req\)\);/.test(read(f))), [true, true]);
 
+  console.log("\n4b. Typed wine: the first read streams with the wine cut");
+  const typedBlock = route.slice(route.indexOf("const typedUser ="), route.indexOf("[typed-anchor] wine bar read landed outside wine"));
+  check("attempt 1 streams the typed text", typedBlock.includes("startVisionStream(typedUser)"), true);
+  check("picks start on the named bottle; the stream stops after Similar",
+    ["startWine(early)", "await vision.similar", "vision.stop()"].map((t) => typedBlock.includes(t)), [true, true, true]);
+  check("attempt 2 is the old non-streamed read at 0.3", /temperature: 0\.3,[\s\S]*user: typedUser/.test(typedBlock), true);
+  check("a stopped non-wine read still reports its category", typedBlock.includes("attempt === 1 ? streamedCategory"), true);
+
   console.log("\n5. Prompts byte-identical to main before S14 (no VOICE in this PR)");
   for (const f of ["app/api/reksnap/route.ts", "app/api/openai/route.ts", "app/api/recipe/route.ts", "src/lib/anchorCompletion.ts", "src/lib/anchorDetailPrompt.ts"]) {
     const d = execSync(`git diff ${BASE} -- ${f}`, { cwd: root, encoding: "utf8" });
