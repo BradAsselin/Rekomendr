@@ -15,6 +15,7 @@ import {
   NEW_TO_ME_NOTICE,
   dropUnresolvedMediaReks,
 } from "../../../src/lib/snapTitleGuard";
+import { jsonText, llmCall, withLlmContext, type LlmPart } from "../../../src/lib/llm";
 import { runEnvCheck } from "../../../src/lib/envCheck";
 import { ANCHOR_DETAIL_PROMPT } from "../../../src/lib/anchorDetailPrompt";
 import {
@@ -1059,30 +1060,10 @@ async function handleChain(chain: any): Promise<Response> {
 // the non-streamed call returned. A stream error rejects `done` and lands
 // in POST's outer catch with every named-failure voice intact.
 // ---------------------------------------------------------------------------
-type VisionContent = (
-  | { type: "image_url"; image_url: { url: string; detail?: "high" | "low" | "auto" } }
-  | { type: "text"; text: string }
-)[];
+type VisionContent = LlmPart[];
 
 async function startVisionStream(content: VisionContent) {
   const controller = new AbortController();
-  const stream = await openai.chat.completions.create(
-    {
-      model: "gpt-4o",
-      temperature: 0.7,
-      // Three lists of five is ~triple the output of the old single list —
-      // raised well above 3x the old 1500 cap so the JSON never truncates.
-      max_tokens: 4000,
-      response_format: { type: "json_object" },
-      stream: true,
-      stream_options: { include_usage: true },
-      messages: [
-        { role: "system", content: SYSTEM_PROMPT },
-        { role: "user", content },
-      ],
-    },
-    { signal: controller.signal }
-  );
 
   let buf = "";
   let usage: { prompt_tokens?: number; completion_tokens?: number } | null = null;
@@ -1113,24 +1094,40 @@ async function startVisionStream(content: VisionContent) {
     settleSim(v);
   };
 
+  // S13a — the provider switch (src/lib/llm.ts). Same prompt, cap and
+  // (on OpenAI) temperature and JSON mode; the text deltas feed the same
+  // buffer and extractors on either provider.
   const consumed = (async () => {
     try {
-      for await (const chunk of stream) {
-        const choice = chunk.choices?.[0];
-        buf += choice?.delta?.content ?? "";
-        const r = (choice?.delta as { refusal?: string | null } | undefined)?.refusal;
-        if (typeof r === "string") refusal += r;
-        if (choice?.finish_reason) finishReason = choice.finish_reason;
-        if (chunk.usage) usage = chunk.usage;
-        if (!detectedSettled) {
-          const d = extractCompleteObject(buf, "detected_item");
-          if (d) settleDetected(d);
+      const result = await llmCall(
+        {
+          step: "vision",
+          temperature: 0.7,
+          // Three lists of five is ~triple the output of the old single list —
+          // raised well above 3x the old 1500 cap so the JSON never truncates.
+          maxTokens: 4000,
+          system: SYSTEM_PROMPT,
+          user: content,
+          signal: controller.signal,
+        },
+        (t) => {
+          buf += t;
+          if (!detectedSettled) {
+            const d = extractCompleteObject(buf, "detected_item");
+            if (d) settleDetected(d);
+          }
+          if (!similarSettled && detectedSettled) {
+            const sim = extractCompleteArray(buf, "similar", "results");
+            if (sim) settleSimilar(sim);
+          }
         }
-        if (!similarSettled && detectedSettled) {
-          const sim = extractCompleteArray(buf, "similar", "results");
-          if (sim) settleSimilar(sim);
-        }
-      }
+      );
+      usage = result.usage;
+      finishReason = result.finishReason;
+      refusal = result.refusal;
+      // Claude may fence its JSON; the full text the route parses is the
+      // object itself (the extractors above already read past a fence).
+      buf = jsonText(buf);
     } finally {
       settleDetected(null);
       settleSimilar(null);
@@ -1396,7 +1393,7 @@ async function runWineSet(args: {
   // Over-ask: the guarantees drop seen/disliked/out-of-band picks, and an
   // honest-short set is the price of a miss — never padding (§2.4).
   const count = args.kind === "backfill" ? 3 : 8;
-  const gen = await generateWineReks(openai, DIFFERENTIATOR_VOICE, {
+  const gen = await generateWineReks(DIFFERENTIATOR_VOICE, {
     kind: args.kind,
     count,
     anchor,
@@ -1529,7 +1526,7 @@ const stripsNote = (n: number) =>
 
 const DENSE_SHELF_MSG = "That's a lot of bottles. Try one or two shelves.";
 
-export async function POST(req: Request) {
+async function handlePost(req: Request) {
   try {
     // Dev/preview-only: REKOMENDR_SIMULATE_OPENAI_FAILURE throws the
     // matching OpenAI-shaped error so the honest copy can be seen. Sits
@@ -1624,7 +1621,7 @@ export async function POST(req: Request) {
     const shelfImages = strips.length > 0 ? strips : image ? [image] : [];
     let shelfP: Promise<ShelfRead | null> | null = null;
     const startShelfRead = () => {
-      if (!shelfP && !typed && shelfImages.length > 0) shelfP = readShelf(openai, shelfImages);
+      if (!shelfP && !typed && shelfImages.length > 0) shelfP = readShelf(shelfImages);
     };
     let wineP: Promise<WineSnap | null> | null = null;
     const startWine = (item: Record<string, unknown>): Promise<WineSnap | null> | null => {
@@ -1668,23 +1665,18 @@ export async function POST(req: Request) {
       // { anchor: null }, so the wine search runs on the text instead.
       let typedCategory = "";
       for (let attempt = 1; attempt <= 2; attempt++) {
-        const completion = await openai.chat.completions.create({
-          model: "gpt-4o",
+        const completion = await llmCall({
+          step: "vision",
           temperature: attempt === 1 ? 0.7 : 0.3,
-          max_tokens: 4000,
-          response_format: { type: "json_object" },
-          messages: [
-            { role: "system", content: SYSTEM_PROMPT },
-            {
-              role: "user",
-              content:
-                `No photo this time: the user typed a wine's name on the Wine bar instead — "${typedName}". Treat that named wine as the item in the photo. It is a wine: its category is wine, and every rek is a wine.` +
-                (priorBlock ? `\n${priorBlock}` : ""),
-            },
-          ],
+          maxTokens: 4000,
+          system: SYSTEM_PROMPT,
+          user:
+            `No photo this time: the user typed a wine's name on the Wine bar instead — "${typedName}". Treat that named wine as the item in the photo. It is a wine: its category is wine, and every rek is a wine.` +
+            (priorBlock ? `
+${priorBlock}` : ""),
         });
-        text = completion.choices?.[0]?.message?.content ?? "";
-        usage = completion.usage ?? null;
+        text = jsonText(completion.text);
+        usage = completion.usage;
         try {
           const cat = JSON.parse(text)?.detected_item?.category;
           typedCategory = typeof cat === "string" ? cat : "";
@@ -1704,31 +1696,21 @@ export async function POST(req: Request) {
     } else if (strips.length > 0) {
       // Not streamed and no media path: this only runs after a failed read,
       // and a strip set is a shelf, not a poster.
-      const completion = await openai.chat.completions.create({
-        model: "gpt-4o",
+      const completion = await llmCall({
+        step: "vision",
         temperature: 0.7,
-        max_tokens: 4000,
-        response_format: { type: "json_object" },
-        messages: [
-          { role: "system", content: SYSTEM_PROMPT },
-          {
-            role: "user",
-            content: [
-              { type: "text", text: stripsNote(strips.length) },
-              ...strips.map((url) => ({
-                type: "image_url" as const,
-                image_url: { url, detail: "high" as const },
-              })),
-              ...(priorBlock ? [{ type: "text" as const, text: priorBlock }] : []),
-            ],
-          },
+        maxTokens: 4000,
+        system: SYSTEM_PROMPT,
+        user: [
+          { type: "text", text: stripsNote(strips.length) },
+          ...strips.map((url) => ({ type: "image" as const, url, detail: "high" as const })),
+          ...(priorBlock ? [{ type: "text" as const, text: priorBlock }] : []),
         ],
       });
-      const choice = completion.choices?.[0];
-      text = choice?.message?.content ?? "";
-      usage = completion.usage ?? null;
-      finishReason = choice?.finish_reason ?? null;
-      refusal = (choice?.message as { refusal?: string | null } | undefined)?.refusal ?? "";
+      text = jsonText(completion.text);
+      usage = completion.usage;
+      finishReason = completion.finishReason;
+      refusal = completion.refusal;
       console.info("[snap-strips] read", { strips: strips.length, chars: text.length });
     } else {
       // S8a — detail "high" explicit (the default "auto" leaves the choice
@@ -1736,10 +1718,10 @@ export async function POST(req: Request) {
       const vision = await startVisionStream(
         priorBlock
           ? [
-              { type: "image_url", image_url: { url: image, detail: "high" } },
+              { type: "image", url: image, detail: "high" },
               { type: "text", text: priorBlock },
             ]
-          : [{ type: "image_url", image_url: { url: image, detail: "high" } }]
+          : [{ type: "image", url: image, detail: "high" }]
       );
       // S3.0 — a movie or TV snap takes the TMDb path the moment the
       // anchor is identified; the rest of the vision output is not needed.
@@ -2182,4 +2164,10 @@ async function wineSnap(args: {
     reks: set.reks,
     favoriteHere,
   };
+}
+
+// S13a — the dev-only provider override and diagnostics (src/lib/llm.ts);
+// a pass-through on production.
+export async function POST(req: Request) {
+  return withLlmContext(req, () => handlePost(req));
 }

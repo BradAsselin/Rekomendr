@@ -107,8 +107,9 @@ for (const k of ["stars_movies", "stars_tv", "stars_books", "stars_wine", "touch
 check("agent traffic excluded", stats.includes('String(r.client_id).startsWith("anon_agent")'), true);
 
 console.log("\n8. Wine unchanged");
-const wineDiff = execSync("git diff main --stat -- app/api/wine src/lib/wineVisit.ts src/lib/wineShelf.ts src/lib/wineReks.ts src/components/WineFacts.tsx src/components/HaulConfirm.tsx src/components/WineFollowup.tsx", { cwd: root, encoding: "utf8" });
-check("wine route + libs byte-identical to main", wineDiff.trim(), "");
+// S13a: S12's own merge (main has moved on; S13 routes wine through llm.ts).
+const wineDiff = execSync("git diff 6588529~1 6588529 --stat -- app/api/wine src/lib/wineVisit.ts src/lib/wineShelf.ts src/lib/wineReks.ts src/components/WineFacts.tsx src/components/HaulConfirm.tsx src/components/WineFollowup.tsx", { cwd: root, encoding: "utf8" });
+check("wine route + libs byte-identical across S12a", wineDiff.trim(), "");
 
 console.log(`\n${passed} passed, ${failed} failed.`);
 process.exit(failed ? 1 : 0);

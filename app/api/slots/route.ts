@@ -19,6 +19,7 @@
 // runs the old AI chip search, saying so in the log ([slots] FALLBACK).
 
 import { runEnvCheck } from "../../../src/lib/envCheck";
+import { withLlmContext } from "../../../src/lib/llm";
 import { cleanClientId } from "../../../src/lib/anchorSnapshots";
 import { capGate } from "../../../src/lib/apiUsage";
 import { mediaConfigured, type MediaKind } from "../../../src/lib/tmdbMedia";
@@ -85,7 +86,7 @@ function goTosOf(raw: unknown): GoToIn[] {
     }));
 }
 
-export async function POST(req: Request): Promise<Response> {
+async function handlePost(req: Request): Promise<Response> {
   const started = Date.now();
   let body: any = null;
   try {
@@ -268,4 +269,10 @@ export async function POST(req: Request): Promise<Response> {
     });
     return Response.json({ ok: false, reason: "error" }, { status: 200 });
   }
+}
+
+// S13a — the dev-only provider override and diagnostics (src/lib/llm.ts);
+// a pass-through on production.
+export async function POST(req: Request) {
+  return withLlmContext(req, () => handlePost(req));
 }

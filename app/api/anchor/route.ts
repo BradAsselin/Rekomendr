@@ -18,6 +18,7 @@
 // Wine-by-name lives in /api/reksnap (it reuses the snap prompt).
 
 import { runEnvCheck } from "../../../src/lib/envCheck";
+import { withLlmContext } from "../../../src/lib/llm";
 import { signAnchor } from "../../../src/lib/mintToken";
 import { withRekTokens } from "../../../src/lib/rekTokens";
 import {
@@ -255,7 +256,7 @@ async function reks(body: any): Promise<Response> {
   );
 }
 
-export async function POST(req: Request): Promise<Response> {
+async function handlePost(req: Request): Promise<Response> {
   try {
     const body = await req.json().catch(() => ({}));
     if (body?.action === "resolve") return await resolve(body);
@@ -272,4 +273,10 @@ export async function POST(req: Request): Promise<Response> {
     console.error("[typed-anchor] FALLBACK route error — search ran instead:", err);
     return Response.json({ error: "Server error" }, { status: 500 });
   }
+}
+
+// S13a — the dev-only provider override and diagnostics (src/lib/llm.ts);
+// a pass-through on production.
+export async function POST(req: Request) {
+  return withLlmContext(req, () => handlePost(req));
 }
