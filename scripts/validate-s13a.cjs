@@ -104,15 +104,18 @@ for (const level of ["warn", "info", "error"]) {
 }
 
 const ENV_KEYS = ["REKS_MODEL_PROVIDER", "REKS_ANTHROPIC_EFFORT", "REKS_ANTHROPIC_FALLBACKS", "VERCEL_ENV", "NODE_ENV",
-  ...["VISION", "SHELF", "WINE", "LINES", "MOOD"].flatMap((s) => [`REKS_PROVIDER_${s}`, `REKS_MODEL_${s}`])];
-const resetEnv = () => { for (const k of ENV_KEYS) delete process.env[k]; process.env.ANTHROPIC_API_KEY = "stub"; };
+  ...["VISION", "SHELF", "WINE", "LINES", "MOOD", "SEARCH", "SNAP", "DETAIL", "RECIPE", "CLASSIFY"].flatMap((s) => [`REKS_PROVIDER_${s}`, `REKS_MODEL_${s}`])];
+// S14: Claude is the default when ANTHROPIC_API_KEY is set, so the
+// "default = OpenAI" checks below run with no key (the pre-S14 deployment).
+const resetEnv = () => { for (const k of ENV_KEYS) delete process.env[k]; delete process.env.ANTHROPIC_API_KEY; };
 
 (async () => {
   resetEnv();
   const llm = load("src/lib/llm.ts");
 
-  console.log("1. Default (no env): every step is OpenAI with today's model");
-  const want = { vision: "gpt-4o", shelf: "gpt-4o", wine: "gpt-4o", lines: "gpt-4o-mini", mood: "gpt-4o-mini" };
+  console.log("1. Default (no env, no Anthropic key): every step is OpenAI with its pre-S13 model");
+  const want = { vision: "gpt-4o", shelf: "gpt-4o", wine: "gpt-4o", lines: "gpt-4o-mini", mood: "gpt-4o-mini",
+    search: "gpt-4o-mini", snap: "gpt-4o", detail: "gpt-4o", recipe: "gpt-4o", classify: "gpt-4o-mini" };
   for (const s of llm.LLM_STEPS) check(`${s} → openai:${want[s]}`, llm.resolveStep(s), { provider: "openai", model: want[s] });
 
   console.log("\n2. Default call shape = the pre-S13 OpenAI arguments");
@@ -138,7 +141,9 @@ const resetEnv = () => { for (const k of ENV_KEYS) delete process.env[k]; proces
 
   console.log("\n3. The switch");
   process.env.REKS_MODEL_PROVIDER = "anthropic";
-  check("global flag → every step on claude-opus-5-5", llm.LLM_STEPS.map((s) => llm.resolveStep(s).model), Array(5).fill("claude-opus-5-5"));
+  check("global flag → every step on its Claude model (S14 defaults)", llm.LLM_STEPS.map((s) => llm.resolveStep(s).model),
+    ["claude-sonnet-5-5", "claude-opus-5-5", "claude-sonnet-5-5", "claude-sonnet-5-5", "claude-haiku-5-5",
+     "claude-sonnet-5-5", "claude-sonnet-5-5", "claude-sonnet-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"]);
   process.env.REKS_PROVIDER_LINES = "openai";
   check("per-step override wins", llm.resolveStep("lines"), { provider: "openai", model: "gpt-4o-mini" });
   process.env.REKS_MODEL_SHELF = "claude-sonnet-5-5";
@@ -159,7 +164,7 @@ const resetEnv = () => { for (const k of ENV_KEYS) delete process.env[k]; proces
     (t) => ad.push(t)
   );
   const a = calls.anthropic[0].req;
-  check("model claude-opus-5-5, streamed", a.model, "claude-opus-5-5");
+  check("vision → claude-sonnet-5-5 (S14), streamed", a.model, "claude-sonnet-5-5");
   check("no temperature (Opus 5.5 rejects sampling)", "temperature" in a, false);
   check("effort low by default", a.output_config, { effort: "low" });
   check("thinking headroom on max_tokens", a.max_tokens, 12000);

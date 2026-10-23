@@ -1,14 +1,12 @@
-import OpenAI from "openai";
 import { runEnvCheck } from "../../../src/lib/envCheck";
 import {
   maybeSimulateOpenAIFailure,
   openAIFailureResponse,
 } from "../../../src/lib/openaiFailure";
 import { capGate } from "../../../src/lib/apiUsage";
+import { jsonText, llmCall, withLlmContext } from "../../../src/lib/llm";
 
 export const runtime = "nodejs";
-
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 // Boot-time env-pair check (logs once per process, hostnames only).
 runEnvCheck();
@@ -53,7 +51,27 @@ type RecipeOut = {
   safety_note: string | null;
 };
 
+// S14 — Claude only: the reply's shape as a schema (the shape the prompt
+// already states; no prompt words change).
+const RECIPE_SCHEMA = {
+  type: "object",
+  properties: {
+    title: { type: "string" },
+    intro: { type: "string" },
+    ingredients: { type: "array", items: { type: "string" } },
+    steps: { type: "array", items: { type: "string" } },
+    safety_note: { anyOf: [{ type: "string" }, { type: "null" }] },
+  },
+  required: ["title", "intro", "ingredients", "steps", "safety_note"],
+  additionalProperties: false,
+};
+
+// S14 — the recipe step (src/lib/llm.ts), with the dev comparison headers.
 export async function POST(req: Request) {
+  return withLlmContext(req, () => handle(req));
+}
+
+async function handle(req: Request): Promise<Response> {
   try {
     // Dev/preview-only: REKOMENDR_SIMULATE_OPENAI_FAILURE throws the
     // matching OpenAI-shaped error so the honest copy can be seen.
@@ -76,18 +94,16 @@ export async function POST(req: Request) {
       ? `DISH NAME: ${dish}\nDETECTED ITEM (what the dish was suggested from): ${detectedItem}`
       : `DISH NAME: ${dish}`;
 
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o",
+    const completion = await llmCall({
+      step: "recipe",
       temperature: 0.7,
-      max_tokens: 1200,
-      response_format: { type: "json_object" },
-      messages: [
-        { role: "system", content: SYSTEM_PROMPT },
-        { role: "user", content: userContent },
-      ],
+      maxTokens: 1200,
+      system: SYSTEM_PROMPT,
+      user: userContent,
+      schema: RECIPE_SCHEMA,
     });
 
-    const text = completion.choices?.[0]?.message?.content ?? "";
+    const text = jsonText(completion.text);
 
     let parsed: any = null;
     try {

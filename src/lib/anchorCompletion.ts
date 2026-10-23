@@ -10,14 +10,14 @@
 // only one lands.
 //
 // Kept OUT of anchorSnapshots.ts on purpose: the public page and the OG
-// image import that file, and neither may ever import an OpenAI client.
+// image import that file, and neither may ever import a model client.
 // Generation happens only on an owner's action, never on a public read.
 if (typeof window !== "undefined") {
   throw new Error("anchorCompletion.ts was imported in a browser bundle.");
 }
 import { createHash } from "crypto";
-import OpenAI from "openai";
-import { ANCHOR_DETAIL_PROMPT } from "./anchorDetailPrompt";
+import { ANCHOR_DETAIL_PROMPT, ANCHOR_DETAIL_SCHEMA } from "./anchorDetailPrompt";
+import { jsonText, llmCall } from "./llm";
 import { isProductionRuntime } from "./envCheck";
 import {
   LIMITS,
@@ -26,8 +26,6 @@ import {
   type SnapshotRow,
 } from "./anchorSnapshots";
 import type { SupabaseClient } from "@supabase/supabase-js";
-
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 export type CompletionOutcome =
   | "completed"
@@ -66,26 +64,21 @@ export async function completeLongIfMissing(
 
   let long: string | null = null;
   try {
-    // Same model and settings as the user's own "Show details" tap
+    // Same step, model and settings as the user's own "Show details" tap
     // (handleAnchorDetail in /api/reksnap) — the same prompt, byte for
     // byte, so a completed snapshot reads like the one they'd have seen.
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o",
+    const completion = await llmCall({
+      step: "detail",
       temperature: 0.7,
-      max_tokens: 300,
-      response_format: { type: "json_object" },
-      messages: [
-        { role: "system", content: ANCHOR_DETAIL_PROMPT },
-        {
-          role: "user",
-          content:
-            `Item: ${row.item_name}\n` +
-            (row.item_category ? `Category: ${row.item_category}\n` : "") +
-            `Its displayed profile: ${row.short_description}`,
-        },
-      ],
+      maxTokens: 300,
+      system: ANCHOR_DETAIL_PROMPT,
+      user:
+        `Item: ${row.item_name}\n` +
+        (row.item_category ? `Category: ${row.item_category}\n` : "") +
+        `Its displayed profile: ${row.short_description}`,
+      schema: ANCHOR_DETAIL_SCHEMA,
     });
-    const parsed = JSON.parse(completion.choices?.[0]?.message?.content ?? "");
+    const parsed = JSON.parse(jsonText(completion.text));
     if (typeof parsed?.long === "string" && parsed.long.trim()) {
       long = parsed.long.trim().slice(0, LIMITS.long);
     }

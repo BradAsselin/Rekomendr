@@ -83,9 +83,19 @@ function collectProblems(): string[] {
     problems.push(
       "NEXT_PUBLIC_SUPABASE_ANON_KEY missing — browser writes (likes, signals) have no key"
     );
+  // S14 — Claude is the default when its key is present (src/lib/llm.ts);
+  // OpenAI then serves only moderation (share + display name, fail closed)
+  // and any step set back to openai by env.
+  const anthropicKey = process.env.ANTHROPIC_API_KEY?.trim();
   if (!openaiKey)
     problems.push(
-      "OPENAI_API_KEY missing — every generation route will fail with auth"
+      anthropicKey
+        ? "OPENAI_API_KEY missing — moderation fails closed: Share and display names are refused"
+        : "OPENAI_API_KEY missing — every generation route will fail with auth"
+    );
+  if (!anthropicKey)
+    problems.push(
+      "ANTHROPIC_API_KEY missing — every model step runs on the pre-S14 OpenAI models (gpt-4o / gpt-4o-mini)"
     );
 
   if (serverUrl && publicUrl && stripSlash(serverUrl) !== stripSlash(publicUrl)) {
@@ -141,10 +151,12 @@ function collectProblems(): string[] {
   // S13a — the provider switch (src/lib/llm.ts). Read inline (llm.ts
   // imports this file). A step on Anthropic without its key fails every
   // call of that step with auth — loud here, never silent.
-  const providerVars = ["REKS_MODEL_PROVIDER", "REKS_PROVIDER_VISION", "REKS_PROVIDER_SHELF",
-    "REKS_PROVIDER_WINE", "REKS_PROVIDER_LINES", "REKS_PROVIDER_MOOD"];
+  const providerVars = ["REKS_MODEL_PROVIDER",
+    ...["VISION", "SHELF", "WINE", "LINES", "MOOD", "SEARCH", "SNAP", "DETAIL", "RECIPE", "CLASSIFY"].map(
+      (s) => `REKS_PROVIDER_${s}`
+    )];
   const onAnthropic = providerVars.filter((v) => process.env[v]?.trim() === "anthropic");
-  if (onAnthropic.length > 0 && !process.env.ANTHROPIC_API_KEY?.trim()) {
+  if (onAnthropic.length > 0 && !anthropicKey) {
     problems.push(
       `ANTHROPIC_API_KEY missing but ${onAnthropic.join(", ")} = anthropic — those steps will fail with auth`
     );
@@ -169,6 +181,7 @@ export function runEnvCheck(): string[] {
     console.log("[env-check] ok", {
       supabase: safeHost(process.env.SUPABASE_URL),
       openaiKey: process.env.OPENAI_API_KEY ? "present" : "missing",
+      anthropicKey: process.env.ANTHROPIC_API_KEY ? "present" : "missing",
       tmdbKey: process.env.TMDB_API_KEY ? "present" : "missing",
       mintSecret: process.env.MINT_SIGNING_SECRET ? "present" : "missing",
       runtime: isProductionRuntime() ? "production" : "non-production",

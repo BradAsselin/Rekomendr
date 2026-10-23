@@ -1,11 +1,14 @@
 // src/lib/llm.ts — server-only. S13a: the provider switch
-// (docs/s13-opus-voice-plan.md, Part A).
+// (docs/s13-opus-voice-plan.md, Part A). S14: every model call in the app
+// goes through here, and Claude is the default (docs/s14-all-claude-plan.md).
 //
-// One door for the five model steps Brad named. The default is OpenAI
-// with every argument exactly as the call sites passed it before S13 —
-// the live app does not change until someone sets the env:
+// The default is keyed on ANTHROPIC_API_KEY: with it, each step runs on its
+// Claude model (CLAUDE_DEFAULT below); without it, each step runs on the
+// OpenAI model it used before S13, with the exact pre-S13 arguments — so a
+// deployment without the key is today's app, and says so at boot and in
+// /api/health. Env:
 //
-//   REKS_MODEL_PROVIDER=openai|anthropic   every step (unset = openai)
+//   REKS_MODEL_PROVIDER=openai|anthropic   every step (openai = the rollback)
 //   REKS_PROVIDER_<STEP>=openai|anthropic  one step  (e.g. REKS_PROVIDER_SHELF)
 //   REKS_MODEL_<STEP>=<model id>           that step's model on its provider
 //   REKS_ANTHROPIC_EFFORT=low|medium|high  Opus 5.5 can't turn thinking off;
@@ -14,7 +17,10 @@
 //
 // Steps: vision (the snap read, the strip read, the typed-wine read),
 // shelf (readShelf), wine (the wine picks), lines (the media chooser and
-// the go-to lines), mood (the voice mood parser).
+// the go-to lines), mood (the voice mood parser); S14: search (the
+// search-lane engine, /api/openai), snap (snap backfill + chain), detail
+// (Show details + the shared-card long completion — one prompt, one
+// model), recipe, classify (the typed-wine classifier).
 //
 // Prompts pass through byte-identical. Anthropic has no json_object mode
 // and no prefill; the prompts already say "Return JSON only", and
@@ -35,19 +41,50 @@ import Anthropic from "@anthropic-ai/sdk";
 import OpenAI from "openai";
 import { isProductionRuntime } from "./envCheck";
 
-export type LlmStep = "vision" | "shelf" | "wine" | "lines" | "mood";
+export type LlmStep =
+  | "vision"
+  | "shelf"
+  | "wine"
+  | "lines"
+  | "mood"
+  | "search"
+  | "snap"
+  | "detail"
+  | "recipe"
+  | "classify";
 export type LlmProvider = "openai" | "anthropic";
-export const LLM_STEPS: LlmStep[] = ["vision", "shelf", "wine", "lines", "mood"];
+export const LLM_STEPS: LlmStep[] = [
+  "vision", "shelf", "wine", "lines", "mood", "search", "snap", "detail", "recipe", "classify",
+];
 
-// Today's OpenAI models, per step (the defaults before S13).
+// The OpenAI model each step used before S13/S14 (the no-key default).
 const OPENAI_DEFAULT: Record<LlmStep, string> = {
   vision: "gpt-4o",
   shelf: "gpt-4o",
   wine: "gpt-4o",
   lines: "gpt-4o-mini",
   mood: "gpt-4o-mini",
+  search: "gpt-4o-mini",
+  snap: "gpt-4o",
+  detail: "gpt-4o",
+  recipe: "gpt-4o",
+  classify: "gpt-4o-mini",
 };
-const ANTHROPIC_DEFAULT = "claude-opus-5-5";
+// S14 — each step's Claude model (measurements: docs/s13-opus-comparison.md,
+// S13, S13d and S14 sections). A step forced onto anthropic by env with no
+// REKS_MODEL_<STEP> gets this too.
+const CLAUDE_DEFAULT: Record<LlmStep, string> = {
+  vision: "claude-sonnet-5-5",
+  shelf: "claude-opus-5-5",
+  wine: "claude-sonnet-5-5",
+  lines: "claude-sonnet-5-5",
+  mood: "claude-haiku-5-5",
+  search: "claude-sonnet-5-5",
+  snap: "claude-sonnet-5-5",
+  detail: "claude-sonnet-5-5",
+  recipe: "claude-sonnet-5-5",
+  classify: "claude-haiku-5-5",
+};
 
 export type LlmPart =
   | { type: "text"; text: string }
@@ -61,6 +98,9 @@ export type LlmRequest = {
   // OpenAI only — Opus 5.5 rejects sampling parameters.
   temperature?: number;
   signal?: AbortSignal;
+  // S14 — OpenAI only: false sends no json_object mode (the search prompt
+  // mode asked for it only when the caller set jsonResponse). Default true.
+  json?: boolean;
   // S13d — Anthropic only: the reply's JSON schema (structured outputs).
   // OpenAI keeps its json_object mode; Claude has no JSON mode, and Sonnet
   // 5.5 at effort low dropped a quote in 4 of 6 chooser replies without it.
@@ -125,10 +165,10 @@ export function resolveStep(step: LlmStep): { provider: LlmProvider; model: stri
     ctx.getStore()?.provider ??
     asProvider(env[`REKS_PROVIDER_${key}`]?.trim()) ??
     asProvider(env.REKS_MODEL_PROVIDER?.trim()) ??
-    "openai";
+    (env.ANTHROPIC_API_KEY?.trim() ? "anthropic" : "openai");
   const model =
     env[`REKS_MODEL_${key}`]?.trim() ||
-    (provider === "anthropic" ? ANTHROPIC_DEFAULT : OPENAI_DEFAULT[step]);
+    (provider === "anthropic" ? CLAUDE_DEFAULT[step] : OPENAI_DEFAULT[step]);
   return { provider, model };
 }
 
@@ -374,7 +414,7 @@ export async function llmCall(
         model,
         ...(req.temperature != null ? { temperature: req.temperature } : {}),
         max_tokens: req.maxTokens,
-        response_format: { type: "json_object" },
+        ...(req.json === false ? {} : { response_format: { type: "json_object" as const } }),
         stream: true,
         stream_options: { include_usage: true },
         messages: messages as never,
@@ -414,7 +454,7 @@ export async function llmCall(
       model,
       ...(req.temperature != null ? { temperature: req.temperature } : {}),
       max_tokens: req.maxTokens,
-      response_format: { type: "json_object" },
+      ...(req.json === false ? {} : { response_format: { type: "json_object" as const } }),
       messages: messages as never,
     },
     { signal: req.signal }
