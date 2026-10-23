@@ -1871,3 +1871,67 @@ VALIDATION:
 - The model switch changes nothing about ranking or incentives.
 - Early paint shows the reasoning's raw material (what was read).
 - Nothing persuades, nags or upsells.
+
+---
+
+## Session 13d — sonnet-haiku + banner — 2026-10-23 — branch auto/s13d-sonnet-haiku-banner — PR #51 (local agent mode, §11)
+
+Brad's follow-up:
+- Add Claude Sonnet 5.5 and Haiku 5.5 to the S13 comparison for the steps that stayed on OpenAI (wine picks, "vs." lines, poster/TV photo read, mood parser), with the same table and 3 cards each.
+- Fix the dash-titled banner.
+- Default unchanged; Brad flips per step.
+
+**Merge:** #51 `323e099` (self-merged under the S13 instruction, §10.3). Revert: `git revert -m 1 323e099`.
+
+SHIPPED:
+- **Dash-titled TV banners resolve.** "Breaking Bad - Ozymandias" (S13's found-not-fixed) now lands Breaking Bad on TMDb.
+  - When a TV lookup misses, it retries with the part before a spaced dash or colon (`headBeforeSeparator` in `src/lib/tmdbMedia.ts`).
+  - TV only: a movie title is never cut, and a hit on the full name never retries.
+  - Live TMDb: both banner forms → Breaking Bad and The Bear. "Mission: Impossible - Dead Reckoning" is untouched.
+  - Preview: banner snap → TMDb Breaking Bad in 4.3–4.9 s.
+- **Sonnet and Haiku on the switch.**
+  - Diagnostic prices: Sonnet $2/$10, Haiku $0.10/$0.50.
+  - The server-side refusal fallback goes only to models that accept it; Haiku 5.5 has none, so it never gets the parameter.
+  - Dev-only `x-reks-steps: wine=anthropic:claude-haiku-5-5` moves one step per request (dead on production).
+- **A structured-output schema for Claude on the lines step.** Without one, Sonnet 5.5 dropped a quote in the chooser's JSON in **7 of 15** replies, and each shipped an empty set.
+  - The chooser's reply shape is now sent as a schema. It's the shape the prompt already states: no prompt words changed, and OpenAI keeps `json_object`.
+  - With it: Sonnet 9/9 full sets.
+  - Non-JSON chooser/line-writer log lines now carry the model and the reply's first 160 characters.
+
+RESULTS (full tables and cards: `docs/s13-opus-comparison.md`, S13d section; one step moved at a time, the others on today's OpenAI):
+
+| step | OpenAI (today) | Opus 5.5 | Sonnet 5.5 | Haiku 5.5 |
+|---|---|---|---|---|
+| wine picks (call) | 6–9 s, $0.014 | 17–18 s, $0.05 | 9–10 s, $0.019, same on-shelf as gpt-4o | 10–16 s, $0.002, white aisle 0/15 on-shelf |
+| photo read (call) | 1.6–2.1 s, 3/3 | 3.7–12 s | 2.4–3.0 s, 3/3, never stalled | 1.8–2.2 s, but 12 s on The Bear |
+| "vs." lines (call) | 2.4–2.6 s; 6 stock phrases in 30 | 4.7–6.9 s; 0 | 3.6–4.1 s; 0; 9/9 full; ~$0.01 | 3.0–3.5 s; 0; 8/9 full; ~$0.0006 |
+| mood (12 moods × 3) | 36/36, 1.3 s | 36/36, 2.4 s | 36/36, 2.0 s | 36/36, 1.2 s |
+
+RECOMMENDATION (nothing flipped):
+
+| step | recommendation |
+|---|---|
+| shelf | Opus (unchanged from S13) |
+| wine | OpenAI |
+| photo read | OpenAI |
+| mood | OpenAI |
+| lines | OpenAI, or Haiku 5.5 if Brad wants the register: 0 stock phrases, ~+0.7 s, about the same cost. A voice call (§5); read the cards first. |
+
+FOUND, NOT FIXED:
+- **Haiku 5.5 sometimes returns fewer picks than asked:** one Lioness set of 2 in 9 lines runs. It ships honest-short.
+- **Haiku and Opus stall ~12 s before writing on some photos** (The Bear), even at effort low. Sonnet did not in 9 photo reads.
+- **The other Claude steps (vision, shelf, wine, mood) send no schema yet.** 0 JSON failures were seen in this run's 48 wine, 18 photo and 144 mood calls. Add schemas before flipping wine or vision to Sonnet or Haiku.
+- **Search-lane picks under Comedy → Feel-good steered by Grand Budapest included The Wolf of Wall Street and Ted.** The slot recipe picks the titles; the model only writes the line.
+
+TEST RESIDUE: `voice_moods` +144 agent rows (mood probe), plus agent snap and `api_usage` rows. `/api/stats` excludes them.
+
+BRAD MUST: decide per step. To flip one step, set these in Production (Brad's step):
+- `REKS_PROVIDER_<STEP>=anthropic` and `REKS_MODEL_<STEP>=claude-haiku-5-5` (or `claude-sonnet-5-5`; with no model name it's Opus 5.5).
+- `ANTHROPIC_API_KEY` with a spend limit.
+- Then redeploy and check `/api/health` → `models`.
+
+The S13 open items (Preview key and cap, the wine mood price band, the §2.10 wording) still stand.
+
+VALIDATION: new validate-s13d 20/20; every earlier harness green (s13a 53, s13b 21, s13c 60 and all S1–S12 suites); tsc and lint clean. Preview: `/api/health` all OpenAI; typed Lioness and the Breaking Bad banner both resolve.
+
+**§0 check:** consistent. The banner fix gets a TV snap to where-to-watch instead of a 10 s generic read. The comparison changes nothing users see until Brad flips a step.
