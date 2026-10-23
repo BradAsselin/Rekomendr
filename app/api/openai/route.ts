@@ -1,17 +1,15 @@
-import OpenAI from "openai";
 import { runEnvCheck, isProductionRuntime } from "../../../src/lib/envCheck";
 import {
   maybeSimulateOpenAIFailure,
   openAIFailureResponse,
 } from "../../../src/lib/openaiFailure";
 import { capGate } from "../../../src/lib/apiUsage";
+import { jsonText, llmCall, withLlmContext } from "../../../src/lib/llm";
 
 export const runtime = "nodejs";
 
 // Boot-time env-pair check (logs once per process, hostnames only).
 runEnvCheck();
-
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 // Permanent dev/preview-only prompt fingerprint. buildAIPrompt runs
 // CLIENT-side, so the prompt that arrives here is the one the user's bundle
@@ -40,7 +38,18 @@ type Candidate = {
   short?: string;
 };
 
+// S14 — the search step (src/lib/llm.ts): Claude by default, the dev
+// comparison headers honored off production.
 export async function POST(req: Request) {
+  return withLlmContext(req, () => handle(req));
+}
+
+// The prompt mode had no max_tokens on OpenAI. Claude needs one: this sits
+// above the ~4,800-token ceiling of a 12-item backfill ask
+// (rekomendrEngine.ts sizing note).
+const SEARCH_MAX_TOKENS = 6000;
+
+async function handle(req: Request): Promise<Response> {
   try {
     // Dev/preview-only: REKOMENDR_SIMULATE_OPENAI_FAILURE throws the
     // matching OpenAI-shaped error so the honest copy can be seen.
@@ -64,25 +73,21 @@ export async function POST(req: Request) {
 
       logPromptDiag(body.prompt, { temperature, jsonResponse: useJson });
 
-      const completion = await openai.chat.completions.create({
-        model: "gpt-4o-mini",
+      // The reply goes back as text; the engine's extractJsonArray finds
+      // the array in a bare reply, an object, prose or a code fence.
+      const completion = await llmCall({
+        step: "search",
         temperature,
-        ...(useJson
-          ? { response_format: { type: "json_object" as const } }
-          : {}),
-        messages: [
-          {
-            role: "system",
-            content: "You are a recommendation engine. Return only valid JSON.",
-          },
-          {
-            role: "user",
-            content: body.prompt,
-          },
-        ],
+        json: useJson,
+        maxTokens: SEARCH_MAX_TOKENS,
+        system: "You are a recommendation engine. Return only valid JSON.",
+        user: body.prompt,
       });
+      if (completion.refusal) {
+        console.error("[search] model refused", { model: completion.model });
+      }
 
-      const text = completion.choices?.[0]?.message?.content ?? "";
+      const text = completion.text;
 
       return new Response(text, {
         status: 200,
@@ -130,17 +135,15 @@ Candidates:
 ${JSON.stringify(candidates)}
 `.trim();
 
-      const completion = await openai.chat.completions.create({
-        model: "gpt-4o-mini",
+      const completion = await llmCall({
+        step: "search",
         temperature: 0.4,
-        messages: [
-          { role: "system", content: "Return JSON only." },
-          { role: "user", content: prompt },
-        ],
-        response_format: { type: "json_object" },
+        maxTokens: 300,
+        system: "Return JSON only.",
+        user: prompt,
       });
 
-      const text = completion.choices?.[0]?.message?.content ?? "";
+      const text = jsonText(completion.text);
 
       let parsed: any = null;
       try {

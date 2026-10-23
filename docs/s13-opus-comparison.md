@@ -234,3 +234,52 @@ The shelf names in the two wine cards differ ("Rocca" vs "Ruffino" Chianti) beca
 - `REKS_PROVIDER_<STEP>=anthropic` plus `REKS_MODEL_<STEP>=claude-haiku-5-5` (or `claude-sonnet-5-5`).
 - Example: `REKS_PROVIDER_LINES=anthropic`, `REKS_MODEL_LINES=claude-haiku-5-5`.
 - An Anthropic step with no model name runs Opus 5.5.
+
+---
+
+## S14 — the remaining steps (2026-10-23)
+
+Local dev, live models, one step moved at a time (`x-reks-steps`), everything else on the S14 defaults. Molds counted in the cards' short + long text: "You'll find yourself", "leading to", "navigat-", "grappl-", "explores", "Built for", "Expect".
+
+**search** (`/api/openai`, the search-lane engine; 3 queries × 2 runs; total = the whole getTop5 incl. the freshness slot)
+
+| model | total | molds (30 cards) | $/search | sets |
+|---|---|---|---|---|
+| gpt-4o-mini | 10.9–14.9 s | 43 | 0.002 | 6/6 full |
+| **Haiku 5.5** | 18.8–24.7 s | 13 | 0.0035 | 6/6 full |
+| Sonnet 5.5 | 17.0–21.1 s | 1 | 0.05 | 6/6 full |
+
+Example sets — "TV · Crime · dark and twisty": 4o-mini *True Detective; The Night Of; The Killing; Broadchurch; The Fall*. Haiku *Top of the Lake; The Night Of; Dark; Hinterland; Shetland*. Sonnet *Mare of Easttown; Broadchurch; Breaking Bad; Sharp Objects; Mindhunter*.
+
+**snap** (backfill + chain reroll; Lagavulin 16 and Stumptown Hair Bender × 2)
+
+| model | backfill | chain (5 cards) | $ backfill / chain |
+|---|---|---|---|
+| gpt-4o | 1.6–2.5 s | 3.7–5.2 s | 0.006 / 0.009 |
+| Haiku 5.5 | 3.1–4.1 s | 6.6–8.3 s | 0.0006 / 0.001 |
+| **Sonnet 5.5** | 2.3–2.8 s | 5.6–7.7 s | 0.009 / 0.014 |
+
+**detail** (Show details; same items × 2). Prompt: 3 sentences, 4 only if earned.
+
+| model | time | sentences | note |
+|---|---|---|---|
+| gpt-4o | 1.6–2.3 s | 4 | "a more rounded and oily experience" |
+| **Haiku 5.5** | 2.2–3.4 s | 3 | "a full-on peat bomb rather than a gentle smoker" |
+| Sonnet 5.5 | 4.4–5.2 s | 4–5 | over the limit every time |
+
+**recipe** (shakshuka + steak tartare; then Haiku on 5 more high-stakes dishes)
+
+| model | time | high-stakes gate |
+|---|---|---|
+| gpt-4o | 1.9–3.5 s | 1/1 |
+| **Haiku 5.5** | 3.1–6.5 s | 6/6 (tartare, carpaccio, ceviche, home-canned tomatoes, foraged chanterelles, salmon sashimi: general steps, a "Show me how" step, no quantities, safety note) |
+| Sonnet 5.5 | 5.9–6.8 s | 1/1 |
+
+**vision** re-check (S13d measured posters only): single bottle (J. Lohr), poster, TV banner × 2
+
+| model | bottle | poster | banner | bottle read |
+|---|---|---|---|---|
+| gpt-4o | 13.1–15.4 s | 7.6–8.3 s | 5.9–6.4 s | "J. Lohr Chardonnay", then "J. Lohr White Wine" |
+| **Sonnet 5.5** | 14.2–14.5 s | 7.4–7.7 s | 6.1–6.2 s | "J. Lohr Carol's Vineyard Sauvignon Blanc", 2/2 |
+
+Bold = the S14 default.
