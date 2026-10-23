@@ -63,6 +63,10 @@ export interface Rek {
   // marker is a memory receipt, not a badge for the slot.
   // Charter §7 call #2, marked: DEFAULT — a quiet grey line.
   resurfacedNote?: string;
+  // S15 — a streaming-screen card: its commitment and where it is
+  // ("2h 10m", "on Netflix"), and "Start with this one" on the best match.
+  facts?: string[];
+  screenNote?: string;
 }
 
 export type Category = "Movies" | "TV Shows" | "Books" | "Wine";

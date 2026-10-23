@@ -19,6 +19,7 @@ import {
 import { getMoreLikeThisSet, getTop5FromEngine, type Rek } from "../src/engine/rekomendrEngine";
 import SteerByRow from "../src/components/SteerByRow";
 import { fetchSlots, type SlotRequest } from "../src/lib/slotsClient";
+import { fetchScreen, type ScreenAnswer, type ScreenTitles } from "../src/lib/screenClient";
 import { noteSetShown, seedEngineFromVisit } from "../src/lib/screenVisit";
 import { goToCategoryFor } from "../src/lib/goToCategory";
 import { chipQuery, refinersFor, SURPRISE_ME, type Chip, type Refiner } from "../src/lib/moodChips";
@@ -525,6 +526,14 @@ export default function Page() {
   // S12b — the set on screen came from the slot recipe (its request and
   // the go-to steering it), and the order/selection for the Steer by row.
   const slotReqRef = useRef<{ req: SlotRequest; steer: string | null; extraGoTo?: TransientGoTo } | null>(null);
+  // S15 — the set on screen came from a snapped streaming screen: its
+  // titles (Steer by re-ranks these, never others) and the photo's service.
+  const screenRef = useRef<{ titles: ScreenTitles; service: string | null } | null>(null);
+  const [screenOn, setScreenOn] = useState(false);
+  const leaveScreen = () => {
+    screenRef.current = null;
+    setScreenOn(false);
+  };
   const lastQueryRef = useRef<string | null>(null);
   const [steerAnswer, setSteerAnswer] = useState<{
     category: Category;
@@ -818,10 +827,12 @@ export default function Page() {
     setLateReks(null);
     setShelfPreview(null);
     setSnapLoading(true);
+    leaveScreen();
 
-    const postSnap = async (payload: { image?: string; strips?: string[] }) => {
+    const postSnap = async (payload: { image?: string; strips?: string[] }, signal?: AbortSignal) => {
       const res = await fetch("/api/reksnap", {
         method: "POST",
+        signal,
         headers: { "Content-Type": "application/json" },
         // clientId keys the server's cross-session dislike shading (raced,
         // fail-soft — an empty id just means no history). category is the
@@ -859,9 +870,29 @@ export default function Page() {
 
     try {
       const image = await imageFileToDataUrl(file);
+      // S15 — on the Movies/TV bar the photo may be a streaming app's row
+      // or Top 10. The screen read runs beside the normal snap; if it finds
+      // two or more real titles, its set answers and the snap is dropped.
+      // Otherwise (a poster, a banner, a failed read) the snap answers as
+      // before, with no added wait beyond the screen read itself.
+      const bar = barCategoryRef.current;
+      const snapAbort = new AbortController();
+      const firstP = postSnap({ image }, snapAbort.signal);
+      firstP.catch(() => {});
+      if (bar === "Movies" || bar === "TV Shows") {
+        const screen = await fetchScreen({ image }).catch(() => null);
+        if (snapId !== snapIdRef.current) return; // dismissed while in flight
+        if (screen) {
+          snapAbort.abort();
+          incrementSnapCount();
+          setHasSnapped(true);
+          showScreen(screen, bar);
+          return;
+        }
+      }
       let data: SnapResult;
       try {
-        data = await postSnap({ image });
+        data = await firstP;
       } catch (err) {
         // S8a — a failed whole-photo read gets one more try, as strips.
         if (!(err as SnapReadFailure)?.retryStrips || snapId !== snapIdRef.current) throw err;
@@ -897,6 +928,27 @@ export default function Page() {
     }
   };
 
+  // S15 — a snapped streaming screen's set, shown in the search lane: the
+  // cards, the Steer by row (movie and TV go-tos both), and the header.
+  const showScreen = (screen: ScreenAnswer, bar: string) => {
+    searchIdRef.current++; // a search still in flight must not land over it
+    slotReqRef.current = null;
+    screenRef.current = { titles: screen.titles, service: screen.service };
+    setScreenOn(true);
+    const cat: Category = screen.category ?? (bar === "TV Shows" ? "TV Shows" : "Movies");
+    clearVoiceSet();
+    setSnapLoading(false);
+    setSnapResult(null);
+    setShelfPreview(null);
+    setSearchError(null);
+    setLoading(false);
+    setHasSearched(true);
+    setCategory(cat);
+    setSteerAnswer({ category: cat, order: screen.order, selected: screen.steer });
+    noteSetShown(cat, screen.reks.map((r) => r.title));
+    setReks(screen.reks);
+  };
+
   const handleSearch = async (
     query: string,
     _cat: string,
@@ -911,6 +963,7 @@ export default function Page() {
   ) => {
     const searchId = ++searchIdRef.current;
     if (!voice) clearVoiceSet();
+    leaveScreen();
     lastQueryRef.current = query;
     lastActivityRef.current = Date.now();
 
@@ -1042,6 +1095,33 @@ export default function Page() {
   // Books (no TMDb) run the existing search seeded on the go-to.
   const handleSteer = async (name: string) => {
     logGoToEvent("steer_switch", goToCategoryFor(category));
+    // S15 — a screen set re-ranks its own titles against the tapped go-to.
+    if (screenRef.current) {
+      const s = screenRef.current;
+      const searchId = ++searchIdRef.current;
+      lastActivityRef.current = Date.now();
+      setSearchError(null);
+      setLoading(true);
+      setSteerAnswer((a) => (a ? { ...a, selected: name } : a));
+      try {
+        const ans = await fetchScreen({ titles: s.titles, service: s.service, steer: name });
+        if (searchId !== searchIdRef.current) return;
+        if (ans) {
+          screenRef.current = { titles: ans.titles, service: ans.service };
+          setSteerAnswer({ category, order: ans.order, selected: ans.steer });
+          setReks(ans.reks);
+        } else {
+          // Named, never silent: the set on screen stays as it was.
+          console.warn("[screen] steer re-rank failed — the set stays");
+        }
+      } catch (err) {
+        if (searchId !== searchIdRef.current) return;
+        setSearchError(isAIServiceError(err) ? err.message : AI_SEARCH_FAILED_MSG);
+      } finally {
+        if (searchId === searchIdRef.current) setLoading(false);
+      }
+      return;
+    }
     if (category === "Movies" || category === "TV Shows") {
       const req = slotReqRef.current?.req ?? { category, lane: null, refiner: null };
       void handleSearch(lastQueryRef.current ?? `${category}||||||mode:ai`, category, undefined, { req, steer: name });
@@ -1079,6 +1159,9 @@ export default function Page() {
   // S12b — a thumbs-down on a recipe card is replaced from the recipe: the
   // same slot, the same steer, never a title already on screen or shown.
   const slotBackfill = async (removed: Rek, current: Rek[]): Promise<Rek | null> => {
+    // S15 — a screen set holds only what was on the screen: a thumbs-down
+    // removes the card and nothing replaces it (honest-short).
+    if (screenRef.current) return null;
     const s = slotReqRef.current;
     if (!s) return null;
     const ans = await fetchSlots(s.req, {
@@ -1165,7 +1248,12 @@ export default function Page() {
   // The row's chips: the last recipe's order (nearest first, then most
   // recent), then any go-to starred since, newest first.
   const steerCat = goToCategoryFor(category);
-  const liveSteer = steerCat ? goTos.filter((g) => g.category === steerCat).map((g) => g.name) : [];
+  // S15 — a screen set is steered by any movie or TV go-to.
+  const liveSteer = screenOn
+    ? goTos.filter((g) => g.category === "movies" || g.category === "tv").map((g) => g.name)
+    : steerCat
+      ? goTos.filter((g) => g.category === steerCat).map((g) => g.name)
+      : [];
   const answered =
     steerAnswer?.category === category
       ? steerAnswer.order.filter((n) => liveSteer.some((l) => l.toLowerCase() === n.toLowerCase()))
@@ -1239,6 +1327,7 @@ export default function Page() {
   // (and its cap) is untouched — only the UI comes home.
   const resetToHome = () => {
     lastActivityRef.current = Date.now();
+    leaveScreen();
     searchIdRef.current++; // discard in-flight search responses
     snapIdRef.current++; // discard in-flight snap responses
     setReks([]);
@@ -1367,13 +1456,20 @@ export default function Page() {
                 watchPendingTitle={watchPendingTitle}
                 watchFailedTitle={watchFailedTitle}
                 steerRow={
-                  steerCat ? (
-                    <SteerByRow
-                      names={steerNames}
-                      selected={steerSelected}
-                      busy={loading}
-                      onSteer={(n) => void handleSteer(n)}
-                    />
+                  steerCat || screenOn ? (
+                    <>
+                      {screenOn && (
+                        <div className="w-full max-w-xl mb-2 text-[13px] font-medium text-gray-300 sm:text-gray-600">
+                          From your screen
+                        </div>
+                      )}
+                      <SteerByRow
+                        names={steerNames}
+                        selected={steerSelected}
+                        busy={loading}
+                        onSteer={(n) => void handleSteer(n)}
+                      />
+                    </>
                   ) : undefined
                 }
                 backfillOverride={slotBackfill}

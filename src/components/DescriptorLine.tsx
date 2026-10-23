@@ -11,10 +11,12 @@ export default function DescriptorLine({
   category: RekCategory;
 }) {
   const list = buildDescriptorsFromRek(rek, category);
+  // S15 — a screen card's facts ride the same line ("2h 10m • on Netflix").
+  const labels = [...list.map((d) => d.label), ...(rek.facts ?? [])];
 
-  if (!list.length) return null;
+  if (!labels.length) return null;
 
-  const text = list.map((d) => d.label).join(" • ");
+  const text = labels.join(" • ");
 
   return (
     <div className="text-xs text-gray-600 mb-2 text-left w-full">
