@@ -24,7 +24,7 @@ import { llmJson, withLlmContext } from "../../../src/lib/llm";
 import { openAIFailureResponse } from "../../../src/lib/openaiFailure";
 import { mediaConfigured, resolveSnappedTitle } from "../../../src/lib/tmdbMedia";
 import { normalizeTitle } from "../../../src/lib/tmdbVerify";
-import { buildMoodPrompt, buildMoodUser, validateMood } from "../../../src/lib/voiceMood";
+import { buildMoodPrompt, buildMoodUser, categoryFromWords, validateMood } from "../../../src/lib/voiceMood";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -57,13 +57,16 @@ async function handlePost(req: Request): Promise<Response> {
   let provider: string | null = null;
   let model: string | null = null;
   const started = Date.now();
+  // Words that name a category decide it ("a horror movie" on the Wine
+  // bar is a movie); the model then picks lanes inside that category.
+  const fromWords = categoryFromWords(transcript, barCategory);
   try {
     const r = await llmJson({
       step: "mood",
       temperature: 0,
       maxTokens: 200,
       system: buildMoodPrompt(),
-      user: buildMoodUser({ transcript, barCategory, goTos }),
+      user: buildMoodUser({ transcript, barCategory: fromWords ?? barCategory, goTos }),
     });
     parsed = r.parsed;
     provider = r.result.provider;
@@ -77,7 +80,7 @@ async function handlePost(req: Request): Promise<Response> {
     });
   }
   const ms = Date.now() - started;
-  const mood = validateMood(parsed, barCategory);
+  const mood = validateMood(parsed, barCategory, fromWords);
 
   // A named title → a steer for screens. Starred: as is (the client has
   // its TMDb id). Not starred: TMDb, for this request only.

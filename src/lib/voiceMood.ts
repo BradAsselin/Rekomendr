@@ -84,6 +84,28 @@ export function buildMoodUser(args: {
   ].join("\n");
 }
 
+// The words name the category → that category, decided here, not by the
+// model (4o-mini held to the selected bar: "a horror movie" said on the
+// Wine bar came back as wine, 3/3). The route then hands the model this
+// category as the selected one, so it only chooses lanes inside it.
+const CATEGORY_WORDS: [VoiceCategory, RegExp][] = [
+  ["Movies", /\b(movie|movies|film|films|flick)\b/i],
+  ["TV Shows", /\b(show|shows|series|tv|sitcom|docuseries|miniseries)\b/i],
+  ["Wine", /\b(wine|wines|bottle|vino|red|reds|white|whites|ros[eé]|bubbly|bubbles|sparkling|prosecco|champagne|cava|cab|cabernet|merlot|pinot|chardonnay|sauvignon|riesling|malbec|zinfandel|crisp|oaky|buttery|tannic|full-?bodied|sipp?er|sipping|glass of)\b/i],
+];
+// A screen genre with no "movie"/"show" ("a goofy comedy") said on the
+// Wine or Books bar is a movie: a wine is never a comedy.
+const SCREEN_GENRE = /\b(comedy|comedies|rom-?com|horror|scary|thriller|drama|documentary|sci-?fi|action|romance|romantic|crime|mystery|animated|cartoon)\b/i;
+
+export function categoryFromWords(transcript: string, barCategory?: string): VoiceCategory | null {
+  const hits = CATEGORY_WORDS.filter(([, re]) => re.test(transcript)).map(([c]) => c);
+  if (hits.length === 1) return hits[0];
+  if (hits.length === 0 && barCategory !== "Movies" && barCategory !== "TV Shows" && SCREEN_GENRE.test(transcript)) {
+    return "Movies";
+  }
+  return null;
+}
+
 export type MoodResult = {
   category: VoiceCategory | "Books";
   lane: { label: string; lane: string } | null;
@@ -98,10 +120,10 @@ const eq = (a: unknown, b: string) => typeof a === "string" && a.trim().toLowerC
 
 // The guarantee: only the vocabulary survives. An unclear category falls
 // back to the bar's; a mood that maps to nothing is honest about it.
-export function validateMood(raw: any, barCategory: string): MoodResult {
+export function validateMood(raw: any, barCategory: string, fromWords: VoiceCategory | null = null): MoodResult {
   const bar = barCategory === "TV Shows" || barCategory === "Wine" || barCategory === "Books" ? barCategory : "Movies";
   const asked = VOICE_CATEGORIES.find((c) => eq(raw?.category, c)) ?? null;
-  const category: MoodResult["category"] = asked ?? bar;
+  const category: MoodResult["category"] = fromWords ?? asked ?? bar;
   if (category === "Books") {
     // Books is out of v1's scope: the transcript runs as the typed mood
     // search it would have been, nothing mapped.
