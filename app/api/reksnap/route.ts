@@ -15,7 +15,7 @@ import {
   NEW_TO_ME_NOTICE,
   dropUnresolvedMediaReks,
 } from "../../../src/lib/snapTitleGuard";
-import { jsonText, llmCall, withLlmContext, type LlmPart } from "../../../src/lib/llm";
+import { currentDiag, jsonText, llmCall, withLlmContext, type LlmPart } from "../../../src/lib/llm";
 import { runEnvCheck } from "../../../src/lib/envCheck";
 import { ANCHOR_DETAIL_PROMPT } from "../../../src/lib/anchorDetailPrompt";
 import {
@@ -1526,7 +1526,12 @@ const stripsNote = (n: number) =>
 
 const DENSE_SHELF_MSG = "That's a lot of bottles. Try one or two shelves.";
 
-async function handlePost(req: Request) {
+// S13b — early paint. With { stream: "ndjson" } the shelf read's bottles
+// go out the moment it finishes; the final line carries the same status
+// and body the JSON path returns.
+type SnapHooks = { body?: any; onShelf?: (read: ShelfRead) => void };
+
+async function handlePost(req: Request, hooks: SnapHooks = {}) {
   try {
     // Dev/preview-only: REKOMENDR_SIMULATE_OPENAI_FAILURE throws the
     // matching OpenAI-shaped error so the honest copy can be seen. Sits
@@ -1534,7 +1539,7 @@ async function handlePost(req: Request) {
     // simulates alike.
     maybeSimulateOpenAIFailure();
 
-    const body = await req.json().catch(() => ({}));
+    const body = hooks.body ?? (await req.json().catch(() => ({})));
 
     // S3.6: per-client daily caps (Ledger #19). The three text branches
     // share one key; the vision call has its own. 400 without a client id.
@@ -1621,7 +1626,24 @@ async function handlePost(req: Request) {
     const shelfImages = strips.length > 0 ? strips : image ? [image] : [];
     let shelfP: Promise<ShelfRead | null> | null = null;
     const startShelfRead = () => {
-      if (!shelfP && !typed && shelfImages.length > 0) shelfP = readShelf(shelfImages);
+      if (!shelfP && !typed && shelfImages.length > 0) {
+        shelfP = readShelf(shelfImages);
+        const onShelf = hooks.onShelf;
+        if (onShelf) {
+          void shelfP.then((read) => {
+            if (!read || read.scene === "haul") return;
+            // The same test wineSnap uses for a shelf.
+            if (!((read.scene === "shelf" && read.bottles.length >= 2) || read.bottles.length >= 4)) return;
+            // The health wall reaches this surface too (§2.2): a shelf the
+            // Wine bar read that names anything health-side paints nothing.
+            if (read.bottles.some((b) => healthLabelFromName(b.name))) {
+              console.warn("[wine] early paint skipped — health label on the shelf");
+              return;
+            }
+            onShelf(read);
+          });
+        }
+      }
     };
     let wineP: Promise<WineSnap | null> | null = null;
     const startWine = (item: Record<string, unknown>): Promise<WineSnap | null> | null => {
@@ -2169,5 +2191,37 @@ async function wineSnap(args: {
 // S13a — the dev-only provider override and diagnostics (src/lib/llm.ts);
 // a pass-through on production.
 export async function POST(req: Request) {
-  return withLlmContext(req, () => handlePost(req));
+  return withLlmContext(req, async () => {
+    const body = await req.json().catch(() => ({}));
+    if (body?.stream !== "ndjson") return handlePost(req, { body });
+    const enc = new TextEncoder();
+    const pipe = new TransformStream<Uint8Array, Uint8Array>();
+    const w = pipe.writable.getWriter();
+    const write = (o: unknown) => w.write(enc.encode(JSON.stringify(o) + "\n")).catch(() => {});
+    void (async () => {
+      let res: Response;
+      try {
+        res = await handlePost(req, {
+          body,
+          onShelf: (read) =>
+            void write({
+              type: "shelf",
+              scene: read.scene,
+              bottles: read.bottles.map((b) => ({ name: b.name, price: b.price })),
+            }),
+        });
+      } catch (err) {
+        console.error("[reksnap] ndjson handler threw", err);
+        res = Response.json({ error: "Server error" }, { status: 500 });
+      }
+      const json = await res.json().catch(() => null);
+      const diag = currentDiag();
+      await write({ type: "final", status: res.status, body: json, ...(diag ? { diag } : {}) });
+      await w.close().catch(() => {});
+    })();
+    return new Response(pipe.readable, {
+      status: 200,
+      headers: { "Content-Type": "application/x-ndjson", "Cache-Control": "no-store" },
+    });
+  });
 }
