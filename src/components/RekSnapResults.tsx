@@ -156,6 +156,9 @@ type Props = {
   lateReks?: { reks: SnapRek[]; notice?: string } | null;
   // S8c — a haul was saved (the page refreshes the Bought list).
   onHaulSaved?: () => void;
+  // S13b — early paint: the bottles a shelf snap read, while the picks
+  // are still being written. Names and tag prices only, no new words.
+  shelfPreview?: { name: string; price: number | null }[] | null;
 };
 
 // One failure voice, shared verbatim with the search lane's AI misses.
@@ -185,6 +188,7 @@ const RekSnapResults: React.FC<Props> = ({
   reksPending,
   lateReks,
   onHaulSaved,
+  shelfPreview,
 }) => {
   // Thumb marks and saves are independent per item name (a card can be
   // thumbed-up AND saved). Thumbs are one-active-within-thumbs and toggle on
@@ -1406,10 +1410,31 @@ const RekSnapResults: React.FC<Props> = ({
   };
 
   if (loading) {
+    // S13b — once the shelf is read, its bottles show at once and the
+    // label moves on to the picks (both existing lines, no new wording).
+    const early = shelfPreview && shelfPreview.length > 0 ? shelfPreview : null;
     return (
       <div className="w-full flex flex-col items-center px-4 pt-2 pb-14 select-none">
         <div className="w-full max-w-xl">
-          <RekSkeleton label="Reks Ray™ is reading your photo…" count={3} />
+          {early && (
+            <ul className="mb-4 flex flex-wrap gap-2" data-testid="shelf-preview">
+              {early.map((b, i) => (
+                <li
+                  key={`${b.name}-${i}`}
+                  className="rounded-full border border-gray-300 bg-white px-3 py-1.5 text-[13px] text-gray-800"
+                >
+                  {b.name}
+                  {formatPrice(b.price, "tag") && (
+                    <span className="ml-1.5 text-gray-500">{formatPrice(b.price, "tag")}</span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+          <RekSkeleton
+            label={early ? "Reks Ray™ is finding your reks…" : "Reks Ray™ is reading your photo…"}
+            count={early ? 5 : 3}
+          />
         </div>
       </div>
     );

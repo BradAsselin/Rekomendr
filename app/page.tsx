@@ -378,6 +378,54 @@ function barCategoryForSnap(raw: string | undefined): Category | null {
 // service failure the snap shows verbatim (plain voice, machinery).
 type SnapReadFailure = Error & { dense?: string; retryStrips?: boolean };
 
+// S13b — a snap answer as NDJSON: { type: "shelf" } lines (the bottles,
+// painted early) then one { type: "final", status, body }. Anything that
+// isn't NDJSON (an old server, a platform error page) reads as before.
+async function readSnapResponse(
+  res: Response,
+  onShelf: (bottles: { name: string; price: number | null }[]) => void
+): Promise<{ ok: boolean; data: any }> {
+  const type = res.headers.get("content-type") ?? "";
+  if (!type.includes("ndjson") || !res.body) {
+    return { ok: res.ok, data: await res.json().catch(() => null) };
+  }
+  const reader = res.body.getReader();
+  const dec = new TextDecoder();
+  let buf = "";
+  let final: { status: number; body: any } | null = null;
+  const take = (line: string) => {
+    if (!line.trim()) return;
+    let msg: any = null;
+    try {
+      msg = JSON.parse(line);
+    } catch {
+      return;
+    }
+    if (msg?.type === "shelf" && Array.isArray(msg.bottles)) {
+      onShelf(
+        msg.bottles
+          .filter((b: any) => typeof b?.name === "string" && b.name.trim())
+          .map((b: any) => ({ name: b.name, price: typeof b.price === "number" ? b.price : null }))
+      );
+    } else if (msg?.type === "final") {
+      final = { status: Number(msg.status) || 500, body: msg.body ?? null };
+    }
+  };
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, { stream: true });
+    let nl: number;
+    while ((nl = buf.indexOf("\n")) >= 0) {
+      take(buf.slice(0, nl));
+      buf = buf.slice(nl + 1);
+    }
+  }
+  take(buf);
+  const f = final as { status: number; body: any } | null;
+  return f ? { ok: f.status >= 200 && f.status < 300, data: f.body } : { ok: false, data: null };
+}
+
 export default function Page() {
   const [reks, setReks] = useState<Rek[]>([]);
   const [loading, setLoading] = useState(false);
@@ -415,6 +463,9 @@ export default function Page() {
   // S3.0 — a typed media anchor's reks, fetched after the anchor shows.
   const [reksPending, setReksPending] = useState(false);
   const [lateReks, setLateReks] = useState<{ reks: SnapRek[]; notice?: string } | null>(null);
+  // S13b — early paint: the bottles a shelf snap read, shown while the
+  // picks are still being written. Cleared when the snap lands or fails.
+  const [shelfPreview, setShelfPreview] = useState<{ name: string; price: number | null }[] | null>(null);
   // True once this session has at least one successful snap; hides the hero
   // button. Set in an effect so server and first client render stay in sync.
   const [hasSnapped, setHasSnapped] = useState(false);
@@ -765,6 +816,7 @@ export default function Page() {
     setSnapResult(null);
     setReksPending(false);
     setLateReks(null);
+    setShelfPreview(null);
     setSnapLoading(true);
 
     const postSnap = async (payload: { image?: string; strips?: string[] }) => {
@@ -779,16 +831,20 @@ export default function Page() {
           clientId: getAnonymousClientId(),
           category: barCategoryRef.current,
           wineVisit: wineVisitPayload(),
+          // S13b — the shelf's bottles arrive first, then the picks.
+          stream: "ndjson",
         }),
       });
-      const data = await res.json().catch(() => null);
+      const { ok, data } = await readSnapResponse(res, (bottles) => {
+        if (snapId === snapIdRef.current) setShelfPreview(bottles);
+      });
       // A NAMED service failure (out of credit, key refused, rate-limited,
       // unreachable) carries honest plain-voice copy from the route.
-      if (!res.ok && typeof data?.reason === "string" && typeof data?.error === "string") {
+      if (!ok && typeof data?.reason === "string" && typeof data?.error === "string") {
         throw new AIServiceError(data.error, data.reason);
       }
       if (
-        !res.ok ||
+        !ok ||
         !data?.detected_item ||
         !data?.results ||
         !Array.isArray(data?.results?.similar)
@@ -834,7 +890,10 @@ export default function Page() {
             : "Reks Ray couldn’t read that photo. Give it another snap."
       );
     } finally {
-      if (snapId === snapIdRef.current) setSnapLoading(false);
+      if (snapId === snapIdRef.current) {
+        setSnapLoading(false);
+        setShelfPreview(null);
+      }
     }
   };
 
@@ -1263,6 +1322,7 @@ export default function Page() {
               onOpenRecipe={(r) => setActiveRecipe(r)}
               reksPending={reksPending}
               lateReks={lateReks}
+              shelfPreview={shelfPreview}
               onHaulSaved={() => void refreshWineState(false)}
             />
           ) : !hasSearched && !loading ? (
