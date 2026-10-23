@@ -21,7 +21,15 @@ let nextId = -5_000_000;
 
 export async function fetchSlots(
   req: SlotRequest,
-  opts: { steer?: string | null; count?: 1; slot?: string; extraSeen?: string[] } = {}
+  opts: {
+    steer?: string | null;
+    count?: 1;
+    slot?: string;
+    extraSeen?: string[];
+    // S13c — a title the person NAMED in a spoken mood ("like Lioness but
+    // funnier") steers this request as if it were a go-to. Never stored.
+    extraGoTos?: { name: string; tmdbKind: "movie" | "tv"; tmdbId: number; at: string }[];
+  } = {}
 ): Promise<SlotAnswer | null> {
   const res = await fetch("/api/slots", {
     method: "POST",
@@ -31,7 +39,10 @@ export async function fetchSlots(
       category: req.category,
       lane: req.lane,
       refiner: req.refiner,
-      goTos: goTosFor(req.category).map((g) => ({ name: g.name, tmdbKind: g.tmdbKind, tmdbId: g.tmdbId, at: g.at })),
+      goTos: [
+        ...goTosFor(req.category).map((g) => ({ name: g.name, tmdbKind: g.tmdbKind, tmdbId: g.tmdbId, at: g.at })),
+        ...(opts.extraGoTos ?? []),
+      ],
       steer: opts.steer ?? null,
       seen: [...visitSeen(req.category), ...(opts.extraSeen ?? [])],
       ...(opts.count ? { count: opts.count } : {}),

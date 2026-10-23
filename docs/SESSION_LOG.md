@@ -1602,3 +1602,336 @@ VALIDATION:
 **§0 check:** consistent. The selected category winning is the shorter path to the choice the person asked for.
 
 **Promotion:** `main → release/v2` is Brad's. Nothing new in env or the database. Revert: `git revert -m 1 4122979`.
+
+---
+
+## Session 13 — opus-switch + voice-mood (S13a + S13b + S13c) — 2026-10-23 — branches auto/s13a-model-switch, auto/s13b-shelf-early-paint, auto/s13c-voice-mood — PRs #47, #48, #49 (local agent mode, §11)
+
+Brad's brief:
+- Part A: Claude Opus 5.5 behind a switch (default OpenAI), early paint on shelf snaps, and a side-by-side run.
+- Part B: voice mood input v1 (Movies, TV, Wine), per the Claude Doc "Rekomendr — Voice Mood Input Spec".
+- Plumbing merges to main when green. Wording waits for Brad. Never release/v2 or Production.
+- Plan on disk first: `docs/s13-opus-voice-plan.md`.
+
+**Merges (self-merged under that instruction, §10.3; each green and checked on its own preview):**
+- #47 S13a: `69e4b1b`
+- #48 S13b: `d429239`
+- #49 S13c: `f26f430`
+
+Each reverts on its own with `git revert -m 1 <sha>`, newest first.
+
+**Charter flag (§2.10).** §2.10 says the model is gpt-4o-mini and that `ANTHROPIC_API_KEY` is "not to be used in product code".
+- S13a puts the Anthropic SDK in product code, **default off**. I read the S13 brief as Brad's in-chat authorization (§11.6) and did **not** edit §2.
+- Proposed amendment for Brad: *"10. The default is the tuned OpenAI path (gpt-4o vision/wine, gpt-4o-mini lines). A provider switch (`REKS_MODEL_PROVIDER`, per step `REKS_PROVIDER_<STEP>`) exists; only Brad flips Production, per step, after a counted side-by-side."*
+
+SHIPPED:
+
+**S13a — the switch (#47)**
+- **One door for the five model steps.** `src/lib/llm.ts` covers:
+
+  | step | what it covers |
+  |---|---|
+  | `vision` | snap read, strip read, typed-wine read |
+  | `shelf` | the shelf read |
+  | `wine` | wine picks |
+  | `lines` | typed-title reks and chip "vs." lines |
+  | `mood` | the voice parser |
+
+  - With no env set: OpenAI, with byte-identical arguments and prompts.
+  - Env:
+    - `REKS_MODEL_PROVIDER=openai|anthropic`
+    - `REKS_PROVIDER_<STEP>`
+    - `REKS_MODEL_<STEP>`
+    - `REKS_ANTHROPIC_EFFORT` (default `low`)
+    - `REKS_ANTHROPIC_FALLBACKS=off`
+- **Anthropic path.**
+  - Native `@anthropic-ai/sdk`, streamed, `claude-opus-5-5`.
+  - No sampling parameters; `max_tokens` +8000 for thinking.
+  - Server-side `fallbacks: "default"`; a refusal or a fallback-served answer is logged by name.
+  - Code-fenced JSON is stripped.
+- **Failures and visibility.**
+  - Anthropic 401 / 429 / 529 / "credit balance" map onto the existing honest copy.
+  - The boot check names any step set to Anthropic with no key.
+  - `/api/health` shows `models` per step.
+- **Dev-only comparison hook.** `x-reks-provider` / `x-reks-diag` headers (provider, ms, first token, tokens, cost per call). Dead on production.
+
+**S13b — early paint (#48)**
+- On a shelf snap, the bottles read from the photo show as pills (name + tag price) the moment the shelf read finishes, about 4–5 s in. The picks fill in after, at about 10 s.
+- The label moves to the existing "Reks Ray™ is finding your reks…". No new wording.
+- Mechanism: NDJSON from `/api/reksnap`, only when the body asks for it. Old clients get the same JSON.
+- Gated to real shelves (the wineSnap test). Never a single bottle, a haul, a media snap, or a shelf naming anything health-side.
+
+**S13c — voice mood input v1 (#49)**
+- **The mic.** In the search box, next to the camera (the one new affordance).
+  - One tap starts the browser's speech recognition and the words show as you speak.
+  - Tap again, or pause, to stop.
+  - Listening hint: "Say what you’re in the mood for".
+  - No API, or a refused or unavailable mic: the box takes focus with "Tap the keyboard mic to speak", so iOS keyboard dictation works.
+  - Approved wording only.
+- **The parser.** `/api/mood` maps the words onto the existing vocabulary: chip lanes plus the recipe's lanes (Horror, Mystery…), refiners, and wine price chips. The server drops anything else.
+  - Category words decide the category in code ("a horror movie" on the Wine bar is a movie); a screen genre said on the Wine or Books bar means Movies; otherwise the bar's.
+  - A named title steers: a starred go-to as is, any other screen title via TMDb for that request only ("like Lioness but funnier" → TV Comedy steered by Lioness).
+  - An unmapped mood keeps the words in the box and moves the closest chips to the front. Never an error.
+- **Results reuse existing paths.**
+  - Screens: the S12 slot recipe or Steer by.
+  - Wine: the wine chip search, with the spoken price as lane words. That's pressure only; see BRAD MUST 3.
+- **Signals.** `voice_moods` (transcript text, never audio, plus the mapped tags) and `voice_events` (shown / tap / play / share / save / star). `/api/stats` gains moods, mapped %, per category, the five-card actions, ignored, and the last 10 spoken moods.
+
+MIGRATION (§11.2, executed):
+- `docs/sql/s13-voice-moods.sql`: two additive tables. RLS on, zero client policies, anon/authenticated revoked.
+- Backup: **`backups/2026-10-23-1404-s13.sql`** (605,458 bytes, all 10 tables).
+- Block 1: both NULL. Block 2: as expected. Block 3: as expected (service_role holds every privilege through Supabase defaults, as on go_tos).
+- Block 4: positive control plus 13 refusals, rolled back, 0 rows persisted.
+
+### Part A — the comparison (full tables and cards: `docs/s13-opus-comparison.md`)
+
+Setup: 3 runs per case per provider, local dev, live models, phone-sized photos, Opus at effort low. Totals are medians; first content = shelf read or anchor.
+
+**All OpenAI (today):**
+
+| case | total / first content | read accuracy | on-shelf | in band | $/snap |
+|---|---|---|---|---|---|
+| Cab/red shelf | 11.5 s / 3.5 s | 2/7, **4 invented** | 8/15 | 15/15 | 0.034 |
+| End cap (5 shelves) | 12.1 s / 5.2 s | 7/13, **3 invented** | 10/15 | 15/15 | 0.037 |
+| Two-shelf white | 12.1 s / 2.7 s | 1 bottle read | 3/15 | 15/15 | 0.032 |
+| Three-shelf dense | 8.4 s / 1.3 s | 0 read ("wine aisle") | 0/15 | 15/15 | 0.030 |
+| Single bottle | 9.1 s | wrong grape | — | 15/15 | 0.030 |
+| Cart (synthetic) | 10.6 s | haul 1/3 | — | — | 0.025 |
+| Breaking Bad / The Bear / poster | 5.0 s each | TMDb 3/3 | — | — | 0.014 |
+| Typed Lioness | 3.1 s / 0.1 s | — | — | — | 0.0005 |
+| Comedy → Feel-good, no go-to / go-to | 0.2 s / 2.9 s | — | — | — | 0 / 0.0003 |
+
+**All Opus 5.5:**
+
+| case | total / first content | read accuracy | on-shelf | in band | $/snap |
+|---|---|---|---|---|---|
+| Cab/red shelf | 29.9 s / 5.3 s | 5/7, 1 invented | 9/15 | 15/15 | 0.106 |
+| End cap | 26.3 s / 6.4 s | **12/13, 0 invented** | **15/15** | 15/15 | 0.122 |
+| Two-shelf white | 24.2 s / 5.1 s | 5 bottles, the right producer | **11/15** | 15/15 | 0.127 |
+| Three-shelf dense | 22.5 s / 2.3 s | 0 read ("Sparkling Wine Aisle") | 0/15 | 15/15 | 0.102 |
+| Single bottle | 24.9 s | right grape and bottling | — | 15/15 | 0.123 |
+| Cart (synthetic) | 14.4 s | haul **3/3** | — | — | 0.059 |
+| Breaking Bad / The Bear / poster | 8.3 / 17.2 / 16.3 s | TMDb 3/3 | — | — | 0.05–0.06 |
+| Typed Lioness | 5.2 s | — | — | — | 0.022 |
+| Comedy go-to | 7.2 s | — | — | — | 0.016 |
+
+**The mix** (`REKS_PROVIDER_SHELF=anthropic`, everything else OpenAI):
+
+| case | total / first content | read accuracy | on-shelf | $/snap |
+|---|---|---|---|---|
+| Red shelf | 9.7 s / 3.3 s | 5/7, 1 invented | 9/15 | 0.026 |
+| End cap | 14.1 s / 6.2 s | **11/13, 0 invented** | **14/15** | 0.039 |
+| White | 12.3 s / 4.8 s | 5 read | **11/15** | 0.041 |
+
+**Voice-mold counts** (192 model-written lines each; TMDb synopses excluded):
+
+| | Built for | You'll find yourself | grapples | leading to | navigates | explores | More X and Y… | total |
+|---|---|---|---|---|---|---|---|---|
+| OpenAI | 2 | 0 | 4 | 2 | 11 | 7 | 0 | **26** |
+| Opus 5.5 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | **1** |
+
+**Example cards** (three per provider, side by side, are in the doc). End cap: gpt-4o anchored on "7 Moons Red Blend", which isn't on the shelf. Opus anchored on 19 Crimes and placed Paxis ($7.99, on this shelf) with "Keeps the plush, low-grip feel and dials the vanilla back slightly…".
+
+**Where Opus is slow** (it thinks before writing, even at effort low):
+
+| step | OpenAI | Opus |
+|---|---|---|
+| vision, first token | 1–2 s | 2–11 s |
+| wine picks | 6–9 s | 17–18 s |
+| lines | 2.5 s | 4–7 s |
+
+### Brad's decision — per step (recommendation; nothing is flipped)
+
+| step | recommend | why |
+|---|---|---|
+| **shelf** | **Opus** | Reads what's actually on the shelf (11–12/13 producers, nothing invented) at about the same speed and +$0.005/snap. Early paint now *shows* the read, so gpt-4o's invented names ("7 Deadly Zins", "Thank You $19.99") are on screen. |
+| vision | OpenAI | Opus takes 2–11 s to first token: posters 16 s vs 5 s |
+| wine | OpenAI | 18 s on Opus |
+| lines | OpenAI for now | 2× slower; the register win (0 molds) is real but is a joint voice call (§5) |
+| mood | OpenAI | 4o-mini parses in about 1 s; Opus adds ~0.5 s |
+
+**No Claude-specific prompt rewording was needed:** Opus followed every prompt as written. So there is no VOICE PR for Claude.
+
+### Part B — results (default models; Opus timings recorded)
+
+Speech end → five cards on screen, Playwright 390×844 with a scripted recognizer, on the S13c preview:
+
+| mood | default | Opus (every step) |
+|---|---|---|
+| "I'm feeling like a goofy comedy" → Movies · Comedy · Feel-good | 2.4 s | 2.4 s (local) |
+| "a horror movie" → Movies · Horror | 1.7 s | 2.1 s |
+| "something like Lioness but funnier" → TV · Comedy, steered by Lioness | 4.7 s | 9.6 s |
+| "a dark twisty crime show" → TV · Crime · Dark | 1.3 s | 1.9 s |
+| "something crisp and cheap for the patio" → Wine · Crisp White · Crisp & dry · under $20 | 11.8 s | 11.9 s |
+| "a feel good movie for tonight" said on the Wine bar → Movies | 1.4 s | 2.6 s |
+
+- **Screens:** five relevant picks in under 5 s on the default models. Wine is the existing AI wine search's time.
+- **Signals, end to end on the preview:**
+  - 1 mood, 6 shown (5 plus the replacement a save brings in), tap 1, play 1, save 1, ignored 4;
+  - the words are in the readout.
+
+CALLS I MADE (each reversible):
+1. **The mic shows on desktop too**, not only mobile like the camera. Desktop Chrome can listen, and the fallback covers the rest.
+2. **A spoken title that isn't starred steers that one request**, and the cards lead "vs. your Lioness:" (the approved lead). "your" is generous for an unstarred title: **feel call for Brad.**
+3. **Mood parser cap:** reuses the search key (`openai`, 300/day). A voice search is a search, and it avoids widening `api_usage`'s CHECK.
+4. **The parser prompt is plumbing, not VOICE:** it writes tags, never text a person reads. Brad can veto.
+5. **Category words decide the category in code.** 4o-mini held to the selected bar ("a horror movie" on the Wine bar came back as wine, 3/3). Structure over description (the prompt-tuning law).
+6. **Books stays out of v1.** Its words stay in the box; GO runs the typed search.
+7. **The typographic apostrophe in "you’re"**, as the app's copy uses elsewhere.
+
+FOUND, NOT FIXED:
+- **Breaking Bad banner read as "Breaking Bad - Ozymandias"** by gpt-4o in a trial run. S11's stripper doesn't catch a dash-separated episode title, so the snap fell to the 10 s vision path with no where-to-stream. Fix: `stripEpisodeInfo` in `src/lib/tmdbMedia.ts`.
+- **The dense three-shelf aisle reads 0 bottles on both providers.** Neither model resolves those labels. The strips retry never fired, because both reads "succeeded" with a generic anchor.
+- **Cart (synthetic photo):** neither provider read bottle names, so it was a haul with 0 bottles. Needs a real cart photo to judge.
+- **The search-lane wine chip shows years twice** ("2019 La Petite Perrière Sauvignon Blanc (2019)"). This is existing search-lane formatting.
+- **"A Bug's Life" in Comedy → Feel-good** (S12's kids-animation exclusion leaked once in the comparison). **Brooklyn Nine-Nine under TV · Crime · Dark** (TMDb tags it crime).
+- **The other OpenAI sites are not on the switch:** backfill, chain, anchor detail, the typed-wine classifier, the search engine, recipe, profile, share.
+- **Harness fences that diff `main` go stale after every merge.** s10, s12a and s12b were re-aimed at their own merge ranges this run. New harnesses should diff a fixed range.
+- **A git worktree with a `node_modules` junction breaks the stub-seeding harnesses** (Node resolves the real path). Run harnesses in the main checkout.
+
+TEST RESIDUE (one database): `voice_moods` 88 and `voice_events` 152 agent rows (`anon_agent_s13*`); comparison traffic in `api_usage` and `reksnap_signals`. `/api/stats` excludes all of it.
+
+BRAD MUST:
+1. **Decide the switch, per step** (table above). My recommendation is shelf → Opus only.
+2. **Preview key and cap.** Tell me which Anthropic key, and what spend cap, to set on Preview. Nothing is set there yet: previews run all-OpenAI.
+3. **Wine mood: how the price band becomes a guarantee.** The wine pick path writes every line against an anchor bottle in the locked voice (§2.3), and a mood has none. Options:
+   - (a) With a starred wine go-to, voice runs the pick path anchored on the go-to, in the spoken style and price band. This needs one new framing line: "they asked for <mood>".
+   - (b) A mood-framed variant of the wine prompt (new words around a locked voice: joint session).
+   - (c) Keep the chip search: price as a hint, as shipped.
+
+   I'd do (a) and keep (c) as the fallback for no go-to. Nothing is built until you choose.
+4. **§2.10 amendment wording** (above), if you keep the switch.
+5. Run the phone checklist below, then promote.
+
+NEXT SESSION SHOULD KNOW:
+- **Every model call on the five steps goes through `llmCall`** (`src/lib/llm.ts`). Use the dev headers to compare: `x-reks-provider: anthropic` + `x-reks-diag: 1` (curl, or Playwright `extraHTTPHeaders`).
+- **`/api/reksnap` streams NDJSON only when asked.** The final line's `body` is the old JSON body. Any new snap client must read both.
+- **Voice sets:** `setVoiceSet` / `noteVoiceAction` (`src/lib/voiceSignals.ts`). A new card action on the search lane should call `noteVoiceAction`.
+- **Recent Chromium has an unprefixed `SpeechRecognition`.** Test stand-ins must replace both names.
+- Runners are in the session scratchpad, not committed: `compare.cjs`, `analyze.cjs`, `ui-s13b.cjs`, `ui-s13c.cjs`, `ui-s13c-signals.cjs`, and fixtures `fx/`.
+
+VALIDATION:
+- Harnesses: new validate-s13a 53/53, s13b 21/21, s13c 60/60. Every earlier harness green:
+
+  | s1 | s10 | s11 | s12a | s12b | s15 | s2 | s21 | s23 | s30 | s36 | s4a | s4b | s5 | s6 | s7 | s8a | s8b | s8c | s9 | typed-category |
+  |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+  | 50 | 25 | 40 | 63 | 53 | 54 | 97 | 364 | 35 | 69 | 59 | 82 | 48 | 32 | 36 | 21 | 39 | 44 | 20 | 9 | 31 |
+
+  tsc and lint clean.
+- **Previews:**
+  - S13a: `/api/health` reports openai on every step; live Lioness reks through `llmCall`.
+  - S13b: early paint on the end cap (bottles at 5.5 s, picks at 11.5 s) and the two-shelf red (3.9 s / 9.9 s).
+  - S13c: voice walk 16/16 checks; signals 6/6.
+
+### Brad's twenty minutes — the phone checklist (main preview first, then production after promotion)
+
+**What to do**
+1. **Shelf snap (Safari).** Bar on Wine, snap two shelves. The bottle names (and tag prices) appear within ~5 s, then the picks. Are the names really on the shelf?
+2. **Mic, Safari on iPhone.** Tap the mic.
+   - iOS asks for microphone (and speech) permission once. Allow.
+   - The box says "Say what you’re in the mood for".
+   - Say **"I'm feeling like a goofy comedy."** Your words appear as you speak. When you stop, five comedies arrive (Comedy lit).
+3. Say **"a horror movie"**, then switch to TV and say **"something like Lioness but funnier"**. The cards lead "vs. your Lioness:".
+4. Wine bar: say **"something crisp and cheap for the patio"**. Five whites. (The price is a hint for now: BRAD MUST 3.)
+5. Say nonsense ("blorp flibber"). Your words stay in the box and nothing breaks.
+6. Tap the mic and then tap it again right away: it stops.
+7. **Home-screen app.** Same mic tap.
+   - If iOS lets the app listen: as in Safari.
+   - If not: the box focuses and says "Tap the keyboard mic to speak". Tap the keyboard's mic, dictate, press GO.
+   - Either way, never a dead button.
+8. **Permission denied.** Settings → Safari → Microphone → Deny, then tap the mic. You get the keyboard hint, not an error.
+9. Open one of the voice cards, play its trailer, save another. Then `/api/stats?key=<STATS_KEY>`: Voice rows count it, and your words are under "Recent spoken moods".
+
+**What it should feel like**
+- [ ] One tap, talk, five picks, faster than finding the right chip.
+- [ ] The words you said are visible, so a miss is understandable.
+- [ ] Shelf bottles showing early makes the wait feel shorter (feel call: pills or a plain list?).
+- [ ] Your feel calls (§12.4): the mic on desktop too; "vs. your Lioness" for a show you never starred; the mic's red pulse while listening.
+
+**What to screenshot if it's wrong:** the box while listening, any card set that doesn't match what you said, the fallback state in the home-screen app, a shelf preview with a bottle that isn't on the shelf, `/api/stats` voice rows.
+
+**Log lines:** `[llm] …` (refusal, fallback model, non-JSON), `[mood] parsed`, `[mood] … not mapped`, `[mood] record failed`, `[voice] event refused`, `[wine] early paint skipped`.
+
+### Production promotion steps (§11.8)
+1. Brad opens `main → release/v2` and merges after the checklist passes on the main preview.
+2. **Environment: nothing new is needed for S13 to run as tested** (default OpenAI everywhere).
+3. **If Brad flips the shelf read to Opus** (Production env, Brad's step):
+   - Vercel → Project → Settings → Environment Variables → Production:
+     - `ANTHROPIC_API_KEY` = a key from console.anthropic.com → API keys. Set a monthly spend limit in Billing first; at ~$0.005–0.01 per shelf snap on top of today's cost, $20 covers about 2,000+ shelf snaps.
+     - `REKS_PROVIDER_SHELF` = `anthropic`
+     - Optional: `REKS_ANTHROPIC_EFFORT` = `low` (the default already).
+   - Redeploy production, then check `https://<prod>/api/health`: `models.shelf` reads `anthropic:claude-opus-5-5` and `envProblems` is empty.
+   - To flip back: delete `REKS_PROVIDER_SHELF` and redeploy.
+4. **Migration:** already live (shared database): `voice_moods`, `voice_events`, backup `backups/2026-10-23-1404-s13.sql`. Rollback is Block 5 of `docs/sql/s13-voice-moods.sql` (Brad's call only). The code fails soft without the tables: `[mood] record failed … migration_pending`.
+5. **Revert SHAs:** #49 `f26f430`, #48 `d429239`, #47 `69e4b1b`, each with `git revert -m 1 <sha>`, newest first.
+
+**§0 check:** consistent.
+- Voice is a shorter path to a choice (say it instead of finding the chip).
+- The only thing kept is the text the person chose to say, used for their own picks and the readout.
+- The model switch changes nothing about ranking or incentives.
+- Early paint shows the reasoning's raw material (what was read).
+- Nothing persuades, nags or upsells.
+
+---
+
+## Session 13d — sonnet-haiku + banner — 2026-10-23 — branch auto/s13d-sonnet-haiku-banner — PR #51 (local agent mode, §11)
+
+Brad's follow-up:
+- Add Claude Sonnet 5.5 and Haiku 5.5 to the S13 comparison for the steps that stayed on OpenAI (wine picks, "vs." lines, poster/TV photo read, mood parser), with the same table and 3 cards each.
+- Fix the dash-titled banner.
+- Default unchanged; Brad flips per step.
+
+**Merge:** #51 `323e099` (self-merged under the S13 instruction, §10.3). Revert: `git revert -m 1 323e099`.
+
+SHIPPED:
+- **Dash-titled TV banners resolve.** "Breaking Bad - Ozymandias" (S13's found-not-fixed) now lands Breaking Bad on TMDb.
+  - When a TV lookup misses, it retries with the part before a spaced dash or colon (`headBeforeSeparator` in `src/lib/tmdbMedia.ts`).
+  - TV only: a movie title is never cut, and a hit on the full name never retries.
+  - Live TMDb: both banner forms → Breaking Bad and The Bear. "Mission: Impossible - Dead Reckoning" is untouched.
+  - Preview: banner snap → TMDb Breaking Bad in 4.3–4.9 s.
+- **Sonnet and Haiku on the switch.**
+  - Diagnostic prices: Sonnet $2/$10, Haiku $0.10/$0.50.
+  - The server-side refusal fallback goes only to models that accept it; Haiku 5.5 has none, so it never gets the parameter.
+  - Dev-only `x-reks-steps: wine=anthropic:claude-haiku-5-5` moves one step per request (dead on production).
+- **A structured-output schema for Claude on the lines step.** Without one, Sonnet 5.5 dropped a quote in the chooser's JSON in **7 of 15** replies, and each shipped an empty set.
+  - The chooser's reply shape is now sent as a schema. It's the shape the prompt already states: no prompt words changed, and OpenAI keeps `json_object`.
+  - With it: Sonnet 9/9 full sets.
+  - Non-JSON chooser/line-writer log lines now carry the model and the reply's first 160 characters.
+
+RESULTS (full tables and cards: `docs/s13-opus-comparison.md`, S13d section; one step moved at a time, the others on today's OpenAI):
+
+| step | OpenAI (today) | Opus 5.5 | Sonnet 5.5 | Haiku 5.5 |
+|---|---|---|---|---|
+| wine picks (call) | 6–9 s, $0.014 | 17–18 s, $0.05 | 9–10 s, $0.019, same on-shelf as gpt-4o | 10–16 s, $0.002, white aisle 0/15 on-shelf |
+| photo read (call) | 1.6–2.1 s, 3/3 | 3.7–12 s | 2.4–3.0 s, 3/3, never stalled | 1.8–2.2 s, but 12 s on The Bear |
+| "vs." lines (call) | 2.4–2.6 s; 6 stock phrases in 30 | 4.7–6.9 s; 0 | 3.6–4.1 s; 0; 9/9 full; ~$0.01 | 3.0–3.5 s; 0; 8/9 full; ~$0.0006 |
+| mood (12 moods × 3) | 36/36, 1.3 s | 36/36, 2.4 s | 36/36, 2.0 s | 36/36, 1.2 s |
+
+RECOMMENDATION (nothing flipped):
+
+| step | recommendation |
+|---|---|
+| shelf | Opus (unchanged from S13) |
+| wine | OpenAI |
+| photo read | OpenAI |
+| mood | OpenAI |
+| lines | OpenAI, or Haiku 5.5 if Brad wants the register: 0 stock phrases, ~+0.7 s, about the same cost. A voice call (§5); read the cards first. |
+
+FOUND, NOT FIXED:
+- **Haiku 5.5 sometimes returns fewer picks than asked:** one Lioness set of 2 in 9 lines runs. It ships honest-short.
+- **Haiku and Opus stall ~12 s before writing on some photos** (The Bear), even at effort low. Sonnet did not in 9 photo reads.
+- **The other Claude steps (vision, shelf, wine, mood) send no schema yet.** 0 JSON failures were seen in this run's 48 wine, 18 photo and 144 mood calls. Add schemas before flipping wine or vision to Sonnet or Haiku.
+- **Search-lane picks under Comedy → Feel-good steered by Grand Budapest included The Wolf of Wall Street and Ted.** The slot recipe picks the titles; the model only writes the line.
+
+TEST RESIDUE: `voice_moods` +144 agent rows (mood probe), plus agent snap and `api_usage` rows. `/api/stats` excludes them.
+
+BRAD MUST: decide per step. To flip one step, set these in Production (Brad's step):
+- `REKS_PROVIDER_<STEP>=anthropic` and `REKS_MODEL_<STEP>=claude-haiku-5-5` (or `claude-sonnet-5-5`; with no model name it's Opus 5.5).
+- `ANTHROPIC_API_KEY` with a spend limit.
+- Then redeploy and check `/api/health` → `models`.
+
+The S13 open items (Preview key and cap, the wine mood price band, the §2.10 wording) still stand.
+
+VALIDATION: new validate-s13d 20/20; every earlier harness green (s13a 53, s13b 21, s13c 60 and all S1–S12 suites); tsc and lint clean. Preview: `/api/health` all OpenAI; typed Lioness and the Breaking Bad banner both resolve.
+
+**§0 check:** consistent. The banner fix gets a TV snap to where-to-watch instead of a 10 s generic read. The comparison changes nothing users see until Brad flips a step.

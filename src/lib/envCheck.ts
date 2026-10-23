@@ -138,6 +138,18 @@ function collectProblems(): string[] {
     );
   }
 
+  // S13a — the provider switch (src/lib/llm.ts). Read inline (llm.ts
+  // imports this file). A step on Anthropic without its key fails every
+  // call of that step with auth — loud here, never silent.
+  const providerVars = ["REKS_MODEL_PROVIDER", "REKS_PROVIDER_VISION", "REKS_PROVIDER_SHELF",
+    "REKS_PROVIDER_WINE", "REKS_PROVIDER_LINES", "REKS_PROVIDER_MOOD"];
+  const onAnthropic = providerVars.filter((v) => process.env[v]?.trim() === "anthropic");
+  if (onAnthropic.length > 0 && !process.env.ANTHROPIC_API_KEY?.trim()) {
+    problems.push(
+      `ANTHROPIC_API_KEY missing but ${onAnthropic.join(", ")} = anthropic — those steps will fail with auth`
+    );
+  }
+
   if (process.env.REKOMENDR_SIMULATE_OPENAI_FAILURE && isProductionRuntime()) {
     problems.push(
       "REKOMENDR_SIMULATE_OPENAI_FAILURE is set on the production deployment — it is ignored there, unset it"

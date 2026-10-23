@@ -89,7 +89,8 @@ const list = read("src/components/GoTosList.tsx");
 check("tiles carry + More like this", list.includes("+ More like this"), true);
 
 console.log("\n6. New wording: only the approved strings");
-const diff = execSync("git diff main -- src app", { cwd: root, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+// S13c: S12a's own merge (main has moved on).
+const diff = execSync("git diff 6588529~1 6588529 -- src app", { cwd: root, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
 const added = diff.split("\n").filter((l) => l.startsWith("+") && !l.startsWith("+++"));
 const jsxText = added
   .flatMap((l) => [...l.matchAll(/>\s*([A-Za-z][^<>{}]*?)\s*</g)].map((m) => m[1].trim()))
@@ -107,8 +108,9 @@ for (const k of ["stars_movies", "stars_tv", "stars_books", "stars_wine", "touch
 check("agent traffic excluded", stats.includes('String(r.client_id).startsWith("anon_agent")'), true);
 
 console.log("\n8. Wine unchanged");
-const wineDiff = execSync("git diff main --stat -- app/api/wine src/lib/wineVisit.ts src/lib/wineShelf.ts src/lib/wineReks.ts src/components/WineFacts.tsx src/components/HaulConfirm.tsx src/components/WineFollowup.tsx", { cwd: root, encoding: "utf8" });
-check("wine route + libs byte-identical to main", wineDiff.trim(), "");
+// S13a: S12's own merge (main has moved on; S13 routes wine through llm.ts).
+const wineDiff = execSync("git diff 6588529~1 6588529 --stat -- app/api/wine src/lib/wineVisit.ts src/lib/wineShelf.ts src/lib/wineReks.ts src/components/WineFacts.tsx src/components/HaulConfirm.tsx src/components/WineFollowup.tsx", { cwd: root, encoding: "utf8" });
+check("wine route + libs byte-identical across S12a", wineDiff.trim(), "");
 
 console.log(`\n${passed} passed, ${failed} failed.`);
 process.exit(failed ? 1 : 0);

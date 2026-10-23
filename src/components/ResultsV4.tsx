@@ -8,6 +8,7 @@ import { TrailerVerb, WhereToWatchVerb, titleInfoUrl } from "./MediaVerbs";
 import RekCard from "./RekCard";
 import ShareRow from "./ShareRow";
 import GoToStar from "./GoToStar";
+import { addToVoiceSet, noteVoiceAction } from "../lib/voiceSignals";
 import { logGoToEvent } from "../lib/goTos";
 import { goToCategoryFor } from "../lib/goToCategory";
 import { noteSetShown } from "../lib/screenVisit";
@@ -260,6 +261,7 @@ const ResultsV4: React.FC<ResultsProps> = ({
       // reset that stranded fresh cards mid-transition), and no stale
       // "running dry" notice from a dead generation's null.
       if (epochAtStart !== frontierEpochRef.current) return;
+      if (next) addToVoiceSet(next.title);
 
       if (!next) {
         if (exhausted) {
@@ -568,6 +570,7 @@ const ResultsV4: React.FC<ResultsProps> = ({
   // no like is still holding it, un-saving returns the card from the
   // trail to the top of the frontier.
   const handleSave = (rek: Rek) => {
+    noteVoiceAction("save", rek.title);
     if (saved.some((s) => s.id === rek.id)) {
       setSaved((p) => p.filter((s) => s.id !== rek.id));
       if (!contenders.some((c) => c.id === rek.id)) returnToFrontier(rek.id);
@@ -606,6 +609,7 @@ const ResultsV4: React.FC<ResultsProps> = ({
             postJson
           )
         }
+        onTap={() => noteVoiceAction("share", rek.title)}
       />
     ) : undefined;
 
@@ -620,7 +624,9 @@ const ResultsV4: React.FC<ResultsProps> = ({
     tmdbId: rek.tmdbId ?? null,
   });
   const starFor = (rek: Rek) =>
-    rek.slot === "touchstone" ? undefined : <GoToStar item={goToItem(rek)} />;
+    rek.slot === "touchstone" ? undefined : (
+      <GoToStar item={goToItem(rek)} onStar={() => noteVoiceAction("star", rek.title)} />
+    );
 
   // S12b — "A classic to steer by ☆" on a touchstone card; one tap stars it.
   const touchstoneLabel = (rek: Rek) =>
@@ -630,7 +636,10 @@ const ResultsV4: React.FC<ResultsProps> = ({
         <GoToStar
           item={goToItem(rek)}
           size={15}
-          onStar={() => logGoToEvent("touchstone_star", goToCategoryFor(category))}
+          onStar={() => {
+            logGoToEvent("touchstone_star", goToCategoryFor(category));
+            noteVoiceAction("star", rek.title);
+          }}
         />
       </span>
     ) : undefined;
@@ -767,7 +776,10 @@ const ResultsV4: React.FC<ResultsProps> = ({
                     detailAction={watchedVerb(rek)}
                     titleHref={isMedia ? titleInfoUrl(rek.title) : undefined}
                     detailsOpen={expandedTop === rek.id}
-                    onToggleDetails={() => toggleTopExpand(rek.id)}
+                    onToggleDetails={() => {
+                      if (expandedTop !== rek.id) noteVoiceAction("tap", rek.title);
+                      toggleTopExpand(rek.id);
+                    }}
                     thumbSignal={
                       contenders.some((c) => c.id === rek.id) ? "like" : null
                     }
@@ -782,12 +794,12 @@ const ResultsV4: React.FC<ResultsProps> = ({
                        stays empty — no chaining from the trail. */
                     verbLeft={
                       isMedia && expandedTop === rek.id ? (
-                        <TrailerVerb name={rek.title} href={rek.trailerUrl} />
+                        <TrailerVerb name={rek.title} href={rek.trailerUrl} onOpen={() => noteVoiceAction("play", rek.title)} />
                       ) : undefined
                     }
                     verbMiddle={
                       isMedia && expandedTop === rek.id ? (
-                        <WhereToWatchVerb name={rek.title} />
+                        <WhereToWatchVerb name={rek.title} onOpen={() => noteVoiceAction("play", rek.title)} />
                       ) : undefined
                     }
                   />
@@ -827,7 +839,10 @@ const ResultsV4: React.FC<ResultsProps> = ({
                 detailAction={watchedVerb(rek)}
                 titleHref={isMedia ? titleInfoUrl(rek.title) : undefined}
                 detailsOpen={expandedTop === rek.id}
-                onToggleDetails={() => toggleTopExpand(rek.id)}
+                onToggleDetails={() => {
+                      if (expandedTop !== rek.id) noteVoiceAction("tap", rek.title);
+                      toggleTopExpand(rek.id);
+                    }}
                 // Swipe grammar (touch only): a committed swipe in either
                 // direction dismisses + backfills (thumbs-down). Liked or
                 // saved cards don't arm — same protection as the snap lane.
@@ -848,12 +863,12 @@ const ResultsV4: React.FC<ResultsProps> = ({
                    search lane only, where its plumbing lives. */
                 verbLeft={
                   isMedia && expandedTop === rek.id ? (
-                    <TrailerVerb name={rek.title} href={rek.trailerUrl} />
+                    <TrailerVerb name={rek.title} href={rek.trailerUrl} onOpen={() => noteVoiceAction("play", rek.title)} />
                   ) : undefined
                 }
                 verbMiddle={
                   isMedia && expandedTop === rek.id ? (
-                    <WhereToWatchVerb name={rek.title} />
+                    <WhereToWatchVerb name={rek.title} onOpen={() => noteVoiceAction("play", rek.title)} />
                   ) : undefined
                 }
                 verbRight={

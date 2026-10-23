@@ -10,6 +10,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { runEnvCheck } from "../../../src/lib/envCheck";
 import { probeTmdbKey } from "../../../src/lib/tmdbVerify";
+import { providerSummary } from "../../../src/lib/llm";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -53,6 +54,8 @@ export async function GET() {
   // S2 — "disabled" means saves don't mint snapshots and Share never
   // renders (MINT_SIGNING_SECRET missing). Same surface, same reason.
   const mint = process.env.MINT_SIGNING_SECRET?.trim() ? "ok" : "disabled";
+  // S13a — which provider:model each model step runs on (src/lib/llm.ts).
+  const models = providerSummary();
 
   const client = await getServerClient();
   if (!client) {
@@ -60,7 +63,7 @@ export async function GET() {
     console.error(
       "[health] db unconfigured — SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY missing or client failed to load"
     );
-    return json({ ok: false, db: "unconfigured", tmdb, mint, env, envProblems, at }, 503);
+    return json({ ok: false, db: "unconfigured", tmdb, mint, models, env, envProblems, at }, 503);
   }
 
   const { error } = await client
@@ -84,6 +87,7 @@ export async function GET() {
         latencyMs,
         tmdb,
         mint,
+        models,
         env,
         envProblems,
         at,
@@ -92,5 +96,5 @@ export async function GET() {
     );
   }
 
-  return json({ ok: true, db: "ok", latencyMs, tmdb, mint, env, envProblems, at }, 200);
+  return json({ ok: true, db: "ok", latencyMs, tmdb, mint, models, env, envProblems, at }, 200);
 }
