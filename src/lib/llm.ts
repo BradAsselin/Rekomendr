@@ -61,6 +61,10 @@ export type LlmRequest = {
   // OpenAI only — Opus 5.5 rejects sampling parameters.
   temperature?: number;
   signal?: AbortSignal;
+  // S13d — Anthropic only: the reply's JSON schema (structured outputs).
+  // OpenAI keeps its json_object mode; Claude has no JSON mode, and Sonnet
+  // 5.5 at effort low dropped a quote in 4 of 6 chooser replies without it.
+  schema?: Record<string, unknown>;
 };
 
 export type LlmResult = {
@@ -88,13 +92,33 @@ type DiagCall = {
   aborted?: boolean;
 };
 
-type LlmContext = { provider: LlmProvider | null; diag: DiagCall[] | null };
+type StepChoice = { provider: LlmProvider; model: string };
+type LlmContext = {
+  provider: LlmProvider | null;
+  // S13d — dev-only per-step override (x-reks-steps), for comparing one
+  // step on another model while the rest stay as configured.
+  steps: Partial<Record<LlmStep, StepChoice>>;
+  diag: DiagCall[] | null;
+};
 const ctx = new AsyncLocalStorage<LlmContext>();
 
 const asProvider = (v: unknown): LlmProvider | null =>
   v === "openai" || v === "anthropic" ? v : null;
 
+// "wine=anthropic:claude-sonnet-5-5,mood=openai:gpt-4o-mini"
+function parseSteps(raw: string | null): Partial<Record<LlmStep, StepChoice>> {
+  const out: Partial<Record<LlmStep, StepChoice>> = {};
+  for (const part of (raw ?? "").split(",")) {
+    const m = /^\s*(\w+)\s*=\s*(openai|anthropic):([a-z0-9.\-]{3,60})\s*$/i.exec(part);
+    const step = m?.[1].toLowerCase() as LlmStep | undefined;
+    if (m && step && LLM_STEPS.includes(step)) out[step] = { provider: m[2].toLowerCase() as LlmProvider, model: m[3] };
+  }
+  return out;
+}
+
 export function resolveStep(step: LlmStep): { provider: LlmProvider; model: string } {
+  const forced = ctx.getStore()?.steps[step];
+  if (forced) return forced;
   const env = process.env;
   const key = step.toUpperCase();
   const provider =
@@ -131,13 +155,15 @@ export async function withLlmContext(
   fn: () => Promise<Response>
 ): Promise<Response> {
   const wantProvider = asProvider(req.headers.get("x-reks-provider"));
+  const wantSteps = parseSteps(req.headers.get("x-reks-steps"));
+  const anySteps = Object.keys(wantSteps).length > 0;
   const wantDiag = req.headers.get("x-reks-diag") === "1";
-  if ((wantProvider || wantDiag) && isProductionRuntime()) {
+  if ((wantProvider || anySteps || wantDiag) && isProductionRuntime()) {
     console.warn("[llm] dev-only headers ignored on production");
     return fn();
   }
-  if (!wantProvider && !wantDiag) return fn();
-  const store: LlmContext = { provider: wantProvider, diag: wantDiag ? [] : null };
+  if (!wantProvider && !anySteps && !wantDiag) return fn();
+  const store: LlmContext = { provider: wantProvider, steps: wantSteps, diag: wantDiag ? [] : null };
   const res = await ctx.run(store, fn);
   if (!store.diag) return res;
   const headers = new Headers(res.headers);
@@ -154,7 +180,15 @@ const PRICES: Record<string, [number, number]> = {
   "gpt-4o": [2.5, 10],
   "gpt-4o-mini": [0.15, 0.6],
   "claude-opus-5-5": [4, 20],
+  "claude-sonnet-5-5": [2, 10],
+  // Up to 100K-token prompts (every call here is far below that).
+  "claude-haiku-5-5": [0.1, 0.5],
 };
+
+// S13d — the server-side refusal fallback ("default" form) is accepted on
+// the Opus/Fable line and Sonnet 5.5 on the Claude API; Haiku 5.5 has no
+// server-side fallback, so it is never sent there.
+const FALLBACK_MODELS = /^claude-(opus-5|opus-5-5|fable-5|fable-5-1|sonnet-5-5)$/;
 
 function record(
   step: LlmStep,
@@ -272,14 +306,18 @@ export async function llmCall(
   };
 
   if (provider === "anthropic") {
-    const fallbacksOn = process.env.REKS_ANTHROPIC_FALLBACKS?.trim() !== "off";
+    const fallbacksOn =
+      process.env.REKS_ANTHROPIC_FALLBACKS?.trim() !== "off" && FALLBACK_MODELS.test(model);
     const stream = anthropic().beta.messages.stream(
       {
         model,
         max_tokens: anthropicMaxTokens(req.maxTokens),
         system: req.system,
         messages: [{ role: "user", content: anthropicContent(req.user) }],
-        output_config: { effort: effort() },
+        output_config: {
+          effort: effort(),
+          ...(req.schema ? { format: { type: "json_schema" as const, schema: req.schema } } : {}),
+        },
         ...(fallbacksOn
           ? { fallbacks: "default" as const, betas: ["server-side-fallback-2026-07-01"] }
           : {}),
