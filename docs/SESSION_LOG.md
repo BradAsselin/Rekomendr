@@ -1935,3 +1935,144 @@ The S13 open items (Preview key and cap, the wine mood price band, the §2.10 wo
 VALIDATION: new validate-s13d 20/20; every earlier harness green (s13a 53, s13b 21, s13c 60 and all S1–S12 suites); tsc and lint clean. Preview: `/api/health` all OpenAI; typed Lioness and the Breaking Bad banner both resolve.
 
 **§0 check:** consistent. The banner fix gets a TV snap to where-to-watch instead of a 10 s generic read. The comparison changes nothing users see until Brad flips a step.
+
+---
+
+## Session 14 + 15 — all-claude + screen-snap — 2026-10-23 — branches auto/s14-all-claude, auto/s15-screen-snap — PRs #54, #55 (local agent mode, §11)
+
+Brad's brief (an unattended evening run):
+- S14: migrate fully off GPT-4o to Claude.
+- S15, if S14 merged green: Barry's streaming-screen snap.
+- Make the reasonable call on anything ambiguous and log it.
+- Preview may carry `ANTHROPIC_API_KEY`; Production never.
+
+**Merges** (self-merged, §10.3: green, checked on their own previews):
+
+| PR | merge SHA |
+|---|---|
+| #54 S14 | `1c60240` |
+| #55 S15 | `2ab1240` |
+
+Each reverts with `git revert -m 1 <sha>`, newest first.
+
+### Calls I made (each reversible)
+1. **The S14 brief arrived cut off** ("per the prompt below" had no prompt), so S14 was built from the S13/S13d findings. Plan: `docs/s14-all-claude-plan.md`.
+2. **Claude is the default only when `ANTHROPIC_API_KEY` is set.** Without the key, every step runs on its pre-S13 OpenAI model with the exact old arguments. So promoting `main` before Production has the key changes nothing, and the boot check plus `/api/health` say so. This was verified on the first S14 preview, built before the key existed.
+3. **Moderation stays on OpenAI** (`omni-moderation-latest` on Share and display names). It isn't GPT-4o, it's free, and it fails closed (Ledger #19). A Claude replacement means new safety wording, which is Brad's call. `OPENAI_API_KEY` stays in Production for moderation only.
+4. **Per-step models, each measured** (tables in `docs/s13-opus-comparison.md`, S14 section):
+
+   | step | model |
+   |---|---|
+   | vision | Sonnet |
+   | shelf | Opus |
+   | wine | Sonnet |
+   | lines | Sonnet |
+   | mood | Haiku |
+   | search | Haiku |
+   | snap (backfill/chain) | Sonnet |
+   | detail | Haiku |
+   | recipe | Haiku |
+   | classify | Haiku |
+
+5. **Search on Haiku, not Sonnet.**
+   - Sonnet had 1 stock phrase in 30 cards vs Haiku's 13 (4o-mini: 43), at the same ~20 s but $0.05 per search vs $0.0035.
+   - `REKS_MODEL_SEARCH=claude-sonnet-5-5` is the one-line upgrade if Brad wants the register.
+6. **The typed wine read now streams with the photo path's wine cut** (S10). Claude writes all three lists in full, which made a typed wine 30–48 s. It is now 14–18 s, level with gpt-4o's 17 s. Retry semantics are unchanged (typed-category 31/31).
+7. **The model change was merged under Brad's explicit instruction.** No prompt string changed (harness-checked), so it is not a VOICE PR. Production stays on OpenAI until Brad adds the key.
+8. **S15 cards live in the search lane**, reusing the S12 card, the Steer by row and the "vs. your" writer.
+   - The two approved lines are the only new words.
+   - Commitment and "on Netflix" ride the descriptor line; "Start with this one" rides the marker line.
+9. **S15 with no go-to ranks by TMDb's vote-weighted rating**, not the service's own order (that order is the service's promotion, §0.2).
+10. **No legible service in the photo → "on X" uses TMDb's first US streaming service.**
+11. **A screen snap counts against the vision cap** (60/day). A Movies/TV snap now spends two.
+12. **Preview `ANTHROPIC_API_KEY` set from `.env.local`** (the $20-capped key), as Brad allowed. Production untouched.
+
+### SHIPPED
+
+**S14 (#54)**
+- Every model call goes through `llmCall`. New steps: `search`, `snap`, `detail`, `recipe`, `classify`.
+- No `chat.completions` call is left outside `src/lib/llm.ts`. The only other OpenAI use is moderation, plus the dead `openaiClient.ts`.
+- Structured-output schemas on recipe, detail and the classifier.
+- Rollback: `REKS_MODEL_PROVIDER=openai`.
+
+**S15 (#55)**
+- Snap a Netflix (or any service's) row or Top 10 on the Movies/TV bar → up to 5 cards. Each card has:
+  - TMDb's title and synopsis;
+  - "2h 20m" or "3 seasons · 30 episodes";
+  - "on Netflix";
+  - "vs. your Knives Out: …" when a go-to exists.
+- Ranked against the nearest go-to. "Start with this one" on top, "From your screen" above Steer by.
+- Steer by re-ranks the same titles.
+- Every title must resolve on TMDb or it is dropped.
+- Posters and banners still take the normal snap path.
+
+### FOUND, NOT FIXED
+- **Search on Claude is ~6–10 s slower than 4o-mini** (19–25 s vs 11–15 s). A feel call for Brad.
+- **A TV banner snap on the Movies/TV bar can wait on the screen read:** 10 s vs ~6 s in one UI run.
+- **Every screen card thumbed down** → the existing "running dry" line shows.
+- **`src/lib/openaiClient.ts` is dead code.**
+- **The harnesses that spawn `npx` fail under this machine's Node** (`spawnSync npx ENOENT`, on main too). They ran with a scratchpad shim that maps `npx` → `npx.cmd`. Worth fixing in the scripts.
+
+### TEST RESIDUE
+- `api_usage` rows for `anon_agent_s14` / `anon_agent_s15*`.
+- `go_tos` star rows for `anon_agent_s15_ui` (Lioness, Knives Out).
+- `/api/stats` excludes `anon_agent*`.
+
+### BRAD MUST
+1. **Production env for going all-Claude** (Vercel → Settings → Environment Variables → Production):
+   - `ANTHROPIC_API_KEY`: console.anthropic.com → API keys. Set a monthly spend limit first.
+     - Rough cost per action: search ~$0.0035; snap ~$0.03–0.07; shelf ~$0.04; detail/recipe <$0.001.
+   - Keep `OPENAI_API_KEY` (moderation only).
+   - Nothing else is needed. Optional: `REKS_MODEL_SEARCH=claude-sonnet-5-5` (better register, ~$0.05/search).
+   - Redeploy, then check `/api/health`: `models` all `anthropic:…`, and `envProblems` empty.
+   - Roll back: `REKS_MODEL_PROVIDER=openai`, then redeploy.
+2. **§2.10 amendment wording** (proposed):
+
+   > "The models are Claude (per-step defaults in `src/lib/llm.ts`, measured in `docs/s13-opus-comparison.md`); OpenAI remains for moderation and as the `REKS_MODEL_PROVIDER=openai` rollback. Prompts stay model-independent; any reword for a model is VOICE."
+3. **Feel calls:**
+   - Claude search speed vs register.
+   - S15 header and line placement.
+4. **Run the phone checklist below, then promote.**
+
+### NEXT SESSION SHOULD KNOW
+- **No real Netflix photo was tested.** Fixtures were Netflix-style screenshots built from TMDb posters. A phone photo of a TV (glare, angle) is Brad's first test.
+- **`/api/screen` answers `screen: null` for anything that isn't 2+ real titles.** The client then shows the normal snap.
+- **Harness fences:** s14 diffs `9f8e522`; s15-screen diffs `main` (re-aim after merge, per S13's note).
+
+### VALIDATION
+- Harnesses:
+  - New: s14 39/39, s15-screen 34/34.
+  - Every earlier suite green: s1 50, s2 97, s4a 82, s4b 48, s5 32, s6 36, s7 21, s8a 39, s8b 44, s8c 20, s9 9, s10 25, s11 40, s12a 63, s12b 53, s13a 58, s13b 21, s13c 60, s13d 20, s15 54, s21 364, s23 35, s30 69, s36 59, typed-category 31.
+  - tsc and lint clean.
+- S14 preview: all-Claude `/api/health`; search, recipe, mood, typed wine, banner, Lioness reks, Steer by lines and the end-cap shelf all live.
+- S15 preview: the row fixture gives 5 real titles; the no-name tile is skipped; Steer by flips the order.
+
+### Brad's twenty minutes — phone checklist (main preview; then production after the env step)
+1. **Search:** Movies → Comedy, then TV → Crime → Dark. Five picks each. Does ~20 s feel too slow?
+2. **Wine:** type "Caymus Cabernet" on the Wine bar. Picks in about 15 s.
+3. **Snap a wine shelf.** Bottles show first, then picks.
+4. **Snap a poster and a TV banner** on the Movies bar. Same as before (the anchor, then reks).
+5. **Barry's test.** Open Netflix on the TV, point the phone at a row (or the Top 10), Movies bar, snap. Expect:
+   - "From your screen", 2–5 cards, each a title actually on the screen;
+   - "3 seasons · 30 episodes • on Netflix"-style lines;
+   - "Start with this one" on the top card.
+6. **Tap the other go-to in Steer by.** The order changes and the lines say "vs. your <that go-to>".
+7. **Thumbs-down one screen card.** It leaves and nothing replaces it.
+8. **Open a card's details:** Trailer and Watch work.
+9. **Recipe:** a food snap → a recipe → open it. Steak tartare stays general, with the video pointer.
+
+**What it should feel like:**
+- [ ] Reks read like a friend.
+- [ ] Nothing invented on the screen snap.
+- [ ] The top card is the one you would start with.
+
+**What to screenshot if it's wrong:**
+- Any screen card whose title wasn't on the TV.
+- A slow search.
+- `/api/health` after the env step.
+
+**§0 check:** consistent.
+- The screen snap shortens the path from "what's on Netflix tonight?" to a choice.
+- It names its reasoning ("vs. your Knives Out").
+- Ranking is the user's own go-to and TMDb's public data; nothing pays to move it.
+- The model switch changes no incentives and keeps the same prompts.
