@@ -240,7 +240,7 @@ const resetEnv = () => { for (const k of ENV_KEYS) delete process.env[k]; proces
     /openai\.chat/.test(read("src/lib/wineReks.ts")),
     /openai\.chat/.test(read("src/lib/mediaReks.ts")),
   ], [false, false, false]);
-  check("routes wrapped for the dev hook", ["app/api/reksnap/route.ts", "app/api/anchor/route.ts", "app/api/slots/route.ts"].map((f) => read(f).includes("withLlmContext(req, () => handlePost(req))")), [true, true, true]);
+  check("routes wrapped for the dev hook", ["app/api/reksnap/route.ts", "app/api/anchor/route.ts", "app/api/slots/route.ts"].map((f) => /export async function POST\(req: Request\) \{\s*return withLlmContext\(req, /.test(read(f))), [true, true, true]);
 
   console.log(`\n${passed} passed, ${failed} failed.`);
   process.exit(failed ? 1 : 0);
