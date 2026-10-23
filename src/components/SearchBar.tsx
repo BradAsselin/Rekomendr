@@ -11,7 +11,7 @@
 // tap-to-search being safe live in src/lib/moodChips.ts.
 
 import React, { useState, useRef, useEffect, useCallback } from "react";
-import { Camera, ChevronDown } from "lucide-react";
+import { Camera, ChevronDown, Mic } from "lucide-react";
 import {
   chipQuery,
   chipsFor,
@@ -20,6 +20,23 @@ import {
   type Chip,
   type Refiner,
 } from "../lib/moodChips";
+import { speechSupported, startListening, type VoiceListener } from "../lib/voiceInput";
+
+// S13c — what the page answers after parsing a spoken mood: mapped → the
+// bar shows the lane/refiner it searched (when they are on the chip rows);
+// not mapped → the words stay in the box and the closest lanes lead the
+// chip row. Null = the parse failed; the words stay, GO still works.
+export type VoiceAnswer = {
+  mapped: boolean;
+  category: string;
+  laneLabel: string | null;
+  refinerLabel: string | null;
+  closest: string[];
+};
+
+// Approved wording (Brad, S13 brief) — the only two new lines voice adds.
+const MIC_HINT = "Say what you’re in the mood for";
+const FALLBACK_HINT = "Tap the keyboard mic to speak";
 
 interface SearchBarProps {
   // S12b — a chip tap also says which chip and refiner (the Movies/TV
@@ -41,6 +58,10 @@ interface SearchBarProps {
   // re-aims the bar exactly as a tap on that category would.
   onCategoryChange?: (category: string) => void;
   categoryHint?: { value: string | null; n: number };
+
+  // S13c — a spoken mood (the transcript and the bar's category). The
+  // page parses it and runs the search; the bar only listens and shows.
+  onVoice?: (transcript: string, category: string) => Promise<VoiceAnswer | null>;
 }
 
 const CATEGORIES = ["Movies", "TV Shows", "Books", "Wine"];
@@ -61,6 +82,7 @@ const SearchBar: React.FC<SearchBarProps> = ({
   onSnap,
   onCategoryChange,
   categoryHint,
+  onVoice,
 }) => {
   const [input, setInput] = useState("");
   const [isPulsing, setIsPulsing] = useState(false);
@@ -70,6 +92,19 @@ const SearchBar: React.FC<SearchBarProps> = ({
   // The tapped lane chip (row 1) and the optional refiner (row 2).
   const [activeChip, setActiveChip] = useState<Chip | null>(null);
   const [refiner, setRefiner] = useState<Refiner | null>(null);
+
+  // S13c — the mic. `hint` replaces the placeholder while listening (or
+  // after a fallback); `chipOrder` puts the closest lanes first when a
+  // mood didn't map. voiceEpoch drops a late answer once the person has
+  // typed, tapped a chip, pressed GO or started listening again.
+  const [listening, setListening] = useState(false);
+  const [hint, setHint] = useState<string | null>(null);
+  const [chipOrder, setChipOrder] = useState<string[] | null>(null);
+  const listenerRef = useRef<VoiceListener | null>(null);
+  const heardRef = useRef("");
+  const fellBackRef = useRef(false);
+  const voiceEpoch = useRef(0);
+  const inputRef = useRef<HTMLInputElement | null>(null);
 
   const categoryRef = useRef(category);
   const chipRef = useRef<Chip | null>(activeChip);
@@ -111,10 +146,12 @@ const SearchBar: React.FC<SearchBarProps> = ({
   // A category switch only re-aims the bar and its chips — it never
   // searches by itself (3eaa04b). The previous results stay until a tap.
   const handleSelectCategory = (c: string) => {
+    voiceEpoch.current++;
     setOpenCategory(false);
     setCategory(c);
     setActiveChip(null);
     setRefiner(null);
+    setChipOrder(null);
     setInput("");
   };
 
@@ -130,6 +167,8 @@ const SearchBar: React.FC<SearchBarProps> = ({
 
   // Row 1: one tap = results. A new lane starts unrefined.
   const tapChip = (c: Chip) => {
+    voiceEpoch.current++;
+    setChipOrder(null);
     setOpenCategory(false);
     setActiveChip(c);
     setRefiner(null);
@@ -140,6 +179,7 @@ const SearchBar: React.FC<SearchBarProps> = ({
   // Row 2: one refiner at a time; tapping the active one clears it. Either
   // way the search re-runs.
   const tapRefiner = (r: Refiner) => {
+    voiceEpoch.current++;
     const lane = chipRef.current;
     if (!lane) return;
     const next = refiner?.label === r.label ? null : r;
@@ -169,6 +209,10 @@ const SearchBar: React.FC<SearchBarProps> = ({
   // mood phrase searches. It does not inherit a tapped chip.
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    voiceEpoch.current++;
+    listenerRef.current?.stop();
+    setHint(null);
+    setChipOrder(null);
     setOpenCategory(false);
     const trimmed = input.trim();
     setActiveChip(null);
@@ -178,7 +222,90 @@ const SearchBar: React.FC<SearchBarProps> = ({
     setInput("");
   };
 
-  const chips = chipsFor(category);
+  // S13c — THE MIC. One tap starts; a second tap, or a pause, stops.
+  const fallBack = () => {
+    fellBackRef.current = true;
+    listenerRef.current = null;
+    setListening(false);
+    setHint(FALLBACK_HINT);
+    inputRef.current?.focus();
+  };
+
+  const runVoice = async (text: string, epoch: number) => {
+    setInput(text);
+    if (!onVoice) return;
+    setIsPulsing(true);
+    const ans = await onVoice(text, categoryRef.current).catch(() => null);
+    setIsPulsing(false);
+    if (epoch !== voiceEpoch.current) return;
+    if (!ans || !ans.mapped) {
+      // The words stay; the closest lanes lead the row. Never an error.
+      setInput(text);
+      setChipOrder(ans?.closest?.length ? ans.closest : null);
+      return;
+    }
+    setInput("");
+    setChipOrder(null);
+    if (CATEGORIES.includes(ans.category) && ans.category !== categoryRef.current) {
+      categoryRef.current = ans.category;
+      setCategory(ans.category);
+    }
+    setActiveChip(chipsFor(ans.category).find((c) => c.label === ans.laneLabel) ?? null);
+    setRefiner(refinersFor(ans.category).find((r) => r.label === ans.refinerLabel) ?? null);
+  };
+
+  const tapMic = () => {
+    if (listening) {
+      listenerRef.current?.stop();
+      return;
+    }
+    const epoch = ++voiceEpoch.current;
+    setOpenCategory(false);
+    setChipOrder(null);
+    heardRef.current = "";
+    fellBackRef.current = false;
+    if (!speechSupported()) {
+      fallBack();
+      return;
+    }
+    const l = startListening({
+      onText: (t) => {
+        if (epoch !== voiceEpoch.current) return;
+        heardRef.current = t;
+        setInput(t);
+      },
+      onFallback: () => {
+        if (epoch === voiceEpoch.current) fallBack();
+      },
+      onEnd: () => {
+        listenerRef.current = null;
+        if (epoch !== voiceEpoch.current || fellBackRef.current) return;
+        setListening(false);
+        setHint(null);
+        const heard = heardRef.current.trim();
+        if (heard) void runVoice(heard, epoch);
+      },
+    });
+    if (!l) {
+      fallBack();
+      return;
+    }
+    listenerRef.current = l;
+    setInput("");
+    setListening(true);
+    setHint(MIC_HINT);
+  };
+
+  useEffect(() => () => listenerRef.current?.stop(), []);
+
+  const chips = chipOrder
+    ? [
+        ...chipOrder
+          .map((l) => chipsFor(category).find((c) => c.label === l))
+          .filter((c): c is Chip => !!c),
+        ...chipsFor(category).filter((c) => !chipOrder.includes(c.label)),
+      ]
+    : chipsFor(category);
   const refiners = refinersFor(category);
 
   return (
@@ -202,13 +329,30 @@ const SearchBar: React.FC<SearchBarProps> = ({
             <ChevronDown size={16} strokeWidth={1.7} />
           </button>
 
+          {/* MIC (S13c) — next to the camera. Speak a mood; the words show
+              in the box. Where the browser can't listen, the box takes
+              focus and the keyboard's own dictation does it. */}
+          <button
+            type="button"
+            onClick={tapMic}
+            aria-label={MIC_HINT}
+            aria-pressed={listening}
+            data-testid="voice-mic"
+            className={[
+              "ml-auto pl-3 transition flex-shrink-0",
+              listening ? "text-red-500 animate-pulse" : "text-[#2D5AB5] hover:text-[#244a99]",
+            ].join(" ")}
+          >
+            <Mic size={20} strokeWidth={1.7} />
+          </button>
+
           {/* CAMERA — mobile only, and it IS RekSnap: always opens the
               current snap flow regardless of session state. */}
           <button
             type="button"
             onClick={() => onSnap?.()}
             aria-label="Snap"
-            className="ml-auto pl-3 sm:hidden text-[#2D5AB5] hover:text-[#244a99] transition flex-shrink-0"
+            className="pl-3 sm:hidden text-[#2D5AB5] hover:text-[#244a99] transition flex-shrink-0"
           >
             <Camera size={20} strokeWidth={1.7} />
           </button>
@@ -217,10 +361,19 @@ const SearchBar: React.FC<SearchBarProps> = ({
         {/* ROW 2 (mobile) / right section (desktop): input + GO */}
         <div className="flex items-center flex-1 mt-2 sm:mt-0">
           <input
+            ref={inputRef}
             type="text"
-            placeholder={getPlaceholder()}
+            placeholder={hint ?? getPlaceholder()}
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={(e) => {
+              if (listening) return;
+              voiceEpoch.current++;
+              if (hint) setHint(null);
+              setInput(e.target.value);
+            }}
+            onBlur={() => {
+              if (!listening && hint) setHint(null);
+            }}
             className="flex-grow bg-transparent outline-none text-black placeholder-gray-500 text-base min-w-0"
           />
           <button type="submit" className="ml-2 font-semibold text-gray-800 hover:text-black transition flex-shrink-0">

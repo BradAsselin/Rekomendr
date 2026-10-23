@@ -1,7 +1,7 @@
 ﻿"use client";
 
 import React, { useEffect, useRef, useState } from "react";
-import SearchBar from "../src/components/SearchBar";
+import SearchBar, { type VoiceAnswer } from "../src/components/SearchBar";
 import ResultsV4 from "../src/components/ResultsV4";
 import RekSnapButton from "../src/components/RekSnapButton";
 import RekSnapResults, {
@@ -21,16 +21,17 @@ import SteerByRow from "../src/components/SteerByRow";
 import { fetchSlots, type SlotRequest } from "../src/lib/slotsClient";
 import { noteSetShown, seedEngineFromVisit } from "../src/lib/screenVisit";
 import { goToCategoryFor } from "../src/lib/goToCategory";
-import type { Chip, Refiner } from "../src/lib/moodChips";
+import { chipQuery, refinersFor, SURPRISE_ME, type Chip, type Refiner } from "../src/lib/moodChips";
+import { clearVoiceSet, setVoiceSet } from "../src/lib/voiceSignals";
 import {
   getAnonymousClientId,
   loadPrefsForCategory,
   recordWatched,
   type ShortlistEntry,
 } from "../src/lib/userPrefs";
-import { AIServiceError, isAIServiceError } from "../src/lib/aiServiceError";
+import { AIServiceError, isAIServiceError, readServiceFailure } from "../src/lib/aiServiceError";
 import { asToken } from "../src/lib/shareSnapshot";
-import { isWineCategory } from "../src/lib/wineShelf";
+import { bandFor, bandText, isWineCategory } from "../src/lib/wineShelf";
 import {
   getWineFavorite,
   syncWineState,
@@ -40,8 +41,11 @@ import {
 import WineBought from "../src/components/WineBought";
 import WineFollowup from "../src/components/WineFollowup";
 import GoTosList, { type GoToTarget } from "../src/components/GoTosList";
-import { getGoTos, logGoToEvent, onGoTosChange, syncGoTos, type GoTo } from "../src/lib/goTos";
+import { getGoTos, goTosFor, logGoToEvent, onGoTosChange, syncGoTos, type GoTo } from "../src/lib/goTos";
 import { BAR_CATEGORY } from "../src/lib/goToCategory";
+
+// S13c — a title named in a spoken mood, steering one recipe as a go-to.
+type TransientGoTo = { name: string; tmdbKind: "movie" | "tv"; tmdbId: number; at: string };
 
 // S12b — a chip's refiner, as the slot route reads it.
 const slotRefiner = (r: Refiner | null): SlotRequest["refiner"] =>
@@ -469,7 +473,7 @@ export default function Page() {
 
   // S12b — the set on screen came from the slot recipe (its request and
   // the go-to steering it), and the order/selection for the Steer by row.
-  const slotReqRef = useRef<{ req: SlotRequest; steer: string | null } | null>(null);
+  const slotReqRef = useRef<{ req: SlotRequest; steer: string | null; extraGoTo?: TransientGoTo } | null>(null);
   const lastQueryRef = useRef<string | null>(null);
   const [steerAnswer, setSteerAnswer] = useState<{
     category: Category;
@@ -839,9 +843,15 @@ export default function Page() {
     _cat: string,
     meta?: { chip: Chip; refiner: Refiner | null },
     // S12b — a Steer by tap: the recipe request to re-run, steered.
-    steerOpts?: { req: SlotRequest; steer: string }
+    // S13c — or a title named in a spoken mood (extraGoTo: steers this
+    // recipe without being a go-to).
+    steerOpts?: { req: SlotRequest; steer: string; extraGoTo?: TransientGoTo },
+    // S13c — this search answers a spoken mood: its five become the voice
+    // set whose taps, plays, shares, saves and stars are counted.
+    voice?: { moodId: string | null }
   ) => {
     const searchId = ++searchIdRef.current;
+    if (!voice) clearVoiceSet();
     lastQueryRef.current = query;
     lastActivityRef.current = Date.now();
 
@@ -914,12 +924,17 @@ export default function Page() {
       );
 
       if (slotReq) {
-        const ans = await fetchSlots(slotReq, { steer: steerOpts?.steer ?? null });
+        const extraGoTo = steerOpts?.extraGoTo;
+        const ans = await fetchSlots(slotReq, {
+          steer: steerOpts?.steer ?? null,
+          ...(extraGoTo ? { extraGoTos: [extraGoTo] } : {}),
+        });
         if (searchId !== searchIdRef.current) return;
         if (ans && ans.reks.length > 0) {
-          slotReqRef.current = { req: slotReq, steer: ans.steer };
+          slotReqRef.current = { req: slotReq, steer: ans.steer, extraGoTo };
           setSteerAnswer({ category: nextCategory, order: ans.order, selected: ans.steer });
           noteSetShown(nextCategory, ans.reks.map((r) => r.title));
+          if (voice) setVoiceSet(voice.moodId, ans.reks.map((r) => r.title));
           setReks(ans.reks);
           return;
         }
@@ -940,6 +955,7 @@ export default function Page() {
       if (searchId !== searchIdRef.current) return;
 
       noteSetShown(nextCategory, next.reks.map((r) => r.title));
+      if (voice) setVoiceSet(voice.moodId, next.reks.map((r) => r.title));
       setReks(next.reks);
       // S1.5 — two different empties, two different voices. A set the
       // real-title guard emptied carries its own plain-voice notice (the
@@ -974,6 +990,7 @@ export default function Page() {
     }
     if (category !== "Books") return;
     const searchId = ++searchIdRef.current;
+    clearVoiceSet();
     lastActivityRef.current = Date.now();
     setSearchError(null);
     setLoading(true);
@@ -1007,11 +1024,83 @@ export default function Page() {
     if (!s) return null;
     const ans = await fetchSlots(s.req, {
       steer: s.steer,
+      ...(s.extraGoTo ? { extraGoTos: [s.extraGoTo] } : {}),
       count: 1,
       slot: removed.slot,
       extraSeen: current.map((r) => r.title),
     }).catch(() => null);
     return ans?.reks[0] ?? null;
+  };
+
+  // S13c — VOICE MOOD INPUT v1 (docs/s13-opus-voice-plan.md, Part B). The
+  // bar heard a mood; /api/mood maps it onto the existing vocabulary, and
+  // the search runs down the path a chip tap (or a Steer by tap) already
+  // takes. No new pick logic. Unmapped → the bar keeps the words and puts
+  // the closest lanes first; never an error.
+  const handleVoice = async (transcript: string, bar: string): Promise<VoiceAnswer | null> => {
+    const started = Date.now();
+    let data: any = null;
+    try {
+      const res = await fetch("/api/mood", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          clientId: getAnonymousClientId(),
+          transcript,
+          barCategory: bar,
+          goTos: {
+            movies: goTosFor("Movies").map((g) => g.name),
+            tv: goTosFor("TV Shows").map((g) => g.name),
+            wine: getWineFavorite()?.name ?? null,
+          },
+        }),
+      });
+      if (!res.ok) {
+        // A named service failure speaks plainly; the words stay in the box.
+        const failure = await readServiceFailure(res);
+        if (failure) setSearchError(failure.message);
+        console.warn("[voice] mood parse failed", { status: res.status });
+        return null;
+      }
+      data = await res.json().catch(() => null);
+    } catch {
+      console.warn("[voice] mood parse unreachable — the words stay");
+      return null;
+    }
+    if (!data?.ok) return null;
+    const cat: string = data.category;
+    if (!data.mapped || (cat !== "Movies" && cat !== "TV Shows" && cat !== "Wine")) {
+      console.info("[voice] mood not mapped — showing the words", { closest: data.closest?.length ?? 0 });
+      return { mapped: false, category: cat, laneLabel: null, refinerLabel: null, closest: data.closest ?? [] };
+    }
+
+    const lane = data.lane as { label: string; lane: string } | null;
+    const chip: Chip = lane ? { label: lane.label, lane: lane.lane } : { label: SURPRISE_ME, lane: "" };
+    const refiner = refinersFor(cat).find((r) => r.label === data.refiner) ?? null;
+    const voice = { moodId: typeof data.moodId === "string" ? data.moodId : null };
+    if (cat === "Wine") {
+      // The wine chip search (lane + style vibe). A spoken price rides the
+      // lane slot as words ("Crisp White under $20") — pressure, not a
+      // guarantee; the pick path's band waits for the VOICE PR.
+      const band = data.price ? bandFor(null, data.price) : null;
+      const laneText = [chip.lane, band ? bandText(band) : ""].filter(Boolean).join(" ");
+      await handleSearch(chipQuery("Wine", { label: chip.label, lane: laneText }, refiner), "Wine", undefined, undefined, voice);
+    } else {
+      const req: SlotRequest = { category: cat, lane: chip.lane || null, refiner: slotRefiner(refiner) };
+      const goTo = data.goTo as { name: string; starred: boolean; tmdbKind: "movie" | "tv" | null; tmdbId: number | null } | null;
+      const steerOpts = goTo
+        ? {
+            req,
+            steer: goTo.name,
+            ...(!goTo.starred && goTo.tmdbKind && goTo.tmdbId
+              ? { extraGoTo: { name: goTo.name, tmdbKind: goTo.tmdbKind, tmdbId: goTo.tmdbId, at: new Date().toISOString() } }
+              : {}),
+          }
+        : undefined;
+      await handleSearch(chipQuery(cat, chip, refiner), cat, { chip, refiner }, steerOpts, voice);
+    }
+    console.info("[voice] mood → picks", { ms: Date.now() - started, category: cat, lane: chip.label, refiner: refiner?.label ?? null, steer: !!data.goTo });
+    return { mapped: true, category: cat, laneLabel: chip.label, refinerLabel: refiner?.label ?? null, closest: [] };
   };
 
   // The row's chips: the last recipe's order (nearest first, then most
@@ -1144,6 +1233,7 @@ export default function Page() {
           setLoading={setLoading}
           hasHistory={reks.length > 0}
           onSnap={openSnapPicker}
+          onVoice={handleVoice}
           onCategoryChange={(c) => {
             barCategoryRef.current = c;
             setBarCategory(c);
