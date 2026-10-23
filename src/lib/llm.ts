@@ -83,6 +83,9 @@ type DiagCall = {
   in: number;
   out: number;
   usd: number;
+  // A stream stopped on purpose (the media path, the wine cut) or failed:
+  // tokens are what was known when it ended (out ≈ streamed chars / 4).
+  aborted?: boolean;
 };
 
 type LlmContext = { provider: LlmProvider | null; diag: DiagCall[] | null };
@@ -155,7 +158,7 @@ const PRICES: Record<string, [number, number]> = {
 
 function record(
   step: LlmStep,
-  r: { provider: LlmProvider; model: string; ms: number; firstTokenMs: number | null },
+  r: { provider: LlmProvider; model: string; ms: number; firstTokenMs: number | null; aborted?: boolean },
   usage: LlmResult["usage"]
 ) {
   const diag = ctx.getStore()?.diag;
@@ -172,6 +175,7 @@ function record(
     in: inTok,
     out: outTok,
     usd: (inTok * p[0] + outTok * p[1]) / 1e6,
+    ...(r.aborted ? { aborted: true } : {}),
   });
 }
 
@@ -249,10 +253,22 @@ export async function llmCall(
   const { provider, model } = resolveStep(req.step);
   const started = Date.now();
   let firstTokenMs: number | null = null;
+  let streamedChars = 0;
+  let knownInput = 0;
   const delta = (t: string) => {
     if (!t) return;
     if (firstTokenMs == null) firstTokenMs = Date.now() - started;
+    streamedChars += t.length;
     onDelta?.(t);
+  };
+  // Diagnostics for a call that ended early (aborted or failed); rethrows.
+  const recordEnded = (err: unknown, provider: LlmProvider): never => {
+    record(
+      req.step,
+      { provider, model, ms: Date.now() - started, firstTokenMs, aborted: true },
+      { prompt_tokens: knownInput, completion_tokens: Math.ceil(streamedChars / 4) }
+    );
+    throw err;
   };
 
   if (provider === "anthropic") {
@@ -271,13 +287,19 @@ export async function llmCall(
       { signal: req.signal }
     );
     let text = "";
-    for await (const ev of stream) {
-      if (ev.type === "content_block_delta" && ev.delta.type === "text_delta") {
-        text += ev.delta.text;
-        delta(ev.delta.text);
+    let msg: Awaited<ReturnType<typeof stream.finalMessage>>;
+    try {
+      for await (const ev of stream) {
+        if (ev.type === "message_start") knownInput = ev.message.usage?.input_tokens ?? 0;
+        if (ev.type === "content_block_delta" && ev.delta.type === "text_delta") {
+          text += ev.delta.text;
+          delta(ev.delta.text);
+        }
       }
+      msg = await stream.finalMessage();
+    } catch (err) {
+      return recordEnded(err, provider);
     }
-    const msg = await stream.finalMessage();
     const u = msg.usage;
     const usage = {
       prompt_tokens:
@@ -325,20 +347,24 @@ export async function llmCall(
     let refusal = "";
     let finishReason: string | null = null;
     let usage: LlmResult["usage"] = null;
-    for await (const chunk of stream) {
-      const choice = chunk.choices?.[0];
-      const t = choice?.delta?.content ?? "";
-      text += t;
-      delta(t);
-      const r = (choice?.delta as { refusal?: string | null } | undefined)?.refusal;
-      if (typeof r === "string") refusal += r;
-      if (choice?.finish_reason) finishReason = choice.finish_reason;
-      if (chunk.usage) {
-        usage = {
-          prompt_tokens: chunk.usage.prompt_tokens ?? 0,
-          completion_tokens: chunk.usage.completion_tokens ?? 0,
-        };
+    try {
+      for await (const chunk of stream) {
+        const choice = chunk.choices?.[0];
+        const t = choice?.delta?.content ?? "";
+        text += t;
+        delta(t);
+        const r = (choice?.delta as { refusal?: string | null } | undefined)?.refusal;
+        if (typeof r === "string") refusal += r;
+        if (choice?.finish_reason) finishReason = choice.finish_reason;
+        if (chunk.usage) {
+          usage = {
+            prompt_tokens: chunk.usage.prompt_tokens ?? 0,
+            completion_tokens: chunk.usage.completion_tokens ?? 0,
+          };
+        }
       }
+    } catch (err) {
+      return recordEnded(err, provider);
     }
     const ms = Date.now() - started;
     record(req.step, { provider, model, ms, firstTokenMs }, usage);
