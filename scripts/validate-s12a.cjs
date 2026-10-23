@@ -89,7 +89,8 @@ const list = read("src/components/GoTosList.tsx");
 check("tiles carry + More like this", list.includes("+ More like this"), true);
 
 console.log("\n6. New wording: only the approved strings");
-const diff = execSync("git diff main -- src app", { cwd: root, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+// S13c: S12a's own merge (main has moved on).
+const diff = execSync("git diff 6588529~1 6588529 -- src app", { cwd: root, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
 const added = diff.split("\n").filter((l) => l.startsWith("+") && !l.startsWith("+++"));
 const jsxText = added
   .flatMap((l) => [...l.matchAll(/>\s*([A-Za-z][^<>{}]*?)\s*</g)].map((m) => m[1].trim()))
