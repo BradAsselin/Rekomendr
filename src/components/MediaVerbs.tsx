@@ -24,7 +24,9 @@ export const TrailerVerb: React.FC<{
   // Curated trailer link when the caller has one (search's rek.trailerUrl);
   // falls back to the YouTube "${name} trailer" search.
   href?: string;
-}> = ({ name, href }) => {
+  // S13c — the caller counts the open (voice signals).
+  onOpen?: () => void;
+}> = ({ name, href, onOpen }) => {
   const url =
     href ||
     `https://www.youtube.com/results?search_query=${encodeURIComponent(
@@ -35,6 +37,7 @@ export const TrailerVerb: React.FC<{
       href={url}
       target="_blank"
       rel="noopener noreferrer"
+      onClick={onOpen}
       className="hover:underline flex items-center gap-1"
     >
       <span>▶</span> Trailer
@@ -42,7 +45,7 @@ export const TrailerVerb: React.FC<{
   );
 };
 
-export const WhereToWatchVerb: React.FC<{ name: string }> = ({ name }) => {
+export const WhereToWatchVerb: React.FC<{ name: string; onOpen?: () => void }> = ({ name, onOpen }) => {
   const url = `https://www.google.com/search?q=${encodeURIComponent(
     `where to watch ${name}`
   )}`;
@@ -51,6 +54,7 @@ export const WhereToWatchVerb: React.FC<{ name: string }> = ({ name }) => {
       href={url}
       target="_blank"
       rel="noopener noreferrer"
+      onClick={onOpen}
       className="hover:underline"
     >
       Watch

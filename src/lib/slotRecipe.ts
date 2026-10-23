@@ -88,6 +88,13 @@ const GENRE_NAMES: Record<number, string> = {
 export const genreLine = (ids: number[]): string =>
   ids.map((g) => GENRE_NAMES[g]).filter(Boolean).slice(0, 2).join(" • ");
 
+// S13c — the lanes the recipe can build a pool for (the voice parser's
+// vocabulary for screens: the chip row's lanes plus the genres behind them).
+export const SLOT_LANES: Record<MediaKind, string[]> = {
+  movie: Object.keys(MOVIE_GENRES),
+  tv: Object.keys(TV_GENRES),
+};
+
 export function laneGenres(kind: MediaKind, lane: string | null | undefined): number[] {
   const k = (lane ?? "").trim().toLowerCase();
   return (kind === "movie" ? MOVIE_GENRES : TV_GENRES)[k] ?? [];

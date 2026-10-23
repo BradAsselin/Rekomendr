@@ -173,6 +173,105 @@ async function goToReadout(
   };
 }
 
+// S13c — voice moods. One row per spoken mood (the words, never audio)
+// and what happened to its five: tapped (details opened), played (trailer
+// or where to watch), shared, saved, starred — or ignored (shown, nothing
+// else). Counted per distinct card.
+type VoiceReadout = {
+  voice_moods: number;
+  voice_mapped_pct: number | null;
+  voice_movies: number;
+  voice_tv: number;
+  voice_wine: number;
+  voice_cards_shown: number;
+  voice_tapped: number;
+  voice_played: number;
+  voice_shared: number;
+  voice_saved: number;
+  voice_starred: number;
+  voice_ignored: number;
+  voice_ignored_pct: number | null;
+  voice_recent: { said: string; mapped: string }[];
+};
+
+const VOICE_LABELS: [Exclude<keyof VoiceReadout, "voice_recent">, string][] = [
+  ["voice_moods", "Voice: moods spoken"],
+  ["voice_mapped_pct", "Voice: mapped to tags (%)"],
+  ["voice_movies", "Voice: → Movies"],
+  ["voice_tv", "Voice: → TV"],
+  ["voice_wine", "Voice: → Wine"],
+  ["voice_cards_shown", "Voice: cards shown"],
+  ["voice_tapped", "Voice: cards tapped"],
+  ["voice_played", "Voice: cards played (trailer/watch)"],
+  ["voice_shared", "Voice: cards shared"],
+  ["voice_saved", "Voice: cards saved"],
+  ["voice_starred", "Voice: cards starred"],
+  ["voice_ignored", "Voice: cards ignored"],
+  ["voice_ignored_pct", "Voice: ignored (%)"],
+];
+
+const esc = (s: string) =>
+  s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c] as string);
+
+async function voiceReadout(
+  store: NonNullable<Awaited<ReturnType<typeof getSnapshotStore>>>,
+  since: string,
+  agentsOnly: boolean
+): Promise<VoiceReadout | null> {
+  const [moods, events] = await Promise.all([
+    store
+      .from("voice_moods")
+      .select("id, client_id, transcript, category, chip, refiner, go_to, price, mapped, created_at")
+      .gte("created_at", since)
+      .order("created_at", { ascending: false })
+      .limit(20000),
+    store.from("voice_events").select("mood_id, client_id, kind, title").gte("created_at", since).limit(100000),
+  ]);
+  if (moods.error || events.error) {
+    console.warn("[stats] voice readout unavailable", {
+      moods: moods.error?.code ?? null,
+      events: events.error?.code ?? null,
+    });
+    return null;
+  }
+  const mine = (r: { client_id: unknown }) =>
+    agentsOnly ? String(r.client_id).startsWith("anon_agent") : !String(r.client_id).startsWith("anon_agent");
+  const m = (moods.data ?? []).filter(mine);
+  const ev = (events.data ?? []).filter(mine);
+  const cards = new Map<string, Set<string>>();
+  for (const e of ev) {
+    const key = `${e.mood_id}|${e.title}`;
+    if (!cards.has(key)) cards.set(key, new Set());
+    cards.get(key)!.add(String(e.kind));
+  }
+  const all = Array.from(cards.values());
+  const shown = all.filter((k) => k.has("shown"));
+  const count = (kind: string) => all.filter((k) => k.has(kind)).length;
+  const ignored = shown.filter((k) => k.size === 1).length;
+  const mapped = m.filter((r) => r.mapped).length;
+  return {
+    voice_moods: m.length,
+    voice_mapped_pct: m.length ? Math.round((mapped / m.length) * 1000) / 10 : null,
+    voice_movies: m.filter((r) => r.category === "movies").length,
+    voice_tv: m.filter((r) => r.category === "tv").length,
+    voice_wine: m.filter((r) => r.category === "wine").length,
+    voice_cards_shown: shown.length,
+    voice_tapped: count("tap"),
+    voice_played: count("play"),
+    voice_shared: count("share"),
+    voice_saved: count("save"),
+    voice_starred: count("star"),
+    voice_ignored: ignored,
+    voice_ignored_pct: shown.length ? Math.round((ignored / shown.length) * 1000) / 10 : null,
+    voice_recent: m.slice(0, 10).map((r) => ({
+      said: String(r.transcript ?? ""),
+      mapped: r.mapped
+        ? [r.category, r.chip, r.refiner, r.go_to ? `like ${r.go_to}` : null, r.price].filter(Boolean).join(" · ")
+        : "not mapped",
+    })),
+  };
+}
+
 export async function GET(req: Request): Promise<Response> {
   const url = new URL(req.url);
   if (!keyOk(url.searchParams.get("key"))) return notFound();
@@ -198,20 +297,28 @@ export async function GET(req: Request): Promise<Response> {
   }
 
   const agentsOnly = url.searchParams.get("agents") === "1";
-  const [wine, goTos] = await Promise.all([
+  const [wine, goTos, voice] = await Promise.all([
     wineReadout(store, since, agentsOnly),
     goToReadout(store, since, agentsOnly),
+    voiceReadout(store, since, agentsOnly),
   ]);
 
   const headers = { "Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow" };
   if (url.searchParams.get("format") === "json") {
-    return Response.json({ ...readout, ...(wine ?? {}), ...(goTos ?? {}) }, { headers });
+    return Response.json({ ...readout, ...(wine ?? {}), ...(goTos ?? {}), ...(voice ?? {}) }, { headers });
   }
 
   const rows =
     LABELS.map(([k, label]) => `<tr><td>${label}</td><td>${readout[k] ?? "—"}</td></tr>`).join("") +
     WINE_LABELS.map(([k, label]) => `<tr><td>${label}</td><td>${wine ? wine[k] : "—"}</td></tr>`).join("") +
-    GOTO_LABELS.map(([k, label]) => `<tr><td>${label}</td><td>${goTos ? goTos[k] ?? "—" : "—"}</td></tr>`).join("");
+    GOTO_LABELS.map(([k, label]) => `<tr><td>${label}</td><td>${goTos ? goTos[k] ?? "—" : "—"}</td></tr>`).join("") +
+    VOICE_LABELS.map(([k, label]) => `<tr><td>${label}</td><td>${voice ? voice[k] ?? "—" : "—"}</td></tr>`).join("") +
+    (voice?.voice_recent.length
+      ? `<tr><td colspan="2" style="padding-top:16px;font-weight:600">Recent spoken moods</td></tr>` +
+        voice.voice_recent
+          .map((v) => `<tr><td>“${esc(v.said)}”</td><td style="font-weight:400">${esc(v.mapped)}</td></tr>`)
+          .join("")
+      : "");
   return new Response(
     `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex"><title>Rekomendr test readout</title>
 <style>body{font-family:-apple-system,system-ui,sans-serif;margin:16px;color:#111827}table{border-collapse:collapse;width:100%;max-width:28rem}td{padding:8px 4px;border-bottom:1px solid #e5e7eb;font-size:16px}td:last-child{text-align:right;font-variant-numeric:tabular-nums;font-weight:600}p{color:#4b5563;font-size:14px}</style>
