@@ -38,7 +38,8 @@ const PosterThumb: React.FC<{ path: string | null | undefined; onHide: () => voi
           e.stopPropagation();
           onHide();
         }}
-        aria-label="Hide posters"
+        // Its screen-reader name is new wording, so it waits for Brad's OK (separate PR).
+        data-testid="poster-hide"
         className="absolute -right-2.5 -top-2.5 flex h-11 w-11 items-start justify-end p-3"
       >
         <span className="flex h-5 w-5 items-center justify-center rounded-full bg-black/55 text-white">
