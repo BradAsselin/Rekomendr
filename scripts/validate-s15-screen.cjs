@@ -147,7 +147,7 @@ for (const level of ["warn", "info", "error"]) console[level] = () => {};
   check("fewer than two real titles → screen null (the normal snap answers)", route.includes("titles.length < 2") && route.includes("screen: null"), true);
   check("cards are built from TMDb bundles only", /ranked\.titles\.map\(\(b, i\) =>[\s\S]*title: b\.title,/.test(route), true);
   check("'Start with this one' only on the best match", /screenNote: i === 0 \? START_WITH : null/.test(route) && route.includes('const START_WITH = "Start with this one";'), true);
-  check("where to watch: the photo's service first, then TMDb's", route.includes("service ?? b.completion.watch?.stream[0]?.name"), true);
+  check("where to watch: the photo's service first, then TMDb's", (route.includes("service ?? b.completion.watch?.stream[0]?.name") || (route.includes("whereOf(b, service)") && read("src/lib/tmdbMedia.ts").includes("service ?? b.completion.watch?.stream[0]?.name"))) /* S16 shared whereOf */, true);
   check("lines from the S12 writer", route.includes("linesVsGoTo({"), true);
   check("wrapped for the dev hook", /export async function POST\(req: Request\) \{\s*return withLlmContext\(req, \(\) => handlePost\(req\)\);/.test(route), true);
 
@@ -156,15 +156,17 @@ for (const level of ["warn", "info", "error"]) console[level] = () => {};
   const snap = page.slice(page.indexOf("const handleSnapFile"), page.indexOf("const handleSearch = async"));
   check("screen read only on the Movies/TV bar", snap.includes('if (bar === "Movies" || bar === "TV Shows") {'), true);
   check("…beside the normal snap, which is aborted when the screen answers", ["const firstP = postSnap({ image }, snapAbort.signal);", "snapAbort.abort();", "data = await firstP;"].map((t) => snap.includes(t)), [true, true, true]);
-  check("Steer by on a screen set re-ranks the same titles", /if \(screenRef\.current\) \{[\s\S]*fetchScreen\(\{ titles: s\.titles, service: s\.service, steer: name \}\)/.test(page), true);
+  // S17 — the Steer by row is gone (Movies/TV), so it no longer re-ranks a screen set.
+  check("Steer by row removed (S17)", page.includes("SteerByRow"), false);
   check("a thumbs-down never brings in a title that wasn't on the screen", /slotBackfill = async[\s\S]{0,300}if \(screenRef\.current\) return null;/.test(page), true);
   check("a new search, snap or home leaves screen mode", (page.match(/leaveScreen\(\);/g) || []).length, 3);
   check("header wording", page.includes(">\n                          From your screen\n") || page.includes("From your screen"), true);
   const words = (page.match(/"[^"]*"|>[^<>{}]+</g) || []).join(" ");
-  check("no other new user-facing words in the page diff", require("child_process").execSync("git diff main -- app/page.tsx", { cwd: root, encoding: "utf8" })
+  check("no other new user-facing words in the page diff", require("child_process").execSync("git diff 1c60240 2ab1240 -- app/page.tsx" /* S15's own range (main moved on) */, { cwd: root, encoding: "utf8" })
     .split("\n").filter((l) => /^\+/.test(l) && !/^\+\+\+/.test(l) && /^\+\s*[A-Z][a-z]+[^=;(){}]*$/.test(l)).map((l) => l.slice(1).trim()), ["From your screen"]);
   check("Results: the screen note rides the marker line; facts ride the descriptor line",
-    [read("src/components/ResultsV4.tsx").split("markerLine={rek.resurfacedNote ?? rek.screenNote}").length - 1, read("src/components/DescriptorLine.tsx").includes("...(rek.facts ?? [])")], [2, true]);
+    // S17 — D2 (Movies/TV) frontier cards keep only the screen note on the marker line.
+    [(read("src/components/ResultsV4.tsx").match(/markerLine=\{d2 \? (rek\.screenNote|undefined) : rek\.resurfacedNote \?\? rek\.screenNote\}/g) || []).length, read("src/components/DescriptorLine.tsx").includes("...(rek.facts ?? [])")], [2, true]);
   void words;
 
   console.log(`\n${passed} passed, ${failed} failed.`);

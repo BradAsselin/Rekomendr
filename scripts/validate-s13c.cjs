@@ -191,13 +191,17 @@ const noGoTos = { movies: [], tv: [], wine: null };
   const base = execSync("git show 0a81a81:src/components/SearchBar.tsx", { cwd: ROOT, encoding: "utf8" }).replace(/\r\n/g, "\n");
   // Quoted strings and JSX text that a person could read (a TS generic
   // like "=> Promise<" is not text).
-  const strings = (s) =>
-    new Set(
+  // S17 — comment lines aren't wording; they're dropped before matching.
+  const uncommented = (s) => s.split("\n").filter((l) => !/^\s*(\/\/|\/\*|\*)/.test(l)).join("\n");
+  const strings = (raw) => {
+    const s = uncommented(raw);
+    return new Set(
       (s.match(/"[A-Z][^"]{6,}"/g) || [])
         .concat(s.match(/>\s*[A-Z][^<{]{6,}</g) || [])
         .map((x) => x.replace(/\s+/g, " ").trim())
         .filter((x) => !/^> Promise</.test(x))
     );
+  };
   const added = [...strings(bar)].filter((x) => !strings(base).has(x));
   check("approved wording only: the two hints", added.sort(), ['"Say what you’re in the mood for"', '"Tap the keyboard mic to speak"'].sort());
   check("mic sits right before the camera, one tap target", bar.indexOf('data-testid="voice-mic"') < bar.indexOf('aria-label="Snap"') && (bar.match(/onClick=\{tapMic\}/g) || []).length, 1);
@@ -210,7 +214,7 @@ const noGoTos = { movies: [], tv: [], wine: null };
   check("one phrase, interim words shown", /continuous = false/.test(vin) && /interimResults = true/.test(vin), true);
   check("no audio leaves the page (only text is posted)", !/MediaRecorder|getUserMedia|audio\/webm/.test(vin + bar), true);
   const page = read("app/page.tsx");
-  check("screens: the slot recipe with the mapped chip, steered when a title was named", /await handleSearch\(chipQuery\(cat, chip, refiner\), cat, \{ chip, refiner \}, steerOpts, voice\);/.test(page), true);
+  check("screens: the slot recipe with the mapped chip, steered when a title was named", (/await handleSearch\(chipQuery\(cat, chip, refiner\), cat, \{ chip, refiner \}, steerOpts, voice\);/.test(page) || /await handleSearch\(chipQuery\(cat, plan\.chip, plan\.refiner\), cat, \{ chip: plan\.chip, refiner: plan\.refiner \}, plan\.steerOpts, voice\);/.test(page)) /* S16: slotPlanFromMood */, true);
   check("wine: the wine chip search, price as lane words", /chipQuery\("Wine", \{ label: chip\.label, lane: laneText \}, refiner\)/.test(page), true);
   check("a named title rides as a transient go-to, kept for replacements", /extraGoTos: \[extraGoTo\]/.test(page) && /\.\.\.\(s\.extraGoTo \? \{ extraGoTos: \[s\.extraGoTo\] \} : \{\}\)/.test(page), true);
   check("any other search ends the voice set", /if \(!voice\) clearVoiceSet\(\);/.test(page), true);

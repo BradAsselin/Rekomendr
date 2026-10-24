@@ -152,7 +152,8 @@ let nextEventId = 1;
 const fail_ = { table: null };
 function query(table) {
   const st = { op: "select", filters: [], order: null, limit: null, range: null, count: false, head: false, payload: null, upsert: false };
-  const rowsOf = () => db[table];
+  // A table this harness never seeds (S17: user_likes, for the Watched row) reads as empty.
+  const rowsOf = () => (db[table] ??= []);
   const match = (r) => st.filters.every((f) => f(r));
   const run = () => {
     if (fail_.table === table) return { data: null, error: { code: "XX000" }, count: null };

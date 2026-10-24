@@ -17,6 +17,10 @@ import { postJson, tmdbCardSnapshot } from "../lib/shareSnapshot";
 import RekSkeleton, { RekSkeletonCard } from "./RekSkeleton";
 import RekTrail, { TrailRow } from "./RekTrail";
 import ShortlistStrip, { type ShortlistItem } from "./ShortlistStrip";
+import { WatchedButton, WatchedToast, UndoToast, type UndoToastLabel } from "./WatchedControl";
+import { useWatchedMarks, watchedCategory, type WatchedItem, TOAST_MS } from "../lib/useWatchedMarks";
+import PosterThumb from "./PosterThumb";
+import { setPostersHidden, usePostersOn } from "../lib/posterPref";
 
 // Scroll-compensated layout commits for trail migrations (see the module
 // comment — layout changes once, animation is transform/opacity only).
@@ -26,7 +30,7 @@ import { compensatedCommit } from "../lib/scrollCompensation";
 import { getBackfillRek, getMoreLikeThisSet } from "../engine/rekomendrEngine";
 import { isAIServiceError } from "../lib/aiServiceError";
 import type { Rek } from "../engine/rekomendrEngine";
-import { getAnonymousClientId, recordLike } from "../lib/userPrefs";
+import { getAnonymousClientId, recordLike, undoSignal } from "../lib/userPrefs";
 import { resurfacedMarker } from "../engine/rekomendrEngine";
 
 // Descriptor typing
@@ -71,9 +75,12 @@ interface ResultsProps {
   // S1 — the Shortlist strip. Owned by the page (so it survives search to
   // search within the visit) and rendered here, above the results.
   shortlist?: ShortlistItem[];
-  // Fires for every "Watched it" tap, from the strip or an expanded card.
-  // The page owns the write and the optimistic list update.
+  // Fires for every "Watched it" tap on the strip. The page owns the
+  // write and the optimistic list update.
   onWatched?: (item: { title: string; year: number | null }) => void;
+  // S16 — a card's "Watched" mark or undo (this component owns the write;
+  // the page keeps its session list, which every re-run excludes).
+  onWatchedChange?: (item: WatchedItem, watched: boolean) => void;
   watchPendingTitle?: string | null;
   watchFailedTitle?: string | null;
   initialVertical?: Category;
@@ -84,6 +91,12 @@ interface ResultsProps {
   // from the same recipe (the no-repeat guarantee covers it).
   steerRow?: React.ReactNode;
   backfillOverride?: (removed: Rek, current: Rek[]) => Promise<Rek | null>;
+  // S16 — early paint: the five are on screen and their "vs." lines are
+  // still being written (they land on the same cards, merged in place).
+  linesPending?: boolean;
+  // S17 — the results header: the active chips ("Comedy · Feel-good") or
+  // the typed/spoken words. Data, never copy.
+  header?: string | null;
 }
 
 const ResultsV4: React.FC<ResultsProps> = ({
@@ -96,10 +109,13 @@ const ResultsV4: React.FC<ResultsProps> = ({
   persistedDislikedTitles = [],
   shortlist = [],
   onWatched,
+  onWatchedChange,
   watchPendingTitle,
   watchFailedTitle,
   steerRow,
   backfillOverride,
+  linesPending,
+  header,
 }) => {
   const [reks, setReks] = useState<Rek[]>([]);
   // Mark state (graduation model, same as the snap lane): thumbs-up marks
@@ -163,6 +179,105 @@ const ResultsV4: React.FC<ResultsProps> = ({
   // across a wipe (the snap lane's listEpochRef, R2/R5 — same race class).
   const frontierEpochRef = useRef(0);
 
+  /* -----------------------------
+   * S17 — THE D2 CARD (Movies/TV; docs/s17-mood-first-plan.md)
+   * ----------------------------- */
+  const d2 = category === "Movies" || category === "TV Shows";
+  const postersOn = usePostersOn();
+
+  // One toast for the lane: the newest act replaces the last; ~4 s; a new
+  // set drops it (the act stands). Undo runs the act's own reversal.
+  const [toast, setToast] = useState<{ label: UndoToastLabel; undo: () => void } | null>(null);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showToast = (label: UndoToastLabel, undo: () => void) => {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    setToast({ label, undo });
+    toastTimer.current = setTimeout(() => {
+      toastTimer.current = null;
+      setToast(null);
+    }, TOAST_MS);
+  };
+  const dropToast = () => {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    toastTimer.current = null;
+    setToast(null);
+  };
+  useEffect(() => () => {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+  }, []);
+
+  // The like-table writes in flight, by "action|title": an Undo waits for
+  // its write before deleting, so it can never run ahead of the insert.
+  const writesRef = useRef(new Map<string, Promise<void>>());
+  const writeLike = (rek: Rek, action: "dislike" | "save") => {
+    const p = recordLike({ category, title: rek.title, year: rek.year, action }).catch(() => {});
+    writesRef.current.set(`${action}|${rek.title}`, p);
+  };
+  const unwriteLike = (rek: Rek, action: "dislike" | "save") => {
+    const pending = writesRef.current.get(`${action}|${rek.title}`) ?? Promise.resolve();
+    writesRef.current.delete(`${action}|${rek.title}`);
+    void pending.then(async () => {
+      const res = await undoSignal({ category, title: rek.title, action });
+      if (!res.ok) console.warn("[signal-undo] not persisted", { action, reason: res.reason });
+    });
+  };
+
+  // Commitment + where ("1h 43m · on Netflix") for cards that arrived
+  // without it — the AI search's five, matched to TMDb by the title check.
+  // Slot and screen cards already carry it. One batched read per set;
+  // lands by id, and a late answer for a replaced set is dropped (epoch).
+  const factsAskedRef = useRef(new Set<number>());
+  useEffect(() => {
+    if (!d2) return;
+    const kind = category === "TV Shows" ? "tv" : "movie";
+    const need = [...reks, ...trail].filter(
+      (r) => r.tmdbId != null && r.facts === undefined && !factsAskedRef.current.has(r.id)
+    );
+    if (need.length === 0) return;
+    need.forEach((r) => factsAskedRef.current.add(r.id));
+    const epoch = frontierEpochRef.current;
+    void fetch("/api/facts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ items: need.map((r) => ({ kind, id: r.tmdbId })) }),
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (epoch !== frontierEpochRef.current) return;
+        const by = new Map<number, { facts: string[]; posterPath: string | null }>();
+        for (const f of Array.isArray(data?.facts) ? data.facts : []) {
+          if (Number.isInteger(f?.id)) by.set(f.id, { facts: Array.isArray(f.facts) ? f.facts : [], posterPath: f.posterPath ?? null });
+        }
+        const fill = (list: Rek[]) => {
+          let changed = false;
+          const next = list.map((r) => {
+            const f = r.tmdbId != null && r.facts === undefined ? by.get(r.tmdbId) : undefined;
+            if (!f) return r;
+            changed = true;
+            return { ...r, facts: f.facts, posterPath: r.posterPath ?? f.posterPath };
+          });
+          return changed ? next : list;
+        };
+        setReks(fill);
+        setTrail(fill);
+      })
+      .catch(() => console.warn("[facts] request failed — cards keep no line"));
+  }, [d2, category, reks, trail]);
+
+  // Put a dismissed card back where it was (Undo). The frontier may hold
+  // six for a moment if its backfill already landed — the existing
+  // carried-sixth policy; nothing is dismissed to make room.
+  const restoreToFrontier = (rek: Rek, index: number) => {
+    setReks((prev) => {
+      if (prev.some((r) => r.id === rek.id)) return prev;
+      const next = [...prev];
+      next.splice(Math.min(index, next.length), 0, rek);
+      return next;
+    });
+    setVisibleIds((p) => (p.includes(rek.id) ? p : [...p, rek.id]));
+    setExiting((cur) => (cur === rek.id ? null : cur));
+  };
+
   const allLikedTitlesRef = useRef<string[]>([]);
   const allDislikedTitlesRef = useRef<string[]>([]);
   useEffect(() => {
@@ -196,7 +311,30 @@ const ResultsV4: React.FC<ResultsProps> = ({
   /* -----------------------------
    * SYNC WITH PROPS (ENGINE → UI)
    * ----------------------------- */
+  // The ids of the last set the page sent. The same ids again = the same
+  // set with its lines filled in (S16): merge, don't reset.
+  const lastIncomingIdsRef = useRef<string>("");
   useEffect(() => {
+    const ids = (incomingReks ?? []).map((r) => `${r.id}:${r.title}`).join("|");
+    if (ids && ids === lastIncomingIdsRef.current) {
+      const by = new Map(incomingReks.map((r) => [r.id, r]));
+      const merge = (list: Rek[]) => {
+        let changed = false;
+        const next = list.map((r) => {
+          const n = by.get(r.id);
+          if (!n || (n.short === r.short && n.vsGoTo === r.vsGoTo)) return r;
+          changed = true;
+          return { ...r, short: n.short, vsGoTo: n.vsGoTo };
+        });
+        return changed ? next : list;
+      };
+      setReks(merge);
+      setTrail(merge);
+      return;
+    }
+    lastIncomingIdsRef.current = ids;
+    dropToast(); // S17 — a new set drops the toast; the act stands
+    factsAskedRef.current.clear();
     // A new search replaces the whole result view — the old trail leaves
     // with it, same as marked cards always vanished on a new search. The
     // marks persist in contenders/saved, so their titles keep feeding
@@ -553,7 +691,8 @@ const ResultsV4: React.FC<ResultsProps> = ({
   // recovered clarify-pills inherit the "why" job later.
   const handleDislike = (rek: Rek) => {
     setExiting(rek.id);
-    recordLike({ category, title: rek.title, year: rek.year, action: 'dislike' });
+    const index = reksRef.current.findIndex((r) => r.id === rek.id);
+    writeLike(rek, "dislike");
     setSessionDislikedTitles((p) => [...p, rek.title]);
     // A thumbed-up card can still be thumbed down; drop the contender mark so
     // its title doesn't sit in both the liked and disliked exclusion lists.
@@ -563,6 +702,19 @@ const ResultsV4: React.FC<ResultsProps> = ({
       handleBackfill(rek);
       setExiting(null);
     }, 250);
+    // S17 — "Not for me · Undo": the card comes back where it was, and the
+    // dislike leaves the table and the session's exclusions.
+    if (d2) {
+      showToast("Not for me", () => {
+        dropToast();
+        setSessionDislikedTitles((p) => {
+          const i = p.lastIndexOf(rek.title);
+          return i < 0 ? p : [...p.slice(0, i), ...p.slice(i + 1)];
+        });
+        unwriteLike(rek, "dislike");
+        setTimeout(() => restoreToFrontier(rek, Math.max(0, index)), 260);
+      });
+    }
   };
 
   // Save marks and graduates, same as a thumb-up. Second tap un-marks —
@@ -571,14 +723,24 @@ const ResultsV4: React.FC<ResultsProps> = ({
   // trail to the top of the frontier.
   const handleSave = (rek: Rek) => {
     noteVoiceAction("save", rek.title);
-    if (saved.some((s) => s.id === rek.id)) {
+    if (savedRef.current.some((s) => s.id === rek.id)) {
       setSaved((p) => p.filter((s) => s.id !== rek.id));
-      if (!contenders.some((c) => c.id === rek.id)) returnToFrontier(rek.id);
+      if (!contendersRef.current.some((c) => c.id === rek.id)) returnToFrontier(rek.id);
+      // S17 — on a D2 card un-saving is real: the row leaves the table, so
+      // the Saved page never lists what the person took back.
+      if (d2) unwriteLike(rek, "save");
       return;
     }
-    recordLike({ category, title: rek.title, year: rek.year, action: 'save' });
+    if (d2) writeLike(rek, "save");
+    else recordLike({ category, title: rek.title, year: rek.year, action: 'save' });
     setSaved((p) => [...p, rek]);
     migrateToTrail(rek);
+    if (d2) {
+      showToast("Saved", () => {
+        dropToast();
+        if (savedRef.current.some((s) => s.id === rek.id)) handleSave(rek);
+      });
+    }
   };
 
   /* -----------------------------
@@ -645,33 +807,69 @@ const ResultsV4: React.FC<ResultsProps> = ({
     ) : undefined;
   const touchstonesLogged = useRef(new Set<string>());
   useEffect(() => {
+    // S17 — the D2 card has no touchstone label, so nothing to count there.
+    if (d2) return;
     for (const r of reks) {
       if (r.slot !== "touchstone" || touchstonesLogged.current.has(r.title)) continue;
       touchstonesLogged.current.add(r.title);
       logGoToEvent("touchstone_shown", goToCategoryFor(category));
     }
-  }, [reks, category]);
+  }, [reks, category, d2]);
 
   // S12b — "vs. your Lioness: …" leads a card steered by a go-to.
   const vsLead = (rek: Rek) => (rek.vsGoTo ? `vs. your ${goToShortName(rek.vsGoTo)}:` : undefined);
 
-  // S1 — "Watched it". Media only: the charter's watched arc is the
-  // can't-wait-to-watch arc, and the media-adjacent verb pairs (Listen /
-  // Read for music and books) are explicitly a later, prepared-only item.
-  // Wine has no "finished" verb at all. Non-media categories therefore get
-  // a Shortlist they can read but not retire from — deliberate, and named
-  // in the PR rather than half-built here.
-  const watchedVerb = (rek: Rek): React.ReactNode =>
-    isMedia && onWatched ? (
-      <button
-        type="button"
-        disabled={watchPendingTitle === rek.title}
-        onClick={() => onWatched({ title: rek.title, year: rek.year ?? null })}
-        className="rounded-lg border border-gray-300 px-2.5 py-1 text-[13px] text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-      >
-        {watchPendingTitle === rek.title ? "Saving…" : "Watched it"}
-      </button>
+  // S16 — "Watched" on every Movies/TV/Books card (bottom-left, always
+  // visible; replaces S1's expanded-only "Watched it"). Wine has its own
+  // actions and gets none; the gate is the go-to allow-list.
+  // S17 — on a D2 card the lane's one toast speaks for Watched too.
+  const watched = useWatchedMarks(onWatchedChange, { silent: d2 });
+  const watchCat = watchedCategory(category);
+  // S17 — on a D2 frontier card, Watched fades the card out of the five
+  // (it's decided) and the slot backfills; Undo brings it back where it
+  // was. A trail card (already kept) just dims, as in S16.
+  const toggleWatched = (rek: Rek, inFrontier: boolean) => {
+    if (!watchCat) return;
+    const item = { title: rek.title, year: rek.year || null, category: watchCat };
+    if (!d2 || watched.isWatched(rek.title)) {
+      watched.toggle(item);
+      if (d2) dropToast();
+      return;
+    }
+    watched.toggle(item);
+    const index = reksRef.current.findIndex((r) => r.id === rek.id);
+    const leaves = inFrontier && index >= 0;
+    if (leaves) {
+      setExiting(rek.id);
+      setTimeout(() => {
+        setReks((p) => p.filter((r) => r.id !== rek.id));
+        handleBackfill(rek);
+        setExiting(null);
+      }, 250);
+    }
+    showToast("Watched", () => {
+      dropToast();
+      watched.undo(item);
+      if (leaves) setTimeout(() => restoreToFrontier(rek, index), 260);
+    });
+  };
+  const watchedFor = (rek: Rek, inFrontier = false): React.ReactNode =>
+    watchCat ? (
+      <WatchedButton on={watched.isWatched(rek.title)} onToggle={() => toggleWatched(rek, inFrontier)} />
     ) : undefined;
+
+  // S17 — the poster column (or nothing: posters hidden → D1, full-width
+  // text, and no image is ever requested).
+  const hidePosters = () => {
+    setPostersHidden(true);
+    showToast("Posters hidden", () => {
+      dropToast();
+      setPostersHidden(false);
+    });
+  };
+  const posterFor = (rek: Rek): React.ReactNode =>
+    postersOn ? <PosterThumb key={rek.posterPath ?? "none"} path={rek.posterPath} onHide={hidePosters} /> : undefined;
+  const factsOf = (rek: Rek) => (rek.facts && rek.facts.length > 0 ? rek.facts.join(" · ") : undefined);
 
   return (
     <div className="w-full flex flex-col items-center px-4 pt-2 pb-14 select-none">
@@ -688,7 +886,7 @@ const ResultsV4: React.FC<ResultsProps> = ({
                   voices (pool + AI running-dry), so one label = one voice. */}
               <button
                 onClick={() => onPlayVibe?.()}
-                className="px-3 py-2 rounded-xl text-sm bg-gray-900 text-white hover:opacity-90"
+                className="px-3 py-2 rounded-xl text-sm border border-gray-300 bg-transparent text-gray-800 hover:border-gray-400"
               >
                 <Play size={16} className="inline-block mr-1" />
                 Try another lane
@@ -696,7 +894,7 @@ const ResultsV4: React.FC<ResultsProps> = ({
 
               <button
                 onClick={() => setExhaustedMessage(null)}
-                className="px-3 py-2 rounded-xl text-sm border border-gray-300 bg-white hover:bg-gray-50"
+                className="px-3 py-2 rounded-xl text-sm border border-gray-300 bg-transparent text-gray-800 hover:border-gray-400"
               >
                 Dismiss
               </button>
@@ -732,6 +930,16 @@ const ResultsV4: React.FC<ResultsProps> = ({
 
       {steerRow}
 
+      {/* S17 — what this set answers: the chips, or the words. */}
+      {header && (
+        <div
+          data-testid="results-header"
+          className="w-full max-w-xl mb-2 truncate text-[13px] font-medium text-gray-300 sm:text-gray-600"
+        >
+          {header}
+        </div>
+      )}
+
       {/* Top 5 Cards — or the full skeleton while a fresh AI search
           generates. An MLT regeneration keeps the marked keepers on screen
           and pulses beneath them instead (see below). */}
@@ -743,7 +951,7 @@ const ResultsV4: React.FC<ResultsProps> = ({
           />
         </div>
       ) : (
-        <div className="w-full max-w-xl space-y-3">
+        <div className="w-full max-w-xl space-y-3" data-lines-pending={linesPending || undefined}>
           {/* THE TRAIL — the user's decided keeps, compact, at the top of
               the results. Tapping a row expands it in place to a full
               RekCard. Trail cards never get `swipeable` (keep-protection
@@ -763,17 +971,23 @@ const ResultsV4: React.FC<ResultsProps> = ({
                 >
                   <RekCard
                     genreLine={
-                      <DescriptorLine
-                        rek={rek}
-                        category={toRekCategory(category)}
-                      />
+                      d2 ? undefined : (
+                        <DescriptorLine
+                          rek={rek}
+                          category={toRekCategory(category)}
+                        />
+                      )
                     }
                     title={rek.title}
                     year={rek.year}
-                    markerLine={rek.resurfacedNote ?? rek.screenNote}
+                    markerLine={d2 ? undefined : rek.resurfacedNote ?? rek.screenNote}
+                    layout={d2 ? "d2" : "classic"}
+                    poster={d2 ? posterFor(rek) : undefined}
+                    factsLine={d2 ? factsOf(rek) : undefined}
                     short={rek.short}
                     long={rek.long}
-                    detailAction={watchedVerb(rek)}
+                    watchedSlot={watchedFor(rek)}
+                    dimmed={watched.isWatched(rek.title)}
                     titleHref={isMedia ? titleInfoUrl(rek.title) : undefined}
                     detailsOpen={expandedTop === rek.id}
                     onToggleDetails={() => {
@@ -827,16 +1041,28 @@ const ResultsV4: React.FC<ResultsProps> = ({
             >
               <RekCard
                 genreLine={
-                  <DescriptorLine rek={rek} category={toRekCategory(category)} />
+                  d2 ? undefined : <DescriptorLine rek={rek} category={toRekCategory(category)} />
                 }
                 title={rek.title}
                 year={rek.year}
                 /* S1 — set by the engine on the freshness slot only, and
-                   only when that slot landed on a real past like. */
-                markerLine={rek.resurfacedNote ?? rek.screenNote}
+                   only when that slot landed on a real past like. S17: not
+                   on the D2 card (it lived beside the Shortlist strip, which
+                   is gone); the slot itself still runs. A screen set's
+                   "Start with this one" stays — it's that set's answer. */
+                markerLine={d2 ? rek.screenNote : rek.resurfacedNote ?? rek.screenNote}
                 short={rek.short}
                 long={rek.long}
-                detailAction={watchedVerb(rek)}
+                watchedSlot={watchedFor(rek, true)}
+                dimmed={!d2 && watched.isWatched(rek.title)}
+                layout={d2 ? "d2" : "classic"}
+                poster={d2 ? posterFor(rek) : undefined}
+                factsLine={d2 ? factsOf(rek) : undefined}
+                /* S17 — swipe left = Not for me, right = Save for later
+                   (each with its Undo); the classic both-ways dismiss
+                   stays on Books and Wine. */
+                onSwipeLeft={d2 ? () => handleDislike(rek) : undefined}
+                onSwipeRight={d2 ? () => handleSave(rek) : undefined}
                 titleHref={isMedia ? titleInfoUrl(rek.title) : undefined}
                 detailsOpen={expandedTop === rek.id}
                 onToggleDetails={() => {
@@ -846,7 +1072,7 @@ const ResultsV4: React.FC<ResultsProps> = ({
                 // Swipe grammar (touch only): a committed swipe in either
                 // direction dismisses + backfills (thumbs-down). Liked or
                 // saved cards don't arm — same protection as the snap lane.
-                swipeable
+                swipeable={!d2}
                 thumbSignal={
                   contenders.some((c) => c.id === rek.id) ? "like" : null
                 }
@@ -855,8 +1081,8 @@ const ResultsV4: React.FC<ResultsProps> = ({
                 onThumbDown={() => handleDislike(rek)}
                 onSave={() => handleSave(rek)}
                 shareSlot={shareFor(rek)}
-                starSlot={starFor(rek)}
-                markerSlot={touchstoneLabel(rek)}
+                starSlot={d2 ? <GoToStar item={goToItem(rek)} onStar={() => noteVoiceAction("star", rek.title)} /> : starFor(rek)}
+                markerSlot={d2 ? undefined : touchstoneLabel(rek)}
                 shortLead={vsLead(rek)}
                 /* Media verbs stay expansion-gated in this lane (logic
                    unchanged, position only); MLT is the RIGHT chain verb —
@@ -889,7 +1115,7 @@ const ResultsV4: React.FC<ResultsProps> = ({
                     : isVisible
                     ? "opacity-100 translate-y-0"
                     : "opacity-0 translate-y-2",
-                  "transition-all duration-300 ease-out",
+                  "transition-all duration-300 ease-out motion-reduce:transition-none",
                 ].join(" ")}
                 style={{ transitionDelay: `${index * 60}ms` }}
               />
@@ -908,6 +1134,11 @@ const ResultsV4: React.FC<ResultsProps> = ({
         </div>
       )}
 
+      {d2 ? (
+        <UndoToast label={toast?.label ?? null} onUndo={() => toast?.undo()} />
+      ) : (
+        <WatchedToast item={watched.toast} onUndo={watched.undo} />
+      )}
     </div>
   );
 };

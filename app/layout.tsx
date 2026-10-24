@@ -2,6 +2,7 @@
 import "./globals.css";
 import InstallButton from "../src/components/InstallButton";
 import ShareButton from "../src/components/ShareButton";
+import SavedPage from "../src/components/SavedPage";
 
 export const metadata = {
   // S2 — link scrapers reject relative og:image URLs; this resolves them.
@@ -44,6 +45,7 @@ function TopBar() {
       }}
     >
       <div className="mx-auto flex h-12 w-full max-w-3xl items-center justify-end gap-2 px-4">
+        <SavedPage />
         <ShareButton />
         <InstallButton />
       </div>

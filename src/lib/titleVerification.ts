@@ -17,6 +17,13 @@ export type VerifyResult = {
   enabled: boolean;
   // Normalized-title -> resolved. Absent means "no verdict arrived".
   resolved: Map<string, boolean>;
+  // S17a — the titles TMDb actually ANSWERED: found, or searched and not
+  // there (no_match / year_mismatch). A title missing from this set was
+  // never checked (the call failed, or TMDb's lookup did): it still does
+  // not ship, but it is not evidence of fiction either.
+  answered: Set<string>;
+  // S17 — the TMDb match for each resolved title (id + poster path).
+  matches: Map<string, { tmdbId: number; posterPath: string | null; overview: string | null }>;
 };
 
 // Mirrors normalizeTitle in tmdbVerify.ts — the two must agree or the
@@ -56,38 +63,53 @@ export async function verifyTitlesViaApi(args: {
   path: "search" | "search-freshness" | "mlt" | "search-backfill";
   category?: string;
 }): Promise<VerifyResult> {
-  const empty: VerifyResult = { enabled: true, resolved: new Map() };
-  if (args.items.length === 0) return { enabled: true, resolved: new Map() };
+  const empty = (): VerifyResult => ({ enabled: true, resolved: new Map(), answered: new Set(), matches: new Map() });
+  if (args.items.length === 0) return empty();
 
-  try {
-    const res = await fetch("/api/verify/titles", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        items: args.items,
-        anchor: args.anchor,
-        path: args.path,
-        category: args.category,
-      }),
-    });
-    if (!res.ok) {
-      console.warn("[fake-title] verification route non-OK", { status: res.status });
-      return empty;
-    }
-    const data = await res.json();
-    const resolved = new Map<string, boolean>();
-    if (Array.isArray(data?.verdicts)) {
-      for (const v of data.verdicts) {
-        if (v && typeof v.title === "string") {
-          resolved.set(verifyKey(v.title), Boolean(v.resolved));
+  // S17a — one retry when the CALL fails as a whole (a function timeout, a
+  // dropped request on a phone): a blip must not read as a set of fakes.
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const res = await fetch("/api/verify/titles", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          items: args.items,
+          anchor: args.anchor,
+          path: args.path,
+          category: args.category,
+        }),
+      });
+      if (!res.ok) {
+        console.warn("[fake-title] verification route non-OK", { status: res.status, attempt });
+        continue;
+      }
+      const data = await res.json();
+      const out = empty();
+      if (Array.isArray(data?.verdicts)) {
+        for (const v of data.verdicts) {
+          if (v && typeof v.title === "string") {
+            const k = verifyKey(v.title);
+            out.resolved.set(k, Boolean(v.resolved));
+            if (v.resolved || v.reason === "no_match" || v.reason === "year_mismatch") out.answered.add(k);
+            if (v.resolved && Number.isInteger(v.tmdbId)) {
+              out.matches.set(k, {
+                tmdbId: v.tmdbId,
+                posterPath: typeof v.posterPath === "string" ? v.posterPath : null,
+                overview: typeof v.overview === "string" && v.overview.trim() ? v.overview.trim() : null,
+              });
+            }
+          }
         }
       }
+      out.enabled = data?.enabled !== false;
+      return out;
+    } catch (err) {
+      console.warn("[fake-title] verification call threw", {
+        attempt,
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
-    return { enabled: data?.enabled !== false, resolved };
-  } catch (err) {
-    console.warn("[fake-title] verification call threw", {
-      error: err instanceof Error ? err.message : String(err),
-    });
-    return empty;
   }
+  return empty();
 }

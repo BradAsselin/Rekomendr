@@ -22,6 +22,7 @@ import { getTop5FromDeck } from "./deckSelector";
 import { rankMovieCandidates } from "./movieProfileScorer";
 import { readServiceFailure, isAIServiceError } from "../lib/aiServiceError";
 import { getAnonymousClientId } from "../lib/clientId";
+import { shortSynopsis } from "../lib/synopsis";
 // S1.5 — the real-title guard. Movies/TV only; the lookup itself lives
 // server-side (TMDB_API_KEY never reaches the browser, and this engine
 // runs in the browser).
@@ -67,6 +68,10 @@ export interface Rek {
   // ("2h 10m", "on Netflix"), and "Start with this one" on the best match.
   facts?: string[];
   screenNote?: string;
+  // S17 — TMDb's poster path for the card's thumbnail (null = none; the
+  // card shows a neutral placeholder). AI-search reks get it, and their
+  // tmdbId, from the real-title check's match.
+  posterPath?: string | null;
 }
 
 export type Category = "Movies" | "TV Shows" | "Books" | "Wine";
@@ -937,20 +942,40 @@ async function dropUnresolvedMediaTitles(
     anchor: string;
     path: "search" | "search-freshness" | "mlt" | "search-backfill";
   }
-): Promise<Rek[]> {
+): Promise<{ survivors: Rek[]; fake: number; unverifiable: number }> {
   const kind = verifiedKindForCategory(ctx.category);
-  if (!kind || candidates.length === 0) return candidates;
+  if (!kind || candidates.length === 0) return { survivors: candidates, fake: 0, unverifiable: 0 };
 
-  const { enabled, resolved } = await verifyTitlesViaApi({
+  const { enabled, resolved, answered, matches } = await verifyTitlesViaApi({
     items: candidates.map((r) => ({ title: r.title, year: r.year, kind })),
     anchor: ctx.anchor,
     path: ctx.path,
     category: ctx.category,
   });
 
-  if (!enabled) return candidates;
+  if (!enabled) return { survivors: candidates, fake: 0, unverifiable: 0 };
 
-  return candidates.filter((r) => resolved.get(verifyKey(r.title)) === true);
+  // S17a — every unresolved title is dropped (fail-closed, unchanged), but
+  // only the ones TMDb ANSWERED "not there" count as fiction. A title the
+  // check never reached is unverifiable: the field case (Oct 24) was a
+  // failed check reported to the person as five invented titles.
+  // S17 — each survivor carries its TMDb match (the card's poster, and the
+  // id its commitment/where facts are looked up by).
+  // S17v — and its card reads TMDb's synopsis (the slot cards' shape: the
+  // first sentence or two as short, the whole as long) in place of the
+  // generated copy and its stock closers. No synopsis → the generated
+  // copy stays.
+  const survivors = candidates
+    .filter((r) => resolved.get(verifyKey(r.title)) === true)
+    .map((r) => {
+      const m = matches.get(verifyKey(r.title));
+      if (!m) return r;
+      const text = m.overview ? { short: shortSynopsis(m.overview), long: m.overview } : {};
+      return { ...r, ...text, tmdbId: m.tmdbId, posterPath: m.posterPath };
+    });
+  const dropped = candidates.filter((r) => resolved.get(verifyKey(r.title)) !== true);
+  const fake = dropped.filter((r) => answered.has(verifyKey(r.title))).length;
+  return { survivors, fake, unverifiable: dropped.length - fake };
 }
 
 // S1.5 — a way for a caller to learn WHY a set came back empty without
@@ -961,6 +986,9 @@ async function dropUnresolvedMediaTitles(
 export type GenerationOutcome = {
   produced: number;
   droppedAsFake: number;
+  // S17a — dropped because the check could not run, not because TMDb said
+  // no. Never shown as fiction.
+  droppedUnverifiable?: number;
 };
 
 async function generateAIReks(args: {
@@ -1030,7 +1058,7 @@ async function generateAIReks(args: {
   // Tripwire counters (RC-4): when a set ships short, the log below names
   // what filtered it — silent failures get named.
   let produced = 0;
-  const drops = { sanitize: 0, dupe: 0, seen: 0, marked: 0, fake: 0 };
+  const drops = { sanitize: 0, dupe: 0, seen: 0, marked: 0, fake: 0, unverifiable: 0 };
 
   // One generation round-trip: build the prompt, fetch, fold survivors into
   // `out`. Two passes share `out`/`dedupe`/`seen`, so a top-up can never
@@ -1146,7 +1174,7 @@ async function generateAIReks(args: {
       passCandidates.push(safe);
     }
 
-    const survivors = await dropUnresolvedMediaTitles(passCandidates, {
+    const { survivors, fake, unverifiable } = await dropUnresolvedMediaTitles(passCandidates, {
       category: args.category,
       anchor: args.seedTitle || args.context || "(fresh search)",
       path: args.backfill
@@ -1157,7 +1185,8 @@ async function generateAIReks(args: {
         ? "mlt"
         : "search",
     });
-    drops.fake += passCandidates.length - survivors.length;
+    drops.fake += fake;
+    drops.unverifiable += unverifiable;
 
     for (const rek of survivors) {
       if (out.length >= args.count) break;
@@ -1208,6 +1237,7 @@ async function generateAIReks(args: {
     if (args.outcome) {
       args.outcome.produced = produced;
       args.outcome.droppedAsFake = drops.fake;
+      args.outcome.droppedUnverifiable = drops.unverifiable;
     }
 
     return out.length >= 1 ? normalize(out.slice(0, args.count)) : null;
@@ -1445,6 +1475,21 @@ export async function getTop5FromEngine({
     // S1.5 splits that one empty into two: a set the model never produced
     // (today's Reks Ray voice — a retry might work) and a set the model
     // produced entirely out of fiction (plain voice — a retry will not).
+    //
+    // S17a — and only when TMDb actually answered for every dropped title.
+    // If any of them were never checked (the verify call or TMDb's lookup
+    // failed), the set is an outage, not fiction: the one failure voice,
+    // which rightly invites a retry. Still fail-closed — nothing unchecked
+    // ships either way.
+    if ((outcome.droppedUnverifiable ?? 0) > 0) {
+      console.warn("[fake-title] verification unavailable — set emptied, failure voice", {
+        category,
+        produced: outcome.produced,
+        droppedAsFake: outcome.droppedAsFake,
+        droppedUnverifiable: outcome.droppedUnverifiable,
+      });
+      return { reks: [] };
+    }
     if (outcome.droppedAsFake > 0) {
       console.warn("[fake-title] fresh AI search emptied by the guard", {
         category,

@@ -29,6 +29,7 @@ function load(rel, stubs) {
   return m.exports;
 }
 const R = load("src/lib/slotRecipe.ts", {
+  "./synopsis": load("src/lib/synopsis.ts", {}), // S17v: shortSynopsis lives there now
   "./tmdbVerify": { normalizeTitle: norm },
   "./tmdbMedia": { loadMediaBundle: async () => null, resolveSnappedTitle: async () => null, rowTitle: () => "", rowYear: () => null, tmdbGet: async () => null },
 });
@@ -130,7 +131,7 @@ check("lines call uses CHOOSER_PROMPT verbatim", /(content|system): CHOOSER_PROM
 const engineDiff = execSync("git diff main -- src/engine/rekomendrEngine.ts", { cwd: root, encoding: "utf8" });
 check("engine: buildAIPrompt untouched", /^[-+].*(buildAIPrompt|You are Rekomendr)/m.test(engineDiff), false);
 const route = read("app/api/slots/route.ts");
-check("no-go-to sets make no model call (lines only with a steering go-to)", route.includes("if (steer?.bundle && picks.length > 0) {"), true);
+check("no-go-to sets make no model call (lines only with a steering go-to)", (route.includes("if (steer?.bundle && picks.length > 0) {") || route.includes("if (!steer?.bundle || picks.length === 0) return new Map")) /* S16 moved the writer into linesP */, true);
 check("the line call is capped like every chooser call", route.includes('capGate(clientId, "reksnap-text")'), true);
 check("a failed line call ships synopses, named", route.includes('"[slots] go-to lines failed — synopses shipped"'), true);
 check("TMDb down is loud", route.includes('"[slots] FALLBACK TMDb discover failed; the AI chip search runs"'), true);
@@ -140,8 +141,8 @@ const page = read("app/page.tsx");
 check("Movies/TV chip taps run the recipe", page.includes('(meta && (nextCategory === "Movies" || nextCategory === "TV Shows")'), true);
 check("a failed recipe falls back loudly to the AI chip search", page.includes('console.warn("[slots] FALLBACK — running the AI chip search"'), true);
 check("every landed set is counted for repeats", (page.match(/noteSetShown\(/g) || []).length >= 3, true);
-check("Steer by switches are counted", page.includes('logGoToEvent("steer_switch"'), true);
-check("Books steer uses the seeded search", page.includes('category: "Books",') && page.includes("getMoreLikeThisSet({"), true);
+// S17 — the Steer by row is gone; favorites still steer underneath (the slot recipe).
+check("Steer by row removed (S17)", page.includes("SteerByRow"), false);
 const res = read("src/components/ResultsV4.tsx");
 check("touchstone label + inline star", res.includes("A classic to steer by") && res.includes('logGoToEvent("touchstone_star"'), true);
 check("touchstones shown are counted", res.includes('logGoToEvent("touchstone_shown"'), true);

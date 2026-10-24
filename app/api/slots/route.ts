@@ -17,12 +17,18 @@
 //
 // Fail-loud: no TMDb key / TMDb down → { ok:false, reason } and the client
 // runs the old AI chip search, saying so in the log ([slots] FALLBACK).
+//
+// S16 — every card carries S15's facts (commitment, "on <service>"), and
+// `stream: "ndjson"` paints early: { type:"cards" } as soon as the picks
+// and their bundles exist, then { type:"lines" } when the writer answers
+// (docs/s16-watched-search-plan.md, Part B). The one-card backfill stays
+// plain JSON.
 
 import { runEnvCheck } from "../../../src/lib/envCheck";
 import { withLlmContext } from "../../../src/lib/llm";
 import { cleanClientId } from "../../../src/lib/anchorSnapshots";
 import { capGate } from "../../../src/lib/apiUsage";
-import { mediaConfigured, type MediaKind } from "../../../src/lib/tmdbMedia";
+import { loadMediaBundle, mediaConfigured, whereOf, type MediaKind } from "../../../src/lib/tmdbMedia";
 import { normalizeTitle } from "../../../src/lib/tmdbVerify";
 import { linesVsGoTo, raceTaste } from "../../../src/lib/mediaReks";
 import {
@@ -52,6 +58,9 @@ export const dynamic = "force-dynamic";
 runEnvCheck();
 
 const SEEN_MAX = 600;
+// S16 — the wait for a pick's TMDb bundle (its facts). Hang protection,
+// well above TMDb's usual ~0.3–0.8 s; a miss ships the card without facts.
+const BUNDLE_WAIT_MS = 4000;
 const SLOT_KINDS = new Set<SlotKind>([
   "touchstone",
   "popular",
@@ -176,40 +185,66 @@ async function handlePost(req: Request): Promise<Response> {
 
     // Lines against the steering go-to: one model call, capped like every
     // chooser call. A refused cap or a failed call ships the synopsis.
-    let lines = new Map<number, string>();
-    if (steer?.bundle && picks.length > 0) {
+    // S16 — started the moment the picks exist, beside the bundle reads,
+    // so the set completes in parse + pools + writer, not their sum.
+    const linesP: Promise<Map<number, string>> = (async () => {
+      if (!steer?.bundle || picks.length === 0) return new Map<number, string>();
       const capped = await capGate(clientId, "reksnap-text");
       if (capped) {
         console.warn("[slots] over cap — synopses instead of go-to lines");
-      } else {
-        try {
-          lines = await linesVsGoTo({
-            goTo: {
-              title: steer.bundle.title,
-              year: steer.bundle.year,
-              kind: steer.bundle.kind,
-              overview: steer.bundle.overview,
-            },
-            candidates: picks,
-            taste: {
-              liked: taste.liked,
-              disliked: taste.disliked,
-              watched: [],
-            },
-            lane,
-          });
-        } catch (err) {
-          // Named, never silent: the five are real either way; they ship
-          // with TMDb's synopses instead of go-to lines.
-          console.error("[slots] go-to lines failed — synopses shipped", {
-            error: err instanceof Error ? err.message : String(err),
-          });
-        }
+        return new Map<number, string>();
       }
-    }
+      try {
+        return await linesVsGoTo({
+          goTo: {
+            title: steer.bundle.title,
+            year: steer.bundle.year,
+            kind: steer.bundle.kind,
+            overview: steer.bundle.overview,
+          },
+          candidates: picks,
+          taste: {
+            liked: taste.liked,
+            disliked: taste.disliked,
+            watched: [],
+          },
+          lane,
+        });
+      } catch (err) {
+        // Named, never silent: the five are real either way; they ship
+        // with TMDb's synopses instead of go-to lines.
+        console.error("[slots] go-to lines failed — synopses shipped", {
+          error: err instanceof Error ? err.message : String(err),
+        });
+        return new Map<number, string>();
+      }
+    })();
 
-    const reks = picks.map((p) => {
-      const line = lines.get(p.id);
+    // S16 — each pick's TMDb bundle, for the card's facts (S15's
+    // "2h 10m • on Netflix"). Hang protection only: a pick whose bundle
+    // hasn't answered by then ships without facts, named in the log.
+    let factsMissed = 0;
+    const bundles = await Promise.all(
+      picks.map((p) =>
+        Promise.race([
+          loadMediaBundle(p.kind, p.id).catch(() => null),
+          new Promise<null>((r) => setTimeout(() => r(null), BUNDLE_WAIT_MS)),
+        ]).then((b) => {
+          if (!b) factsMissed++;
+          return b;
+        }),
+      ),
+    );
+    if (factsMissed > 0) {
+      console.warn("[slots] facts missing — cards ship without them", {
+        kind,
+        missed: factsMissed,
+      });
+    }
+    const cardsMs = Date.now() - started;
+
+    const cardFor = (p: (typeof picks)[number], i: number, line?: string) => {
+      const b = bundles[i];
       return {
         title: p.title,
         year: p.year,
@@ -221,44 +256,79 @@ async function handlePost(req: Request): Promise<Response> {
         short: line ? leadLine(line) : shortSynopsis(p.overview),
         long: p.overview,
         vsGoTo: line ? steer!.name : null,
+        facts: b ? [b.commitment, whereOf(b)].filter((f): f is string => !!f) : [],
+        // S17 — the poster thumbnail: the bundle's, else the pool row's.
+        posterPath: b?.posterPath ?? p.posterPath ?? null,
       };
-    });
-
-    console.info("[slots]", {
-      kind,
-      lane,
-      refiner: refiner
-        ? refiner.kind === "tone"
-          ? refiner.vibe
-          : refiner.era
-        : null,
+    };
+    const cards = picks.map((p, i) => cardFor(p, i));
+    const head = {
+      ok: true,
       recipe,
-      goTos: goTos.length,
-      steer: steer?.name ? "yes" : "no",
-      nearestScore: scores[0] ?? null,
-      excluded: excluded.size,
-      shipped: reks.length,
-      slots: reks.map((r) => r.slot),
-      lines: lines.size,
-      ms: Date.now() - started,
-    });
-    if (reks.length < count) {
-      console.warn("[slots] short set — pools ran dry after exclusions", {
+      steer: steer ? steer.name : null,
+      order: order.map((g) => g.name),
+    };
+
+    const logSet = (lines: Map<number, string>) => {
+      console.info("[slots]", {
         kind,
         lane,
-        shipped: reks.length,
-        count,
+        refiner: refiner
+          ? refiner.kind === "tone"
+            ? refiner.vibe
+            : refiner.era
+          : null,
+        recipe,
+        goTos: goTos.length,
+        steer: steer?.name ? "yes" : "no",
+        nearestScore: scores[0] ?? null,
+        excluded: excluded.size,
+        shipped: cards.length,
+        slots: cards.map((r) => r.slot),
+        lines: lines.size,
+        cardsMs,
+        ms: Date.now() - started,
+      });
+      if (cards.length < count) {
+        console.warn("[slots] short set — pools ran dry after exclusions", {
+          kind,
+          lane,
+          shipped: cards.length,
+          count,
+        });
+      }
+    };
+
+    // S16 — early paint: the cards as soon as they exist, then the
+    // lines. One NDJSON line each: { type: "cards" }, { type: "lines" }.
+    if (body?.stream === "ndjson") {
+      const enc = new TextEncoder();
+      const stream = new ReadableStream<Uint8Array>({
+        async start(ctrl) {
+          const send = (o: unknown) => ctrl.enqueue(enc.encode(JSON.stringify(o) + "\n"));
+          send({ type: "cards", ...head, reks: cards, linesPending: !!steer?.bundle && cards.length > 0 });
+          const lines = await linesP;
+          send({
+            type: "lines",
+            lines: picks
+              .map((p) => ({ tmdbId: p.id, line: lines.get(p.id) }))
+              .filter((l): l is { tmdbId: number; line: string } => !!l.line)
+              .map((l) => ({ tmdbId: l.tmdbId, short: leadLine(l.line), vsGoTo: steer!.name })),
+          });
+          logSet(lines);
+          ctrl.close();
+        },
+      });
+      return new Response(stream, {
+        status: 200,
+        headers: { "Content-Type": "application/x-ndjson; charset=utf-8", "Cache-Control": "no-store" },
       });
     }
 
+    const lines = await linesP;
+    logSet(lines);
     return Response.json(
-      {
-        ok: true,
-        recipe,
-        reks,
-        steer: steer ? steer.name : null,
-        order: order.map((g) => g.name),
-      },
+      { ...head, reks: picks.map((p, i) => cardFor(p, i, lines.get(p.id))) },
       { status: 200 },
     );
   } catch (err) {

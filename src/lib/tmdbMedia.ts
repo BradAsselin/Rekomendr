@@ -53,6 +53,8 @@ export type TmdbCandidate = {
   genreIds?: number[];
   votes?: number;
   rating?: number;
+  // S17 — the card's poster thumbnail (TMDb's path; posterUrl builds it).
+  posterPath?: string | null;
 };
 
 export type MediaBundle = {
@@ -70,6 +72,8 @@ export type MediaBundle = {
   // S15 — TMDb's rating and vote count (the no-go-to screen ranking).
   rating: number | null;
   votes: number;
+  // S17 — the card's poster thumbnail.
+  posterPath: string | null;
 };
 
 export type ResolvedTitle = {
@@ -158,7 +162,13 @@ export type Row = {
   genre_ids?: number[];
   popularity?: number;
   adult?: boolean;
+  poster_path?: string | null;
 };
+
+// S17 — a TMDb poster path, or null. Only TMDb's own shape ("/abc.jpg")
+// passes, so nothing else can ever be put in front of image.tmdb.org.
+export const safePosterPath = (raw: unknown): string | null =>
+  typeof raw === "string" && /^\/[\w.-]{1,120}$/.test(raw) ? raw : null;
 
 export const rowTitle = (r: Row, kind: MediaKind) => (kind === "movie" ? r.title : r.name) ?? "";
 const rowOriginal = (r: Row, kind: MediaKind) =>
@@ -567,6 +577,7 @@ function parseCandidates(raw: any, kind: MediaKind, anchorId: number): TmdbCandi
         genreIds: Array.isArray(r.genre_ids) ? r.genre_ids : [],
         votes: r.vote_count ?? 0,
         rating: r.vote_average ?? 0,
+        posterPath: safePosterPath(r.poster_path),
       });
       if (out.length >= MAX_CANDIDATES) return out;
     }
@@ -596,6 +607,14 @@ export function commitmentOf(raw: any, kind: MediaKind): string | null {
   if (Number.isFinite(episodes) && episodes > 0) parts.push(`${episodes} episode${episodes === 1 ? "" : "s"}`);
   return parts.length ? parts.join(" · ") : null;
 }
+
+// S15/S16 — "on Netflix": the service the person named (a screen snap's
+// own), else TMDb's first US streaming service. Null when it streams
+// nowhere yet — the card then says nothing rather than guess.
+export const whereOf = (b: MediaBundle, service: string | null = null): string | null => {
+  const name = service ?? b.completion.watch?.stream[0]?.name ?? null;
+  return name ? `on ${name}` : null;
+};
 
 export async function loadMediaBundle(kind: MediaKind, id: number): Promise<MediaBundle | null> {
   const ck = `${kind}:${id}`;
@@ -634,6 +653,7 @@ export async function loadMediaBundle(kind: MediaKind, id: number): Promise<Medi
     commitment: commitmentOf(raw, kind),
     rating: typeof raw.vote_average === "number" ? raw.vote_average : null,
     votes: typeof raw.vote_count === "number" ? raw.vote_count : 0,
+    posterPath: safePosterPath(raw.poster_path),
   };
   if (bundleCache.size >= BUNDLE_MAX) {
     const oldest = bundleCache.keys().next().value;
@@ -684,9 +704,7 @@ export async function fetchCardMedia(kind: MediaKind, id: number): Promise<CardM
   const title = String((kind === "movie" ? raw.title : raw.name) ?? "").trim();
   if (!title) return null;
   const watch = parseWatch(raw["watch/providers"], title);
-  const poster = typeof raw.poster_path === "string" && /^\/[\w.-]{1,120}$/.test(raw.poster_path)
-    ? raw.poster_path
-    : null;
+  const poster = safePosterPath(raw.poster_path);
   return {
     posterPath: poster,
     trailerUrl: parseTrailer(raw.videos),

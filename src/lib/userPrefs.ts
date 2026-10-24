@@ -7,9 +7,49 @@
 import { supabase } from './supabaseClient';
 
 import { getAnonymousClientId } from './clientId';
+import type { SavedItem } from './savedLists';
 export { getAnonymousClientId };
 
 export type LikeAction = 'like' | 'dislike' | 'save' | 'more_like_this';
+
+// S17c — the Saved page's count follows every write that can change it
+// (save, Not for me, watched, and their undos). One window event; the
+// top bar's Saved button re-reads /api/saved when it fires.
+const SAVED_EVENT = 'rekomendr:saved-changed';
+export function notifySavedChange(): void {
+  try {
+    window.dispatchEvent(new CustomEvent(SAVED_EVENT));
+  } catch {}
+}
+export function onSavedChange(fn: () => void): () => void {
+  window.addEventListener(SAVED_EVENT, fn);
+  return () => window.removeEventListener(SAVED_EVENT, fn);
+}
+
+// S17c — this client's Saved and Watched lists (every category), for the
+// Saved page. null = the read failed (the page says nothing new; it shows
+// what it has).
+export async function fetchSavedLists(): Promise<{
+  saved: SavedItem[];
+  watched: SavedItem[];
+  // S18b — saves since watched (still a save row): cards show them filled.
+  savedWatched: SavedItem[];
+} | null> {
+  const clientId = getAnonymousClientId();
+  if (!clientId) return null;
+  try {
+    const res = await fetch('/api/saved', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clientId }),
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok || !data?.ok || !Array.isArray(data.saved) || !Array.isArray(data.watched)) return null;
+    return { saved: data.saved, watched: data.watched, savedWatched: Array.isArray(data.savedWatched) ? data.savedWatched : [] };
+  } catch {
+    return null;
+  }
+}
 
 export async function recordLike(params: {
   category: string;
@@ -27,6 +67,7 @@ export async function recordLike(params: {
     year: params.year ?? null,
     action: params.action,
   });
+  if (params.action === 'save' || params.action === 'dislike') notifySavedChange();
 }
 
 // One Shortlist entry: a liked-but-not-watched title, plus the timestamp
@@ -140,6 +181,61 @@ export async function recordWatched(params: {
         reason: typeof data?.reason === 'string' ? data.reason : 'request_failed',
       };
     }
+    notifySavedChange();
+    return { ok: true };
+  } catch {
+    return { ok: false, reason: 'network' };
+  }
+}
+
+// S16 — the toast's Undo: deletes this client's 'watched' row(s) for the
+// title, through the same single-purpose route.
+export async function undoWatched(params: {
+  category: string;
+  title: string;
+}): Promise<{ ok: boolean; reason?: string }> {
+  const clientId = getAnonymousClientId();
+  if (!clientId) return { ok: false, reason: 'no_client_id' };
+  try {
+    const res = await fetch('/api/signals/watched', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clientId, category: params.category, title: params.title, undo: true }),
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok || !data?.ok) {
+      return { ok: false, reason: typeof data?.reason === 'string' ? data.reason : 'request_failed' };
+    }
+    notifySavedChange();
+    return { ok: true };
+  } catch {
+    return { ok: false, reason: 'network' };
+  }
+}
+
+// S17 — the Undo for "Not for me" and "Saved", and the Saved page's
+// remove: through /api/signals/undo (action-fixed to dislike | save,
+// this client's rows only). The browser can insert a like but never
+// delete one.
+export async function undoSignal(params: {
+  category: string;
+  title: string;
+  action: 'dislike' | 'save';
+  remove?: boolean;
+}): Promise<{ ok: boolean; reason?: string }> {
+  const clientId = getAnonymousClientId();
+  if (!clientId) return { ok: false, reason: 'no_client_id' };
+  try {
+    const res = await fetch('/api/signals/undo', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clientId, ...params }),
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok || !data?.ok) {
+      return { ok: false, reason: typeof data?.reason === 'string' ? data.reason : 'request_failed' };
+    }
+    notifySavedChange();
     return { ok: true };
   } catch {
     return { ok: false, reason: 'network' };

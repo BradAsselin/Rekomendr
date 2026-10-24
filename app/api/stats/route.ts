@@ -272,6 +272,33 @@ async function voiceReadout(
   };
 }
 
+// S17 — "Watched": the live watched marks since the test start. An Undo
+// deletes its row, so an undone mark is not counted. Same agent exclusion.
+type WatchedReadout = { watched: number };
+
+const WATCHED_LABELS: [keyof WatchedReadout, string][] = [["watched", "Watched"]];
+
+async function watchedReadout(
+  store: NonNullable<Awaited<ReturnType<typeof getSnapshotStore>>>,
+  since: string,
+  agentsOnly: boolean
+): Promise<WatchedReadout | null> {
+  const { data, error } = await store
+    .from("user_likes")
+    .select("client_id")
+    .eq("action", "watched")
+    .gte("created_at", since)
+    .limit(50000);
+  if (error || !Array.isArray(data)) {
+    console.warn("[stats] watched readout unavailable", { code: error?.code ?? null });
+    return null;
+  }
+  const rows = data.filter((r) =>
+    agentsOnly ? String(r.client_id).startsWith("anon_agent") : !String(r.client_id).startsWith("anon_agent")
+  );
+  return { watched: rows.length };
+}
+
 export async function GET(req: Request): Promise<Response> {
   const url = new URL(req.url);
   if (!keyOk(url.searchParams.get("key"))) return notFound();
@@ -297,19 +324,24 @@ export async function GET(req: Request): Promise<Response> {
   }
 
   const agentsOnly = url.searchParams.get("agents") === "1";
-  const [wine, goTos, voice] = await Promise.all([
+  const [wine, goTos, voice, watched] = await Promise.all([
     wineReadout(store, since, agentsOnly),
     goToReadout(store, since, agentsOnly),
     voiceReadout(store, since, agentsOnly),
+    watchedReadout(store, since, agentsOnly),
   ]);
 
   const headers = { "Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow" };
   if (url.searchParams.get("format") === "json") {
-    return Response.json({ ...readout, ...(wine ?? {}), ...(goTos ?? {}), ...(voice ?? {}) }, { headers });
+    return Response.json(
+      { ...readout, ...(watched ?? {}), ...(wine ?? {}), ...(goTos ?? {}), ...(voice ?? {}) },
+      { headers }
+    );
   }
 
   const rows =
     LABELS.map(([k, label]) => `<tr><td>${label}</td><td>${readout[k] ?? "—"}</td></tr>`).join("") +
+    WATCHED_LABELS.map(([k, label]) => `<tr><td>${label}</td><td>${watched ? watched[k] : "—"}</td></tr>`).join("") +
     WINE_LABELS.map(([k, label]) => `<tr><td>${label}</td><td>${wine ? wine[k] : "—"}</td></tr>`).join("") +
     GOTO_LABELS.map(([k, label]) => `<tr><td>${label}</td><td>${goTos ? goTos[k] ?? "—" : "—"}</td></tr>`).join("") +
     VOICE_LABELS.map(([k, label]) => `<tr><td>${label}</td><td>${voice ? voice[k] ?? "—" : "—"}</td></tr>`).join("") +

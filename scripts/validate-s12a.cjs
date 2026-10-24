@@ -72,13 +72,15 @@ check("snap lane: the anchor star carries its TMDb id", snap.includes("tmdbId: n
 check("snap lane: rek cards get the star (frontier + trail)", (snap.match(/rek\.wine \|\| goToCategoryFor\(/g) || []).length, 2);
 check("snap lane: wine star path kept", snap.includes("anchorIsWine && isWineCategory(category ?? detectedCategory) ? ("), true);
 const res = read("src/components/ResultsV4.tsx");
-check("search lane: star on frontier + trail cards", (res.match(/starSlot=\{starFor\(rek\)( \?\? <GoToStar item=\{goToItem\(rek\)\} \/>)?\}/g) || []).length, 2);
+// S17 — a D2 frontier card (Movies/TV) always carries the star: `d2 ? <GoToStar …/> : starFor(rek)`.
+check("search lane: star on frontier + trail cards", (res.match(/starSlot=\{[^\n]*starFor\(rek\)/g) || []).length, 2);
 
 console.log("\n5. + More like this");
 check("starred anchor shows it collapsed", snap.includes("!(anchorOpen || anchorIsStarred) ? undefined"), true);
 check("starred-anchor taps are counted", snap.includes('if (anchorIsStarred) logGoToEvent("goto_more"'), true);
 const page = read("app/page.tsx");
-check("home shows Your go-tos", page.includes("<GoTosList goTos={goTos} wine={wineGoTo}"), true);
+// S17 — Movies/TV/Books go-tos left the home screen for the Saved page's Favorites; wine's one go-to stays.
+check("home shows the wine go-to only", page.includes("<GoTosList goTos={[]} wine={wineGoTo}"), true);
 check("Wine you bought rows have it (not counted as a go-to)", page.includes('moreFromGoTo({ category: "wine", name }, { counted: false })'), true);
 check("screens open the go-to as the anchor (TMDb, then the chooser)", page.includes('action: "open"') && page.includes("fetchTypedReks(anchor.media, null)"), true);
 check("books + wine run the typed search on the name", page.includes("void handleSearch(`${bar}||||${t.name}||mode:ai`, bar);"), true);

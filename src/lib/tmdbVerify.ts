@@ -46,6 +46,13 @@ export type VerifyVerdict = {
   // TMDb's own year when a title matched — diagnostic only. Nothing is
   // rewritten from it (see the PR's "Found, not fixed").
   tmdbYear?: number | null;
+  // S17 — the match's TMDb id and poster path, for the card (its poster
+  // thumbnail, and the facts lookup). Set only on a resolved verdict.
+  tmdbId?: number;
+  posterPath?: string | null;
+  // S17v — TMDb's synopsis of the match: AI-search cards show it instead
+  // of generated copy. Capped; set only on a resolved verdict.
+  overview?: string | null;
 };
 
 // Hang protection, not a latency SLA (charter §2.11). A TMDb search is
@@ -216,6 +223,9 @@ function cacheSet(item: VerifyItem, verdict: VerifyVerdict): void {
    ONE LOOKUP
 ------------------------------------------------------------------- */
 type TmdbRow = {
+  id?: number;
+  poster_path?: string | null;
+  overview?: string;
   title?: string;
   original_title?: string;
   name?: string;
@@ -286,12 +296,35 @@ async function searchWithRetry(
   return { ok: false };
 }
 
+// S17a — two ways a REAL title reaches us named differently from TMDb
+// (counted in the field repro, docs/s17-mood-first-plan.md): the model
+// drops a subtitle ("Glass Onion" for "Glass Onion: A Knives Out
+// Mystery"), or spells a number the other way ("Ocean's 8" for "Ocean's
+// Eight"). Both still need the year ±1, so neither admits a stranger.
+const NUMBER_WORDS: Record<string, string> = {
+  zero: "0", one: "1", two: "2", three: "3", four: "4", five: "5", six: "6",
+  seven: "7", eight: "8", nine: "9", ten: "10", eleven: "11", twelve: "12",
+};
+const digitsFor = (normalized: string) =>
+  normalized.split(" ").map((w) => NUMBER_WORDS[w] ?? w).join(" ");
+
+export function titleForms(raw: string): string[] {
+  const full = normalizeTitle(raw);
+  const colon = raw.indexOf(":");
+  const head = colon > 0 ? normalizeTitle(raw.slice(0, colon)) : "";
+  return Array.from(new Set([full, digitsFor(full), head, head && digitsFor(head)].filter(Boolean)));
+}
+
+export function titleMatches(rowTitle: string, wanted: string): boolean {
+  if (!rowTitle || !wanted) return false;
+  const w = digitsFor(wanted);
+  return titleForms(rowTitle).some((f) => f === wanted || f === w);
+}
+
 function rowMatches(row: TmdbRow, path: "movie" | "tv", wanted: string) {
-  const a = normalizeTitle(path === "movie" ? row.title ?? "" : row.name ?? "");
-  const b = normalizeTitle(
-    path === "movie" ? row.original_title ?? "" : row.original_name ?? ""
-  );
-  const titleHit = (a && a === wanted) || (b && b === wanted);
+  const a = path === "movie" ? row.title ?? "" : row.name ?? "";
+  const b = path === "movie" ? row.original_title ?? "" : row.original_name ?? "";
+  const titleHit = titleMatches(a, wanted) || titleMatches(b, wanted);
   const rowYear = yearOf(path === "movie" ? row.release_date : row.first_air_date);
   return { titleHit, rowYear };
 }
@@ -324,6 +357,14 @@ async function verifyOne(item: VerifyItem, key: string): Promise<VerifyVerdict> 
           title: item.title,
           resolved: true,
           tmdbYear: rowYear,
+          ...(typeof row.id === "number" ? { tmdbId: row.id } : {}),
+          // TMDb's own path shape only (mirrors tmdbMedia's safePosterPath;
+          // that module imports this one, so it is not imported back).
+          posterPath:
+            typeof row.poster_path === "string" && /^\/[\w.-]{1,120}$/.test(row.poster_path)
+              ? row.poster_path
+              : null,
+          overview: typeof row.overview === "string" && row.overview.trim() ? row.overview.trim().slice(0, 1200) : null,
         };
         cacheSet(item, verdict);
         return verdict;

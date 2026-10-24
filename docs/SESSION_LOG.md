@@ -2076,3 +2076,434 @@ Each reverts with `git revert -m 1 <sha>`, newest first.
 - It names its reasoning ("vs. your Knives Out").
 - Ranking is the user's own go-to and TMDb's public data; nothing pays to move it.
 - The model switch changes no incentives and keeps the same prompts.
+
+---
+
+## Session 16 — watched + fast typed search (S16a + S16b) — 2026-10-24 — branches auto/s16a-watched, auto/s16b-fast-typed — PRs #59, #60 (local agent mode, §11)
+
+Brad's brief:
+- **Part A:** "Watched" bottom-left on every Movies/TV/Books card and the anchor.
+- **Part B:** typed Movies/TV moods go through the mood parser → the S12 slot recipe, with early paint, against a target of first card ≤ 3 s and complete ≤ 6 s.
+- **Wording:** "Watched" and "Watched · Undo" only.
+- **Prompts:** no prompt changes.
+- **Merging:** merge when green.
+
+Plan: `docs/s16-watched-search-plan.md` (amended once after measuring, see call 1).
+
+**Merges** (self-merged, §10.3: green, checked on their own previews and on the main preview):
+
+| PR | merge SHA |
+|---|---|
+| #59 S16a | `a7665a2` |
+| #60 S16b | `6beb7a6` |
+
+Each reverts with `git revert -m 1 <sha>`, newest first.
+
+### Calls I made (each reversible)
+1. **Typed moods go fast only when the chip vocabulary holds them whole** (`src/lib/typedMoodGate.ts`).
+   - As briefed, every mapped mood painted in ~1.3 s, but only ~3 of the 10 sets matched the words:
+     - "an uplifting sports movie" → Forrest Gump, The Prestige, Green Book;
+     - "a funny heist movie" → The Truman Show, Due Date;
+     - "a show like The Office" → The Rookie.
+   - The AI search had 10/10 on-mood. Fast picks you don't want fail §0.
+   - So the fast path takes a mood only when every content word is a category, lane or refiner word and no title is named ("a dark crime show", "something funny", "classic romance").
+   - Everything else keeps today's AI search, logged `[typed-mood] → AI search { reason, residual }`.
+2. **Named titles ("like Ted Lasso but darker") stay on the AI search.** The slot steer placed them badly in 2/2 (Chucky, Phil of the Future); the AI search placed them well (The Bear, Shrinking, Barry).
+3. **Every full slot set now paints early and carries S15's facts** ("1h 41m • on Amazon Prime Video"): chips, Steer by, voice and typed. One card shape however you got there; chips with a go-to also show their cards before the lines.
+4. **Watched sits in Share's row** (Watched left, Share right), so a rek card grows no new row. On the anchor, Share sits under the card (S2), so Watched has its own row inside it.
+5. **Tapping the filled check also undoes** (every mark in the app toggles). The toast lives with its lane: a new search drops the toast and the mark stands.
+6. **Typed moods are not stored in `voice_moods`**, so the voice readout still counts only what people said.
+
+### SHIPPED
+
+**S16a (#59) — Watched**
+- An outline check, bottom-left, on every Movies/TV/Books card in both lanes (frontier, trail, S15 screen cards) and on the snap/typed anchor.
+- Tap it: a filled navy check, "Watched", the card dims to 70% (the control stays full contrast), and "Watched · Undo" shows for 4 s.
+- **Undo** deletes this client's watched row for that title (`/api/signals/watched`, `undo: true`, still action-fixed). It waits for the mark's write first.
+- **A failed write** reverts the mark and is named in the log (`[watched] not persisted`).
+- **Wine and health:** none (the go-to allow-list, after the health check).
+- S1's expanded-only "Watched it" is gone.
+- The page's session watched list (fed by both lanes) keeps the title out of every re-run. Server-side, slots, the chooser and screen drop `taste.watched`.
+
+**S16b (#60) — fast typed search**
+- **Movies/TV typed text** runs three requests at once: the prefs read, the S3.0 title check, and the mood parse (Haiku, `/api/mood` `source: "typed"`).
+  - A title still lands as the anchor.
+  - A mood that passes the gate runs the slot recipe, steered by the nearest go-to.
+  - Anything else runs the AI search.
+- **Books and Wine:** unchanged; Books doesn't parse at all.
+- **`/api/slots` `stream: "ndjson"`:** the cards (TMDb synopsis, commitment, where to watch) as soon as the picks and their bundles exist, then the "vs." lines.
+  - The writer starts beside the bundle reads.
+  - Bundle reads have a 4 s hang guard; a miss ships the card without facts, logged.
+- **`ResultsV4` merges the lines into the same cards** (same ids and titles): no reset, and marks survive. `data-lines-pending` sits on the results while lines are pending.
+- `handleVoice` and the typed path share `slotPlanFromMood`. `whereOf` is shared by `/api/screen` and `/api/slots`.
+
+### MEASURED (preview, 390×844, one visit per run; script `s16-timing.cjs` in the session scratchpad)
+
+| run | first card (median) | complete (median) | relevance spot-check | repeats |
+|---|---|---|---|---|
+| Before (main), 10 typed moods | 29.5 s (18–35) | 29.5 s | 10/10 on-mood | 0 |
+| After, ungated (not shipped) | 1.3 s | 1.6 s | ~3/10 on-mood | 0 |
+| After, shipped (gated), same 10 | 9/10 stay AI: 27.1 s; "a dark crime show": 2.2 s | same | 10/10 on-mood | 0 |
+| After, shipped, 10 simple moods, two go-tos (lines written) | **1.4 s** (1.2–2.5) | **5.35 s** (4.2–6.2; 8/10 ≤ 6 s) | chip-equivalent (~6/10 clearly on-mood; the wildcard/fresh slots add odd picks) | 0 |
+
+- **The ten:** a cozy mystery · something like Ted Lasso but darker · a funny heist movie · a slow-burn psychological thriller · something light and romantic for date night · a mind-bending sci-fi movie · a dark crime show · an uplifting sports movie · a scary movie that isn't too gory · a show like The Office.
+- **The parse costs the AI path nothing measurable:** gated AI-path median 27.1 s vs 28.7 s before on the same nine.
+
+### FOUND, NOT FIXED
+- **The fast path is narrow.** 1 of the 10 real-world moods qualifies.
+  - TMDb has keywords for most of the words the gate turns away: heist #10051, sports #6075, mind-bending #362567, slow burn #277551, psychological thriller #12565, date night #254464, gore #10292 ("cozy mystery" has none).
+  - Residual words → keyword ids → discover with the lane genre + `with_keywords` / `without_keywords` would widen it with no prompt change.
+  - It widens S12's pick logic, so it's Brad's call.
+- **Fast-path relevance is the chips' relevance:**
+  - TV Sci-Fi is TMDb's "Sci-Fi & Fantasy" (One Hundred Years of Solitude);
+  - the wildcard/fresh slots bring non-English or very new titles (Dhurandhar, Our Universe).
+- **2 of 10 lines runs finished just over 6 s** (6.14 s, 6.18 s): Sonnet writer variance.
+- **`/api/stats` has no watched row.** Watched rows live in `user_likes`; stats doesn't read that table. Adding a readout row is new wording.
+- **The Shortlist chip's own button still says "Watched it"**: it's a strip, not a card, and renaming it is wording.
+- **Harness hygiene (fixed in #60):** s15-screen's wording check diffed `main` (failing since S15 merged). It's now pinned to S15's range, and s16a's to its own. s12b, s13c and s15-screen checks now follow code that S16 moved.
+
+### TEST RESIDUE
+- `user_likes` watched rows for `anon_agent_s16a_*`.
+- `go_tos` rows for `anon_agent_s16b_*` / `anon_agent_s16_simple-gotos_*` (Knives Out, Mindhunter).
+- `api_usage` rows for `anon_agent_s16*`.
+- `/api/stats` excludes `anon_agent*`.
+
+### BRAD MUST
+1. Run the phone checklist below on the main preview, then promote.
+2. **Decide:** widen the typed fast path with TMDb keywords (the next session), or keep it narrow.
+3. **Feel calls (§12.4):**
+   - the 70% dim;
+   - Watched beside Share;
+   - a card's text switching from synopsis to "vs. your …" a few seconds after it appears.
+
+### NEXT SESSION SHOULD KNOW
+- **The gate is the one place that decides which typed moods go fast:** `typedMoodGate.ts`, with its word lists and the measured verdicts in `validate-s16b` §7b. Widening the fast path means changing what counts as covered, and re-measuring relevance, not just speed.
+- **`fetchSlots(..., { onCards })` is the early-paint entry.** The final answer reuses the same `Rek` objects' ids. Any new landing site must keep ids stable, or `ResultsV4` will treat the lines as a new set.
+- **`useWatchedMarks` owns the card-level write.** The page only keeps the session list (`handleWatchedChange`). The strip still uses the S1 `handleWatched`.
+
+### VALIDATION
+- **Harnesses:** new validate-s16a 42/42 and validate-s16b 56/56. Every earlier suite is green: s1 50, s2 97, s4a 82, s4b 48, s5 32, s6 36, s7 21, s8a 39, s8b 44, s8c 20, s9 9, s10 25, s11 40, s12a 63, s12b 53, s13a 58, s13b 21, s13c 60, s13d 20, s14 39, s15 54, s15-screen 34, s21 364, s23 35, s30 69, s36 59, typed-category 31.
+- tsc and lint are clean.
+- **UI on the main preview (390×844):**
+  - Watched 24/24: bottom-left in Share's row, filled + word + dim + toast, the toast gone at 4 s, Undo deletes the row, the watched title in 0/12 re-runs for that client, `/api/prefs` lists it, anchor + reks on a typed TV anchor, no Watched on wine.
+  - Fast typed 8/8: early paint, then the lines on the same five, typed title → anchor, Books unparsed, a specific mood stays AI.
+
+### Brad's twenty minutes — phone checklist (main preview, then production after promotion)
+1. **Movies → Comedy.** Every card has a small check at the bottom left, with Share at the right.
+2. **Tap the check on one card.**
+   - It fills in and says "Watched".
+   - The card goes slightly grey.
+   - "Watched · Undo" shows at the bottom for a few seconds, then goes.
+3. **Tap Watched on another card, then Undo** in the toast. The card is back to normal.
+4. **Tap Comedy again, a few times.** The title you marked never comes back.
+5. **TV Shows → type "Lioness" → GO.** The Lioness card has its own check. Tap it. Its reks have checks too.
+6. **Wine:** no check anywhere.
+7. **Type "a dark crime show" → GO.**
+   - Cards in about 2 seconds, with "1h 41m • on Netflix"-style lines.
+   - If you have a starred go-to, "vs. your …" replaces the synopsis a few seconds later on the same cards.
+8. **Type "a funny heist movie" → GO.** The old ~25-second search, with real heist movies. That's the gate keeping relevance.
+9. **Type a title ("Knives Out") → GO.** Still the anchor on top.
+
+**What it should feel like:**
+- [ ] Watched is findable without opening anything.
+- [ ] The grey says "done", not "gone".
+- [ ] Undo is there when you need it.
+- [ ] Simple moods feel instant.
+- [ ] Specific moods are still right.
+- [ ] The "vs." line arriving late doesn't jolt.
+
+**What to screenshot if it's wrong:**
+- a marked title coming back;
+- a card without a check (Movies/TV/Books);
+- a check on wine;
+- a typed mood's five that don't match the words.
+
+**Log lines:** `[watched] not persisted`, `[watched-signal] undo`, `[typed-mood] → slots`, `[typed-mood] → AI search { reason, residual }`, `[slots] facts missing`, `[slots] lines never arrived`.
+
+### Production promotion steps (§11.8)
+1. Brad opens `main → release/v2` and merges after the checklist passes on the main preview.
+2. **Environment:** nothing new.
+   - Production on OpenAI (no `ANTHROPIC_API_KEY`): the parser and the line writer run on their OpenAI models (S13c: mood 1.3 s; lines 2.4–2.6 s). They're no slower.
+3. **Migrations:** none. The watched signal's CHECK constraint was already widened (S1; live rows confirmed).
+4. **Revert SHAs:** #60 `6beb7a6`, then #59 `a7665a2`, each with `git revert -m 1 <sha>`.
+
+**§0 check:** consistent.
+- Watched is "I've seen it" in one tap, so it never comes back. That shortens every later search.
+- The typed fast path only answers when it can answer what was asked. Otherwise the slower, right answer stands (call 1 exists for §0).
+- Picks come from TMDb's public data and the person's own go-tos, named ("vs. your Knives Out").
+- Nothing pays to move a pick.
+- The toast is a 4-second undo, not a prompt. Nothing nags.
+
+## Session 17 — mood first (S17a + S17b + S17c, S17v + S17w open) — 2026-10-24 — branches auto/s17a-guard-stats, auto/s17b-mood-first, auto/s17c-saved-page, auto/s17v-tmdb-synopsis, auto/s17w-poster-label — PRs #62, #63, #65 (merged), #66, #64 (open, VOICE) (local agent mode, §11)
+
+Brad's brief (canvas Option D2, "mood first"):
+- **Search field:** one row with genre and vibe chips.
+- **Cards:** Movies/TV get D2 cards: poster, ☆ · Save · ×, commitment + where, synopsis, Watched · Share · More like this, swipe left/right with Undo.
+- **Saved page:** Saved · Watched · Favorites, with a Show posters footer.
+- **Bug:** fix the Oct 24 4:03 PM "couldn't confirm is real" notice, and add a test.
+- **Stats:** add Watched to `/api/stats`.
+- **Wording:** approved only.
+- **Merging:** merge when green.
+
+Plan: `docs/s17-mood-first-plan.md` (merged in #62).
+
+**Merges** (self-merged, §10.3: green, checked on their own previews and on the main preview):
+
+| PR | merge SHA |
+|---|---|
+| #62 S17a | `feeba09` |
+| #63 S17b | `a931e60` |
+| #65 S17c | `c40e2bf` |
+
+Each reverts with `git revert -m 1 <sha>`, newest first.
+
+**Open, not merged (VOICE):**
+- **#66 S17v:** AI-search Movies/TV cards show TMDb's synopsis.
+- **#64 S17w:** the poster ×'s screen-reader name, "Hide posters".
+
+### Calls I made (each reversible)
+1. **The field bug was an outage reported as fiction.**
+   - When the title check fails as a whole (verify 503/timeout, a dropped request, every TMDb lookup failing), every title is dropped, which is correct. But they were counted as invented, so the person read "Every title … was one I couldn't confirm is real".
+   - The shortlist made it likelier: a bigger over-ask means longer verify calls, two in parallel.
+   - Fix (S17a):
+     - only titles TMDb *answered* "not there" count as fiction;
+     - an unverifiable set gets the one failure voice;
+     - the client retries the verify call once;
+     - the matcher accepts number words / digits ("Ocean's 8") and the pre-colon head ("Glass Onion").
+   - Reproduction found 0 fabricated sets over 28 searches on both providers.
+2. **"You liked this in October."** is S1's freshness-slot marker (charter §7 call #2). D2 cards no longer show it; the slot itself still works.
+3. **The search field and chip styles are one component**, so wine gets the new field and chips too. Its cards, shortlist and go-to stay as they were.
+4. **Books lose the Shortlist / Steer by / home go-tos with Movies/TV.** Books' go-tos live on the Saved page's Favorites tab.
+5. **Trail (compact) D2 cards don't show the screen note**; frontier cards keep it.
+6. **The poster × ships without a screen-reader name.** "Hide posters" isn't approved wording, so it's in #64.
+7. **Saved-page items open by the go-to path.** A Movies/TV title lands on the snap-lane anchor (classic card), as a go-to does.
+
+### SHIPPED
+
+**S17a (#62): guard + stats**
+- What's above, plus a Watched row in `/api/stats` (JSON `watched`; HTML row "Watched"; agents excluded).
+
+**S17b (#63): mood first, D2 cards**
+- **The field:** one row (category ▾ · text · mic · camera). No GO: the keyboard's Search key runs it.
+- **Chips:**
+  - genre and vibe rows always show, and they wrap;
+  - unselected = outline, selected = #3B6BD4, white bold;
+  - exhaustion buttons get the same outline.
+- **Removed:** the Shortlist strip, Steer by and the home go-tos list (Movies/TV/Books). Favorites still steer the slot recipe.
+- **Results header:** "Comedy · Feel-good", or the said/typed words in quotes.
+- **D2 cards (Movies/TV), `RekCard layout="d2"`:**
+  - poster (`PosterThumb`, TMDb w185 at 76×114, lazy/async, placeholder);
+  - ☆ · bookmark · × top right;
+  - commitment + where under the title;
+  - synopsis;
+  - Watched · Share · + More like this.
+- **AI-search cards** get poster and facts from the new `/api/facts`, keyed by the verify match's TMDb id.
+- **Posters off:** the × on a poster → "Posters hidden · Undo". Stored per device (`rekomendr.posters_hidden`, try/catch). Hidden = the D1 layout, and no image requests.
+- **Gestures:**
+  - swipe left = Not for me, with a backing label;
+  - swipe right = Save for later;
+  - Watched fades the card out.
+  - Each has an Undo toast ("Not for me · Undo", "Saved · Undo", "Watched · Undo").
+  - Reduced motion is respected; vertical drags still scroll.
+- **Undo** is the new `/api/signals/undo`: action-fixed to dislike/save, this client only, newest row within 10 min. `remove: true` deletes every save row of a title.
+
+**S17c (#65): the Saved page**
+- "Saved [n]" in the top bar (left of Share) opens a full-screen sheet with tabs Saved · Watched · Favorites, grouped Movies · TV Shows · Books · Wine.
+- **Sources:**
+  - Saved and Watched come from the new `/api/saved` (service role, this client; saved-then-watched moves tabs; a later Not for me is a reversal; category spellings merged);
+  - Favorites = the go-to mirror + wine's go-to.
+- **Actions:** the lit bookmark removes, the lit check un-watches, the lit star un-stars.
+- **Tap** opens the card.
+- **Footer:** the Show posters switch.
+- **Count updates:** every save / Not for me / watched / undo fires `rekomendr:saved-changed`, and the button re-reads.
+
+### MEASURED
+- **First card text, posters on vs off** (S17b preview, 10 each, alternating, fresh context):
+  - two bands in both modes: warm cache ~380 ms, cold ~880 ms;
+  - matched pairs: Drama 893/884, Sci-Fi 899/926, Comedy 382/378, Thriller 401/376;
+  - **no difference in first text paint**;
+  - posters fill in 7–290 ms after the text;
+  - posters off → 0 requests to image.tmdb.org.
+- **S17v closers** (typed searches, 6 each): **before 20 over 25 cards (3.3 per set); after 0 over 30.** One "before" set failed on main during the run (cozy, rainy night).
+
+### FOUND, NOT FIXED
+- **Snap-lane cards (`RekSnapResults`) are still the classic card** (thumbs). A Saved-page item opened there shows an unlit bookmark even though it's saved. A tap writes one more save row, which is harmless.
+- **Removing on the Saved page doesn't un-light a bookmark already on screen** until the next search.
+- **An empty Saved-page tab shows no text.** An empty-state line would be new wording.
+- **A synopsis whose first sentence runs past 220 characters is cut with "…"** on chip cards, and on AI cards if #66 merges.
+- **Harness hygiene:** s5, s12a, s12b, s13c, s15-screen and s16a asserted what S17 removed on purpose. Each now describes the S17 design. s16b is pinned to its own range; s13c ignores comment lines.
+- **Running harnesses on Windows Git Bash:** the suites that spawn `npx` need a `child_process` shim (spawn `npx.cmd` with `shell: true`). The session's copy is `npx-shim.cjs` in the scratchpad: `node -r <shim> scripts/validate-X.cjs`. Worth committing as `scripts/npx-shim.cjs` next time.
+
+### TEST RESIDUE
+- `user_likes` save/watched/dislike rows for `anon_agent_s17*`. Most were undone by the runs.
+- `go_tos` rows for `anon_agent_s17c_ui_*`, starred then un-starred.
+- `/api/stats` excludes `anon_agent*`.
+
+### BRAD MUST
+1. Run the phone checklist below on the main preview, then promote.
+2. **#66 (VOICE):** TMDb synopsis on AI-search cards. Merge it, or keep the generated voice. Counted: 20 closers → 0.
+3. **#64 (VOICE):** "Hide posters" as the poster ×'s screen-reader name. Merge it, or pick another word.
+4. **Wording, if wanted:** an empty-state line for an empty Saved-page tab.
+5. **Decide:** D2 for the snap lane (RekSnapResults), or keep it classic.
+
+### NEXT SESSION SHOULD KNOW
+- **The D2 card is `RekCard layout="d2"`.** ResultsV4 sets it for Movies/TV (`d2`). Behavior (toasts, undo, swipe direction, fade) stays in ResultsV4. Snap lane: untouched.
+- **One toast slot on D2** (`UndoToast`). Every Undo waits for its write (`writesRef`) before deleting through `/api/signals/undo`.
+- **`usePostersOn()` reads storage on first render**, so a hidden-posters device never builds an `<img>`.
+- **The Saved page is in `app/layout.tsx`'s TopBar** (`SavedPage`). It opens cards through the `rekomendr:open-saved-item` window event, which the page handles with `moreFromGoTo(t, { counted: false })`.
+- **Next route files may export only handlers:** list logic lives in `src/lib/savedLists.ts`.
+
+### VALIDATION
+- **Harnesses:** new validate-s17a 21/21, validate-s17b 55/55, validate-s17c 28/28 (validate-s17v 10/10 on #66). All 32 suites on main are green; tsc and lint are clean.
+- **UI on the main preview** (390×844, touch, service workers blocked):
+  - S17b 45/45: field, chips, header, D2 cards, posters, facts, ×/Save/Watched + Undo, swipes, vertical scroll on a card, posters off/remembered/zero requests, typed AI search with posters + facts, wine untouched.
+  - S17c 20/20: count, tabs, groups, un-star / un-watch / remove persisted server-side, tap opens the card, Show posters.
+
+### Brad's twenty minutes — phone checklist (iPhone home-screen app, main preview, then production after promotion)
+1. **Home.** One search row: Movies ▾ · text · mic · camera, no GO. Genre and vibe chips both show and wrap. Unselected chips are outlines; tap one and it fills blue with white bold text.
+2. **Tap Comedy, then Feel-good.**
+   - The header reads "Comedy · Feel-good".
+   - Five cards, each with a poster on the left; ☆ · bookmark · × at the top right; "1h 43m · on Netflix" under the title; the synopsis; and Watched · Share · + More like this along the bottom.
+3. **Mic:** tap it and say "something funny and short". The header shows your words.
+4. **×** on a card → it leaves, "Not for me · Undo". Tap Undo: it's back.
+5. **Swipe a card left** → "Not for me" shows behind it as it slides, then the toast. **Swipe one right** → "Save for later" behind it, then "Saved · Undo". Scroll up and down over cards: it scrolls, nothing gets swiped.
+6. **☆** on a card → gold star. **Bookmark** → filled blue, "Saved · Undo".
+7. **Watched** → the card fades out, "Watched · Undo". Undo brings it back.
+8. **Posters:** tap the small × on a poster → "Posters hidden · Undo". The cards go text-only. Close the app and reopen: still text-only.
+9. **Saved [n]** at the top → Saved · Watched · Favorites tabs, with your items under Movies / TV Shows.
+   - Tap the blue bookmark, the check, or the star to remove an item.
+   - Tap a title to open its card.
+   - Turn **Show posters** on, close, search: posters are back.
+10. **Wine:** the new field and chips, otherwise as before (shortlist, go-to).
+
+**What it should feel like:**
+- [ ] Mood first: chips and mic, no hunting for GO.
+- [ ] Cards scan fast: poster, how long, where.
+- [ ] Every act has an Undo.
+- [ ] Posters never slow the text.
+- [ ] Saved is one tap away.
+
+**What to screenshot if it's wrong:**
+- a card without a poster while posters are on;
+- a swipe that fired while you were scrolling;
+- an Undo that didn't undo;
+- a Saved count that's off;
+- the "couldn't confirm is real" notice (with the time).
+
+**Log lines:** `[fake-title] verification unavailable — set emptied, failure voice`, `[signal-undo]`, `[facts] bundles missing`, `[saved] read failed`, `[saved] remove not persisted`.
+
+### Production promotion steps (§11.8)
+1. Brad opens `main → release/v2` and merges after the checklist passes on the main preview.
+2. **Environment:** nothing new (TMDB_API_KEY and the Supabase service role are already set).
+3. **Migrations:** none. `/api/saved` and `/api/signals/undo` read and delete existing `user_likes` rows through the service role.
+4. **Revert SHAs:** #65 `c40e2bf`, then #63 `a931e60`, then #62 `feeba09`, each with `git revert -m 1 <sha>`.
+
+**§0 check:** consistent.
+- Mood first puts what you're in the mood for one tap away (chips, mic).
+- Cards say what a pick costs you (how long, where) before you commit.
+- Every act is undoable, and Not for me / Watched keep a title from coming back.
+- Picks still come from TMDb's public data and the person's own go-tos.
+- Nothing pays to move a pick; posters are TMDb's own art, credited in the footer.
+- The guard fix makes the app honest about an outage instead of blaming the picks.
+- Nothing nags: toasts are 4-second undos.
+
+## Session 18 — S17 follow-ups (VOICE merges, empty states, snap-lane D2, watched stays gone) — 2026-10-24 — branches auto/s18a-saved-empty, auto/s18b-snap-d2, auto/s18c-snap-watched-exclude — PRs #66, #64 (approved VOICE), #68, #69, #70 (local agent mode, §11)
+
+Brad's message:
+- **Approved:** merge #66 (TMDb synopsis on typed cards) and #64 ("Hide posters" label).
+- **Empty states, approved wording:**
+  - Saved: "Nothing saved yet. Tap the bookmark on any card to keep it here."
+  - Watched: "Nothing marked watched yet."
+  - Favorites: "No favorites yet. Tap ☆ on a card you love."
+- **Follow-up:** use the D2 card for Movies/TV snap results and for titles opened from the Saved page, with the correct saved/starred/watched states.
+- **Merging:** merge when green.
+
+Plan: `docs/s18-followups-plan.md`.
+
+**Merges** (green, checked on their own previews and on the main preview; #66 and #64 merged on Brad's approval):
+
+| PR | merge SHA |
+|---|---|
+| #66 S17v (VOICE, approved) | `4163535` |
+| #64 S17w (VOICE, approved) | `aab3f51` |
+| #68 S18a | `ba69a83` |
+| #69 S18b | `5c28187` |
+| #70 S18c | `cd18a70` |
+
+Each reverts with `git revert -m 1 <sha>`, newest first.
+
+### Calls I made (each reversible)
+1. **The Saved and Watched empty lines wait for the first server answer**, so a slow read never flashes "Nothing saved yet" over a list that's coming. Favorites shows at once, since it's local.
+2. **D2 in the snap lane = any Movies/TV anchor that isn't health:** a snapped poster or screen, a typed title, or a title opened from the Saved page. Books and wine keep their cards.
+3. **The anchor never shows ×.** It's the title you asked about. It has ☆ · Save and a navy accent frame, and its where-to-watch keeps its tappable `WatchLine`.
+4. **Snap-lane saves and Not for me now also write `user_likes`.** That table is what the Saved page and later searches read. The snap signal is still written.
+5. **A title saved and then watched still lights its bookmark.** The save row is live, so the Saved page's Watched tab and the card both reflect it.
+6. **S18c:** a watched title never comes back on a snap backfill or chain. This covers titles watched this snap and the server's watched list (newest 60). The server already drops `excludeNames` at the response site, so it's a guarantee.
+
+### SHIPPED
+
+**#66, #64:** as approved.
+
+**S18a (#68): Saved-page empty states.** The three lines verbatim, under `data-testid="saved-empty"`.
+
+**S18b (#69): the D2 card in the snap lane**
+- **Anchor and reks on `RekCard layout="d2"`:**
+  - poster;
+  - ☆ · Save (· × on reks);
+  - commitment + where (via `/api/facts`, which now also matches by title through the title check's own `verifyTitles`; an unmatched title is absent, never a near miss);
+  - synopsis;
+  - Watched · Share · + More like this.
+- **Frontier gestures:** swipe left = Not for me, swipe right = Save for later; Watched fades the card and backfills. Each act has the lane's one Undo toast.
+- **Correct marks on open:** `useServerMarks` reads `/api/saved` and re-reads on every change.
+  - Saved names open with a filled bookmark.
+  - Watched names open with a filled check (`useWatchedMarks.seed`, no write).
+  - Stars follow the go-to mirror.
+  - A tap made this snap always wins over a read that was in flight.
+
+**S18c (#70): watched stays gone.** Details are under call 6.
+
+### FOUND, NOT FIXED
+- **Undoing a snap Not for me leaves its `reksnap_signals` row.** That table is write-only from the browser by design (S2a). The `user_likes` dislike is deleted.
+- **A fresh snap's first five aren't filtered by watched.** S18c covers backfills and chains only. A watched title in the first five opens with its check filled, which is correct, but it is shown. The search lane already excludes watched titles up front. The snap lane could do the same server-side in a later pass.
+- **Typing "Glass Onion" goes to the search lane, not a title anchor.** The UI run hit this on the main preview. It's typed-lane routing, pre-existing; see `docs/typed-lane-anchor-contract` (pending Brad review).
+
+### TEST RESIDUE
+- `user_likes` rows for `anon_agent_s18b_ui_*` / `anon_agent_s18c_ui_*`. Most were undone or un-watched by the runs; two crashed s18c runs left one watched row each.
+- `reksnap_signals` rows from the same clients.
+- `/api/stats` excludes `anon_agent*`.
+
+### BRAD MUST
+1. Run the phone checklist (S17's list plus the items below) on the main preview, then promote.
+
+### NEXT SESSION SHOULD KNOW
+- **Card markup** lives in `RekCard.tsx`; behavior stays per lane. `RekSnapResults` has `d2` (Movies/TV, not health), its own `UndoToast`, `writesRef`, `touchedRef`, `cardFacts`.
+- **`useServerMarks(enabled)`** returns `{ready, saved, watched}`. Its `saved` includes saved-then-watched (`savedWatched` from `buildSavedLists`).
+- **The snap exclusion union** (`buildExcludeNames`) now includes `watchedExclude()`.
+
+### VALIDATION
+- **Harnesses:** new validate-s18b 30/30 and validate-s18c 8/8; all 35 suites green; tsc and lint clean.
+- **UI on the main preview** (390×844, touch, service workers blocked): S17b 45/45, S17c 23/23 (incl. the three empty states), S18b 29/29 (typed + snapped anchors, acts + Undo, swipes, Saved-page open with the right marks), S18c 7/7 (watched title absent from backfill/chain requests and the screen, this snap and a fresh visit).
+
+### Phone checklist additions (iPhone home-screen app)
+1. **Saved page, fresh install:** each tab shows its line ("Nothing saved yet. …", "Nothing marked watched yet.", "No favorites yet. Tap ☆ on a card you love.").
+2. **Type "Knives Out".**
+   - The top card has a navy frame, a poster, ☆ · bookmark (no ×), and how long.
+   - The cards below are D2 cards with posters and "· on …".
+3. **On a card below:** × → "Not for me · Undo"; swipe left / right; Watched → it fades and a new one arrives. That title doesn't come back on later cards or after + More like this.
+4. **Snap a movie poster:** same cards.
+5. **Save a title, mark another watched, open both from Saved.** Each opens with its bookmark or check already filled.
+
+**Log lines:** `[facts]`, `[saved] read failed`, `[signal-undo]`.
+
+### Production promotion steps (§11.8)
+1. Brad opens `main → release/v2` after the checklist passes.
+2. **Environment:** nothing new.
+3. **Migrations:** none.
+4. **Revert SHAs:** #70 `cd18a70`, #69 `5c28187`, #68 `ba69a83`, #64 `aab3f51`, #66 `4163535`, newest first.
+
+**§0 check:** consistent.
+- The snap lane now says what a pick costs you (how long, where), the same as search.
+- Every act is undoable.
+- What you've watched stays out of the way.
+- Marks you've made open as you left them, so nothing asks twice.
+- No new wording beyond Brad's approved lines; nothing pays to move a pick; nothing nags.
