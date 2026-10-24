@@ -49,7 +49,7 @@ const bundleFor = (kind, id) => ({
   completion: { trailerUrl: null, watch: id % 2 ? { link: "l", stream: [{ name: "Netflix", url: "u" }], rentBuy: [] } : { link: "l", stream: [], rentBuy: [] }, availability: null },
   candidates: tier1.slice(0, 30), commitment: kind === "movie" ? "2h 10m" : "3 seasons · 30 episodes", rating: 7.5, votes: 3000,
 });
-const R0 = load("src/lib/slotRecipe.ts", { "./tmdbVerify": { normalizeTitle: norm }, "./tmdbMedia": media });
+const R0 = load("src/lib/slotRecipe.ts", { "./tmdbVerify": { normalizeTitle: norm }, "./tmdbMedia": media, "./synopsis": load("src/lib/synopsis.ts", {}) });
 const R = { ...R0, loadPools: async () => pools, loadGoTos: async (kind, goTos) => goTos.map((g) => ({ ...g, bundle: bundleFor(kind, 777) })) };
 let writerFails = false;
 const route = load("app/api/slots/route.ts", {

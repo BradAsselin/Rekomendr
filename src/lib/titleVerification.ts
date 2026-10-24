@@ -23,7 +23,7 @@ export type VerifyResult = {
   // not ship, but it is not evidence of fiction either.
   answered: Set<string>;
   // S17 — the TMDb match for each resolved title (id + poster path).
-  matches: Map<string, { tmdbId: number; posterPath: string | null }>;
+  matches: Map<string, { tmdbId: number; posterPath: string | null; overview: string | null }>;
 };
 
 // Mirrors normalizeTitle in tmdbVerify.ts — the two must agree or the
@@ -96,6 +96,7 @@ export async function verifyTitlesViaApi(args: {
               out.matches.set(k, {
                 tmdbId: v.tmdbId,
                 posterPath: typeof v.posterPath === "string" ? v.posterPath : null,
+                overview: typeof v.overview === "string" && v.overview.trim() ? v.overview.trim() : null,
               });
             }
           }

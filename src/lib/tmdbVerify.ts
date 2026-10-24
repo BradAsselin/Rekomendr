@@ -50,6 +50,9 @@ export type VerifyVerdict = {
   // thumbnail, and the facts lookup). Set only on a resolved verdict.
   tmdbId?: number;
   posterPath?: string | null;
+  // S17v — TMDb's synopsis of the match: AI-search cards show it instead
+  // of generated copy. Capped; set only on a resolved verdict.
+  overview?: string | null;
 };
 
 // Hang protection, not a latency SLA (charter §2.11). A TMDb search is
@@ -222,6 +225,7 @@ function cacheSet(item: VerifyItem, verdict: VerifyVerdict): void {
 type TmdbRow = {
   id?: number;
   poster_path?: string | null;
+  overview?: string;
   title?: string;
   original_title?: string;
   name?: string;
@@ -360,6 +364,7 @@ async function verifyOne(item: VerifyItem, key: string): Promise<VerifyVerdict> 
             typeof row.poster_path === "string" && /^\/[\w.-]{1,120}$/.test(row.poster_path)
               ? row.poster_path
               : null,
+          overview: typeof row.overview === "string" && row.overview.trim() ? row.overview.trim().slice(0, 1200) : null,
         };
         cacheSet(item, verdict);
         return verdict;
