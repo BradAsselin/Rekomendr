@@ -28,7 +28,13 @@ export function watchedCategory(raw: unknown): "Movies" | "TV Shows" | "Books" |
   return c ? BAR_CATEGORY[c] : null;
 }
 
-export function useWatchedMarks(onChange?: (item: WatchedItem, watched: boolean) => void) {
+// S17 — `silent`: the lane shows its own toast (the search lane's one
+// UndoToast), so this hook keeps no toast of its own.
+export function useWatchedMarks(
+  onChange?: (item: WatchedItem, watched: boolean) => void,
+  opts: { silent?: boolean } = {}
+) {
+  const silent = !!opts.silent;
   const [marked, setMarked] = useState<Record<string, true>>({});
   const [toast, setToast] = useState<WatchedItem | null>(null);
   const writes = useRef(new Map<string, Promise<boolean>>());
@@ -66,12 +72,14 @@ export function useWatchedMarks(onChange?: (item: WatchedItem, watched: boolean)
     const k = keyOf(item.title);
     set(k, true);
     onChangeRef.current?.(item, true);
-    if (timer.current) clearTimeout(timer.current);
-    setToast(item);
-    timer.current = setTimeout(() => {
-      timer.current = null;
-      if (alive.current) setToast(null);
-    }, TOAST_MS);
+    if (!silent) {
+      if (timer.current) clearTimeout(timer.current);
+      setToast(item);
+      timer.current = setTimeout(() => {
+        timer.current = null;
+        if (alive.current) setToast(null);
+      }, TOAST_MS);
+    }
     const write = recordWatched({ category, title: item.title, year: item.year ?? undefined }).then((res) => {
       if (res.ok) return true;
       console.warn("[watched] not persisted", { reason: res.reason });
@@ -84,7 +92,7 @@ export function useWatchedMarks(onChange?: (item: WatchedItem, watched: boolean)
       return false;
     });
     writes.current.set(k, write);
-  }, []);
+  }, [silent]);
 
   const undo = useCallback((item: WatchedItem) => {
     const category = watchedCategory(item.category);

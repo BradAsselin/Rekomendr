@@ -164,6 +164,7 @@ async function handlePost(req: Request): Promise<Response> {
         vsGoTo: line ? steer!.name : null,
         trailerUrl: b.completion.trailerUrl,
         facts: [b.commitment, whereOf(b, service)].filter((f): f is string => !!f),
+        posterPath: b.posterPath ?? null,
         screenNote: i === 0 ? START_WITH : null,
       };
     });

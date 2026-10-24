@@ -37,6 +37,30 @@ type SwipeOptions = {
   // can't be flung by accident).
   enabled: boolean;
   onSwipe: () => void;
+  // S17 — directional grammar (Movies/TV search cards): left and right
+  // are different acts. When either is set, the swipe commits only in a
+  // direction that has a handler (the other snaps back), and `onSwipe` is
+  // not used. During the drag the card's PARENT gets data-swipe="left" |
+  // "right", so a backing behind the card can say what letting go does.
+  onSwipeLeft?: () => void;
+  onSwipeRight?: () => void;
+};
+
+// S17 — reduced motion: the card follows the finger (that's the person's
+// own motion), but nothing animates on its own — no fling, no snap-back.
+const reducedMotion = () => {
+  try {
+    return typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  } catch {
+    return false;
+  }
+};
+
+const setDir = (el: HTMLElement, dir: "left" | "right" | null) => {
+  const host = el.parentElement;
+  if (!host) return;
+  if (dir) host.dataset.swipe = dir;
+  else delete host.dataset.swipe;
 };
 
 export type SwipeHandlers = {
@@ -48,6 +72,13 @@ export type SwipeHandlers = {
 };
 
 function snapBack(el: HTMLElement) {
+  setDir(el, null);
+  if (reducedMotion()) {
+    el.style.removeProperty("transition");
+    el.style.removeProperty("transform");
+    el.style.removeProperty("opacity");
+    return;
+  }
   el.style.transition = `transform ${SNAPBACK_MS}ms ease-out, opacity ${SNAPBACK_MS}ms ease-out`;
   el.style.transform = "translateX(0px)";
   el.style.opacity = "1";
@@ -62,7 +93,7 @@ function snapBack(el: HTMLElement) {
 function flingOff(el: HTMLElement, sign: -1 | 1) {
   // No cleanup: the lane's handler removes the card ~250ms later, so the
   // element leaves the tree right as the fling completes.
-  el.style.transition = `transform ${EXIT_MS}ms ease-out, opacity ${EXIT_MS}ms ease-out`;
+  el.style.transition = reducedMotion() ? "none" : `transform ${EXIT_MS}ms ease-out, opacity ${EXIT_MS}ms ease-out`;
   el.style.transform = `translateX(${sign * 110}%)`;
   el.style.opacity = "0";
 }
@@ -70,7 +101,10 @@ function flingOff(el: HTMLElement, sign: -1 | 1) {
 export function useSwipeToAction({
   enabled,
   onSwipe,
+  onSwipeLeft,
+  onSwipeRight,
 }: SwipeOptions): SwipeHandlers {
+  const directional = !!(onSwipeLeft || onSwipeRight);
   const phaseRef = useRef<Phase>("idle");
   const originRef = useRef({ x: 0, y: 0, t: 0 });
   const suppressClickRef = useRef(false);
@@ -112,7 +146,13 @@ export function useSwipeToAction({
     );
     el.style.transition = "none";
     el.style.transform = `translateX(${dx}px)`;
-    el.style.opacity = String(1 - 0.4 * progress);
+    if (directional) {
+      // The backing (behind the card) carries the meaning; the card stays
+      // opaque so it reads as sliding off it.
+      setDir(el, dx < 0 ? "left" : "right");
+    } else {
+      el.style.opacity = String(1 - 0.4 * progress);
+    }
   };
 
   const onPointerUp: React.PointerEventHandler<HTMLDivElement> = (e) => {
@@ -130,15 +170,15 @@ export function useSwipeToAction({
       Math.abs(dx) >= width * COMMIT_FRACTION ||
       (Math.abs(dx) >= FLICK_MIN_PX && avgVelocity >= FLICK_VELOCITY);
 
-    if (!commit) {
+    const act = directional ? (dx < 0 ? onSwipeLeft : onSwipeRight) : onSwipe;
+    if (!commit || !act) {
       snapBack(el);
       return;
     }
 
-    // Exit in the direction the finger was headed; the action is the
-    // same either way.
+    // Exit in the direction the finger was headed.
     flingOff(el, dx < 0 ? -1 : 1);
-    onSwipe();
+    act();
   };
 
   const onPointerCancel: React.PointerEventHandler<HTMLDivElement> = (e) => {

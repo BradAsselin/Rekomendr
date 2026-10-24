@@ -70,6 +70,7 @@ export async function fetchScreen(
     tmdbId: Number.isInteger(r.tmdbId) ? r.tmdbId : undefined,
     vsGoTo: typeof r.vsGoTo === "string" ? r.vsGoTo : null,
     facts: Array.isArray(r.facts) ? r.facts.filter((f: unknown) => typeof f === "string") : [],
+    posterPath: typeof r.posterPath === "string" ? r.posterPath : null,
     screenNote: typeof r.screenNote === "string" ? r.screenNote : undefined,
   }));
   const kinds = new Set(s.reks.map((r: any) => r.kind));

@@ -257,6 +257,8 @@ async function handlePost(req: Request): Promise<Response> {
         long: p.overview,
         vsGoTo: line ? steer!.name : null,
         facts: b ? [b.commitment, whereOf(b)].filter((f): f is string => !!f) : [],
+        // S17 — the poster thumbnail: the bundle's, else the pool row's.
+        posterPath: b?.posterPath ?? p.posterPath ?? null,
       };
     };
     const cards = picks.map((p, i) => cardFor(p, i));

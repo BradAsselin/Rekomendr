@@ -33,6 +33,7 @@ const toRek = (r: any): Rek => ({
   vsGoTo: typeof r.vsGoTo === "string" ? r.vsGoTo : null,
   // S16 — S15's facts ("2h 10m", "on Netflix") on every recipe card.
   facts: Array.isArray(r.facts) ? r.facts.filter((f: unknown) => typeof f === "string") : [],
+  posterPath: typeof r.posterPath === "string" ? r.posterPath : null,
 });
 
 const answerOf = (data: any, reks: Rek[]): SlotAnswer => ({

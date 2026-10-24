@@ -17,12 +17,10 @@ import {
   pointManifestAt,
 } from "../src/lib/installPrompt";
 import { getMoreLikeThisSet, getTop5FromEngine, type Rek } from "../src/engine/rekomendrEngine";
-import SteerByRow from "../src/components/SteerByRow";
 import { fetchSlots, type SlotRequest } from "../src/lib/slotsClient";
 import { typedMoodGate } from "../src/lib/typedMoodGate";
 import { fetchScreen, type ScreenAnswer, type ScreenTitles } from "../src/lib/screenClient";
 import { noteSetShown, seedEngineFromVisit } from "../src/lib/screenVisit";
-import { goToCategoryFor } from "../src/lib/goToCategory";
 import { chipQuery, refinersFor, SURPRISE_ME, type Chip, type Refiner } from "../src/lib/moodChips";
 import { clearVoiceSet, setVoiceSet } from "../src/lib/voiceSignals";
 import {
@@ -43,7 +41,7 @@ import {
 import WineBought from "../src/components/WineBought";
 import WineFollowup from "../src/components/WineFollowup";
 import GoTosList, { type GoToTarget } from "../src/components/GoTosList";
-import { getGoTos, goTosFor, logGoToEvent, onGoTosChange, syncGoTos, type GoTo } from "../src/lib/goTos";
+import { goTosFor, logGoToEvent, syncGoTos } from "../src/lib/goTos";
 import { BAR_CATEGORY } from "../src/lib/goToCategory";
 
 // S13c — a title named in a spoken mood, steering one recipe as a go-to.
@@ -523,6 +521,9 @@ export default function Page() {
   // S16 — early paint: the five are on screen, their "vs." lines are
   // still being written.
   const [linesPending, setLinesPending] = useState(false);
+  // S17 — the results header: what this set answers (the chips, or the
+  // typed/spoken words in quotes). Data, never copy.
+  const [resultsHeader, setResultsHeader] = useState<string | null>(null);
 
   const [snapLoading, setSnapLoading] = useState(false);
   const [snapResult, setSnapResult] = useState<SnapResult | null>(null);
@@ -572,20 +573,17 @@ export default function Page() {
     if (withFollowup) setFollowup(st.followup ?? null);
   };
 
-  // S12 — the go-tos (movies, shows, books) and wine's one go-to, for the
-  // home list. Mirrors first, then the server's copy wins.
-  const [goTos, setGoTos] = useState<GoTo[]>([]);
+  // S12 — wine's one go-to, for the home list (S17: movie, show and book
+  // go-tos left the home screen; they still steer every recipe, read from
+  // the goTos mirror). Mirror first, then the server's copy wins.
   const [wineGoTo, setWineGoTo] = useState<{ name: string } | null>(null);
   useEffect(() => {
-    setGoTos(getGoTos());
     setWineGoTo(getWineFavorite());
-    const offA = onGoTosChange(() => setGoTos(getGoTos()));
     const offB = onWineFavoriteChange(() => setWineGoTo(getWineFavorite()));
     void syncGoTos();
     // S12b — the engine's seen set starts from this visit's shown titles.
     seedEngineFromVisit();
     return () => {
-      offA();
       offB();
     };
   }, []);
@@ -601,12 +599,6 @@ export default function Page() {
     screenRef.current = null;
     setScreenOn(false);
   };
-  const lastQueryRef = useRef<string | null>(null);
-  const [steerAnswer, setSteerAnswer] = useState<{
-    category: Category;
-    order: string[];
-    selected: string | null;
-  } | null>(null);
 
   useEffect(() => {
     setHasSnapped(getSnapCount() >= 1);
@@ -1002,6 +994,7 @@ export default function Page() {
     slotReqRef.current = null;
     screenRef.current = { titles: screen.titles, service: screen.service };
     setScreenOn(true);
+    setResultsHeader(null); // the screen set has its own header
     const cat: Category = screen.category ?? (bar === "TV Shows" ? "TV Shows" : "Movies");
     clearVoiceSet();
     setSnapLoading(false);
@@ -1012,7 +1005,6 @@ export default function Page() {
     setLinesPending(false);
     setHasSearched(true);
     setCategory(cat);
-    setSteerAnswer({ category: cat, order: screen.order, selected: screen.steer });
     noteSetShown(cat, screen.reks.map((r) => r.title));
     setReks(screen.reks);
   };
@@ -1027,12 +1019,12 @@ export default function Page() {
     steerOpts?: { req: SlotRequest; steer: string; extraGoTo?: TransientGoTo },
     // S13c — this search answers a spoken mood: its five become the voice
     // set whose taps, plays, shares, saves and stars are counted.
-    voice?: { moodId: string | null }
+    // S17 — `said`: the words, for the results header.
+    voice?: { moodId: string | null; said?: string }
   ) => {
     const searchId = ++searchIdRef.current;
     if (!voice) clearVoiceSet();
     leaveScreen();
-    lastQueryRef.current = query;
     lastActivityRef.current = Date.now();
 
     // A new search dismisses any RekSnap results and clears a stale notice.
@@ -1047,6 +1039,22 @@ export default function Page() {
     setLinesPending(false);
 
     const nextCategory = categoryFromQuery(query);
+    // S17 — the header: spoken words, else the chips, else the typed words.
+    // A steer re-run keeps the header it had. Wine keeps its own layout.
+    if (!steerOpts || voice) {
+      const typed = typedTextFromQuery(query);
+      setResultsHeader(
+        nextCategory === "Wine"
+          ? null
+          : voice?.said
+            ? `“${voice.said}”`
+            : meta
+              ? [meta.chip.label, meta.refiner?.label].filter(Boolean).join(" · ")
+              : typed
+                ? `“${typed}”`
+                : null
+      );
+    }
     // S12b — Movies/TV chip taps (and every steer) run the slot recipe.
     const slotReq: SlotRequest | null =
       steerOpts?.req ??
@@ -1152,7 +1160,6 @@ export default function Page() {
         // they exist; the "vs." lines follow onto the same cards.
         const show = (list: Rek[], steer: string | null, order: string[]) => {
           slotReqRef.current = { req, steer, extraGoTo };
-          setSteerAnswer({ category: runCat, order, selected: steer });
           noteSetShown(runCat, list.map((r) => r.title));
           if (voice) setVoiceSet(voice.moodId, list.map((r) => r.title));
           setReks(list);
@@ -1186,7 +1193,6 @@ export default function Page() {
         }
       }
       slotReqRef.current = null;
-      setSteerAnswer({ category: nextCategory, order: [], selected: null });
 
       const next = await getTop5FromEngine({
         rawQuery: query,
@@ -1218,72 +1224,6 @@ export default function Page() {
       if (searchId === searchIdRef.current) {
         setLoading(false);
       }
-    }
-  };
-
-  // S12b — Steer by. Movies/TV re-run the recipe steered by the tapped
-  // go-to (the chip's lane and refiner kept; none after a typed search).
-  // Books (no TMDb) run the existing search seeded on the go-to.
-  const handleSteer = async (name: string) => {
-    logGoToEvent("steer_switch", goToCategoryFor(category));
-    // S15 — a screen set re-ranks its own titles against the tapped go-to.
-    if (screenRef.current) {
-      const s = screenRef.current;
-      const searchId = ++searchIdRef.current;
-      lastActivityRef.current = Date.now();
-      setSearchError(null);
-      setLoading(true);
-      setSteerAnswer((a) => (a ? { ...a, selected: name } : a));
-      try {
-        const ans = await fetchScreen({ titles: s.titles, service: s.service, steer: name });
-        if (searchId !== searchIdRef.current) return;
-        if (ans) {
-          screenRef.current = { titles: ans.titles, service: ans.service };
-          setSteerAnswer({ category, order: ans.order, selected: ans.steer });
-          setReks(ans.reks);
-        } else {
-          // Named, never silent: the set on screen stays as it was.
-          console.warn("[screen] steer re-rank failed — the set stays");
-        }
-      } catch (err) {
-        if (searchId !== searchIdRef.current) return;
-        setSearchError(isAIServiceError(err) ? err.message : AI_SEARCH_FAILED_MSG);
-      } finally {
-        if (searchId === searchIdRef.current) setLoading(false);
-      }
-      return;
-    }
-    if (category === "Movies" || category === "TV Shows") {
-      const req = slotReqRef.current?.req ?? { category, lane: null, refiner: null };
-      void handleSearch(lastQueryRef.current ?? `${category}||||||mode:ai`, category, undefined, { req, steer: name });
-      return;
-    }
-    if (category !== "Books") return;
-    const searchId = ++searchIdRef.current;
-    clearVoiceSet();
-    lastActivityRef.current = Date.now();
-    setSearchError(null);
-    setLoading(true);
-    setSteerAnswer({ category: "Books", order: [], selected: name });
-    try {
-      const prefs = await loadPrefsForCategory("Books");
-      const set = await getMoreLikeThisSet({
-        seed: { id: -1, title: name, year: 0, short: "", long: "" },
-        category: "Books",
-        likedTitles: prefs.likedTitles,
-        dislikedTitles: prefs.dislikedTitles,
-        watchedTitles: prefs.watchedTitles,
-      });
-      if (searchId !== searchIdRef.current) return;
-      noteSetShown("Books", set.map((r) => r.title));
-      setReks(set);
-      if (set.length === 0) setSearchError(AI_SEARCH_FAILED_MSG);
-    } catch (err) {
-      if (searchId !== searchIdRef.current) return;
-      setReks([]);
-      setSearchError(isAIServiceError(err) ? err.message : AI_SEARCH_FAILED_MSG);
-    } finally {
-      if (searchId === searchIdRef.current) setLoading(false);
     }
   };
 
@@ -1350,7 +1290,7 @@ export default function Page() {
     const lane = data.lane as { label: string; lane: string } | null;
     const chip: Chip = lane ? { label: lane.label, lane: lane.lane } : { label: SURPRISE_ME, lane: "" };
     const refiner = refinersFor(cat).find((r) => r.label === data.refiner) ?? null;
-    const voice = { moodId: typeof data.moodId === "string" ? data.moodId : null };
+    const voice = { moodId: typeof data.moodId === "string" ? data.moodId : null, said: transcript };
     if (cat === "Wine") {
       // The wine chip search (lane + style vibe). A spoken price rides the
       // lane slot as words ("Crisp White under $20") — pressure, not a
@@ -1365,28 +1305,6 @@ export default function Page() {
     console.info("[voice] mood → picks", { ms: Date.now() - started, category: cat, lane: chip.label, refiner: refiner?.label ?? null, steer: !!data.goTo });
     return { mapped: true, category: cat, laneLabel: chip.label, refinerLabel: refiner?.label ?? null, closest: [] };
   };
-
-  // The row's chips: the last recipe's order (nearest first, then most
-  // recent), then any go-to starred since, newest first.
-  const steerCat = goToCategoryFor(category);
-  // S15 — a screen set is steered by any movie or TV go-to.
-  const liveSteer = screenOn
-    ? goTos.filter((g) => g.category === "movies" || g.category === "tv").map((g) => g.name)
-    : steerCat
-      ? goTos.filter((g) => g.category === steerCat).map((g) => g.name)
-      : [];
-  const answered =
-    steerAnswer?.category === category
-      ? steerAnswer.order.filter((n) => liveSteer.some((l) => l.toLowerCase() === n.toLowerCase()))
-      : [];
-  const steerNames = [
-    ...answered,
-    ...liveSteer.filter((n) => !answered.some((a) => a.toLowerCase() === n.toLowerCase())),
-  ];
-  const steerSelected =
-    steerAnswer?.category === category && steerAnswer.selected && steerNames.includes(steerAnswer.selected)
-      ? steerAnswer.selected
-      : null;
 
   // S1 — "Watched it". Optimistic: the chip leaves the strip immediately,
   // because the tap is a verdict and a verdict that lags feels broken. If
@@ -1488,7 +1406,7 @@ export default function Page() {
     setWatchPendingTitle(null);
     setWatchFailedTitle(null);
     slotReqRef.current = null;
-    setSteerAnswer(null);
+    setResultsHeader(null);
     setSearchBarKey((k) => k + 1); // remount SearchBar → pristine bar + lane
   };
   resetToHomeRef.current = resetToHome;
@@ -1554,10 +1472,14 @@ export default function Page() {
             <>
             {/* S8c — the one follow-up question on this open, and the
                 Bought list. Home screen only: never over a result. */}
-            {(followup || bought.length > 0 || goTos.length > 0 || wineGoTo) && (
+            {/* S17 — movie, show and book go-tos left the home screen (they
+                live under Saved → Favorites, and still steer every recipe);
+                wine's go-to and its Bought list stay, as wine keeps its
+                layout. */}
+            {(followup || bought.length > 0 || wineGoTo) && (
               <div className="mb-6 space-y-3">
                 {followup && <WineFollowup item={followup} />}
-                <GoTosList goTos={goTos} wine={wineGoTo} onMore={(t) => moreFromGoTo(t)} />
+                <GoTosList goTos={[]} wine={wineGoTo} onMore={(t) => moreFromGoTo(t)} />
                 <WineBought
                   items={bought}
                   onMore={(name) => moreFromGoTo({ category: "wine", name }, { counted: false })}
@@ -1587,27 +1509,22 @@ export default function Page() {
                 onPlayVibe={() => vibePlayRef.current?.()}
                 persistedLikedTitles={persistedLikedTitles}
                 persistedDislikedTitles={persistedDislikedTitles}
-                shortlist={shortlist}
+                /* S17 — the Shortlist strip is gone from Movies/TV (and
+                   Books); its titles still feed the freshness slot. */
+                shortlist={category === "Wine" ? shortlist : []}
+                header={resultsHeader}
                 onWatched={handleWatched}
                 onWatchedChange={handleWatchedChange}
                 linesPending={linesPending}
                 watchPendingTitle={watchPendingTitle}
                 watchFailedTitle={watchFailedTitle}
+                /* S17 — the Steer by row is gone (go-tos still steer every
+                   recipe, nearest first); a screen set keeps its header. */
                 steerRow={
-                  steerCat || screenOn ? (
-                    <>
-                      {screenOn && (
-                        <div className="w-full max-w-xl mb-2 text-[13px] font-medium text-gray-300 sm:text-gray-600">
-                          From your screen
-                        </div>
-                      )}
-                      <SteerByRow
-                        names={steerNames}
-                        selected={steerSelected}
-                        busy={loading}
-                        onSteer={(n) => void handleSteer(n)}
-                      />
-                    </>
+                  screenOn ? (
+                    <div className="w-full max-w-xl mb-2 text-[13px] font-medium text-gray-300 sm:text-gray-600">
+                      From your screen
+                    </div>
                   ) : undefined
                 }
                 backfillOverride={slotBackfill}
