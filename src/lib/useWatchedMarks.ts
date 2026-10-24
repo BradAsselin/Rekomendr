@@ -117,6 +117,24 @@ export function useWatchedMarks(
     });
   }, []);
 
+  // S18b — marks the server already holds (the Saved page's Watched list):
+  // shown as watched, no write, no toast. A later tap undoes as usual.
+  const seed = useCallback((titles: string[]) => {
+    if (titles.length === 0) return;
+    setMarked((m) => {
+      let next = m;
+      for (const t of titles) {
+        const k = keyOf(t);
+        if (next[k]) continue;
+        if (next === m) next = { ...m };
+        next[k] = true;
+        // No write of ours to wait for: the row is already there.
+        writes.current.set(k, Promise.resolve(true));
+      }
+      return next;
+    });
+  }, []);
+
   const isWatched = useCallback((title: string) => !!marked[keyOf(title)], [marked]);
 
   const toggle = useCallback(
@@ -124,5 +142,5 @@ export function useWatchedMarks(
     [marked, mark, undo]
   );
 
-  return { isWatched, toggle, undo, toast, hideToast };
+  return { isWatched, toggle, undo, toast, hideToast, seed };
 }

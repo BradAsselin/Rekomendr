@@ -32,6 +32,8 @@ export function onSavedChange(fn: () => void): () => void {
 export async function fetchSavedLists(): Promise<{
   saved: SavedItem[];
   watched: SavedItem[];
+  // S18b — saves since watched (still a save row): cards show them filled.
+  savedWatched: SavedItem[];
 } | null> {
   const clientId = getAnonymousClientId();
   if (!clientId) return null;
@@ -43,7 +45,7 @@ export async function fetchSavedLists(): Promise<{
     });
     const data = await res.json().catch(() => null);
     if (!res.ok || !data?.ok || !Array.isArray(data.saved) || !Array.isArray(data.watched)) return null;
-    return { saved: data.saved, watched: data.watched };
+    return { saved: data.saved, watched: data.watched, savedWatched: Array.isArray(data.savedWatched) ? data.savedWatched : [] };
   } catch {
     return null;
   }
