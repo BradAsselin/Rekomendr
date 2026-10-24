@@ -21,7 +21,7 @@ export const WatchedButton: React.FC<{ on: boolean; onToggle: () => void }> = ({
     aria-label="Watched"
     data-testid="watched"
     // The padding widens the tap target without growing the row.
-    className="-my-1.5 -ml-1.5 py-1.5 pl-1.5 pr-2 flex items-center gap-1 text-sm hover:underline"
+    className="-my-1.5 -ml-1.5 py-1.5 pl-1.5 pr-2 flex items-center gap-1 text-sm"
   >
     {on ? (
       <CircleCheck size={18} strokeWidth={2} fill="#1E3A8A" color="#ffffff" aria-hidden="true" />
