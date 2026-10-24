@@ -29,6 +29,7 @@ function load(rel, stubs) {
   return m.exports;
 }
 const R = load("src/lib/slotRecipe.ts", {
+  "./synopsis": load("src/lib/synopsis.ts", {}), // S17v: shortSynopsis lives there now
   "./tmdbVerify": { normalizeTitle: norm },
   "./tmdbMedia": { loadMediaBundle: async () => null, resolveSnappedTitle: async () => null, rowTitle: () => "", rowYear: () => null, tmdbGet: async () => null },
 });

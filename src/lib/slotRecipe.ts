@@ -423,20 +423,8 @@ export function assemble(args: {
   return out;
 }
 
-// A synopsis's first sentence or two, for the card's short when no go-to
-// line exists (TMDb's own text; the long carries the whole of it).
-export function shortSynopsis(overview: string, max = 220): string {
-  const text = overview.replace(/\s+/g, " ").trim();
-  if (text.length <= max) return text;
-  const sentences = text.match(/[^.!?]+[.!?]+(\s|$)/g) ?? [];
-  let out = "";
-  for (const s of sentences) {
-    if ((out + s).trim().length > max) break;
-    out += s;
-  }
-  out = out.trim();
-  return out || `${text.slice(0, max - 1).trimEnd()}…`;
-}
+// shortSynopsis moved to ./synopsis (S17v: the browser engine uses it too).
+export { shortSynopsis } from "./synopsis";
 
 // "vs. your Lioness: same CIA pressure…" — the line opens lower-case when
 // its first word is an ordinary word (a comparative or a verb), never when

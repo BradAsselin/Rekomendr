@@ -22,6 +22,7 @@ import { getTop5FromDeck } from "./deckSelector";
 import { rankMovieCandidates } from "./movieProfileScorer";
 import { readServiceFailure, isAIServiceError } from "../lib/aiServiceError";
 import { getAnonymousClientId } from "../lib/clientId";
+import { shortSynopsis } from "../lib/synopsis";
 // S1.5 — the real-title guard. Movies/TV only; the lookup itself lives
 // server-side (TMDB_API_KEY never reaches the browser, and this engine
 // runs in the browser).
@@ -960,11 +961,17 @@ async function dropUnresolvedMediaTitles(
   // failed check reported to the person as five invented titles.
   // S17 — each survivor carries its TMDb match (the card's poster, and the
   // id its commitment/where facts are looked up by).
+  // S17v — and its card reads TMDb's synopsis (the slot cards' shape: the
+  // first sentence or two as short, the whole as long) in place of the
+  // generated copy and its stock closers. No synopsis → the generated
+  // copy stays.
   const survivors = candidates
     .filter((r) => resolved.get(verifyKey(r.title)) === true)
     .map((r) => {
       const m = matches.get(verifyKey(r.title));
-      return m ? { ...r, tmdbId: m.tmdbId, posterPath: m.posterPath } : r;
+      if (!m) return r;
+      const text = m.overview ? { short: shortSynopsis(m.overview), long: m.overview } : {};
+      return { ...r, ...text, tmdbId: m.tmdbId, posterPath: m.posterPath };
     });
   const dropped = candidates.filter((r) => resolved.get(verifyKey(r.title)) !== true);
   const fake = dropped.filter((r) => answered.has(verifyKey(r.title))).length;
