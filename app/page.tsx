@@ -41,6 +41,7 @@ import {
 import WineBought from "../src/components/WineBought";
 import WineFollowup from "../src/components/WineFollowup";
 import GoTosList, { type GoToTarget } from "../src/components/GoTosList";
+import { onOpenSavedItem } from "../src/components/SavedPage";
 import { goTosFor, logGoToEvent, syncGoTos } from "../src/lib/goTos";
 import { BAR_CATEGORY } from "../src/lib/goToCategory";
 
@@ -864,6 +865,12 @@ export default function Page() {
     setBarCategoryHint((h) => ({ value: bar, n: h.n + 1 }));
     void handleSearch(`${bar}||||${t.name}||mode:ai`, bar);
   };
+
+  // S17c — a title tapped on the Saved page opens its card here, by the
+  // same path as a go-to (not counted as a go-to "more").
+  const moreFromGoToRef = useRef(moreFromGoTo);
+  moreFromGoToRef.current = moreFromGoTo;
+  useEffect(() => onOpenSavedItem((t) => moreFromGoToRef.current(t, { counted: false })), []);
 
   const openSnapPicker = () => {
     if (ENFORCE_SNAP_LIMIT && getSnapCount() >= SNAP_LIMIT) {

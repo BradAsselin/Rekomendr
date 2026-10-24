@@ -7,9 +7,47 @@
 import { supabase } from './supabaseClient';
 
 import { getAnonymousClientId } from './clientId';
+import type { SavedItem } from './savedLists';
 export { getAnonymousClientId };
 
 export type LikeAction = 'like' | 'dislike' | 'save' | 'more_like_this';
+
+// S17c — the Saved page's count follows every write that can change it
+// (save, Not for me, watched, and their undos). One window event; the
+// top bar's Saved button re-reads /api/saved when it fires.
+const SAVED_EVENT = 'rekomendr:saved-changed';
+export function notifySavedChange(): void {
+  try {
+    window.dispatchEvent(new CustomEvent(SAVED_EVENT));
+  } catch {}
+}
+export function onSavedChange(fn: () => void): () => void {
+  window.addEventListener(SAVED_EVENT, fn);
+  return () => window.removeEventListener(SAVED_EVENT, fn);
+}
+
+// S17c — this client's Saved and Watched lists (every category), for the
+// Saved page. null = the read failed (the page says nothing new; it shows
+// what it has).
+export async function fetchSavedLists(): Promise<{
+  saved: SavedItem[];
+  watched: SavedItem[];
+} | null> {
+  const clientId = getAnonymousClientId();
+  if (!clientId) return null;
+  try {
+    const res = await fetch('/api/saved', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clientId }),
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok || !data?.ok || !Array.isArray(data.saved) || !Array.isArray(data.watched)) return null;
+    return { saved: data.saved, watched: data.watched };
+  } catch {
+    return null;
+  }
+}
 
 export async function recordLike(params: {
   category: string;
@@ -27,6 +65,7 @@ export async function recordLike(params: {
     year: params.year ?? null,
     action: params.action,
   });
+  if (params.action === 'save' || params.action === 'dislike') notifySavedChange();
 }
 
 // One Shortlist entry: a liked-but-not-watched title, plus the timestamp
@@ -140,6 +179,7 @@ export async function recordWatched(params: {
         reason: typeof data?.reason === 'string' ? data.reason : 'request_failed',
       };
     }
+    notifySavedChange();
     return { ok: true };
   } catch {
     return { ok: false, reason: 'network' };
@@ -164,6 +204,7 @@ export async function undoWatched(params: {
     if (!res.ok || !data?.ok) {
       return { ok: false, reason: typeof data?.reason === 'string' ? data.reason : 'request_failed' };
     }
+    notifySavedChange();
     return { ok: true };
   } catch {
     return { ok: false, reason: 'network' };
@@ -192,6 +233,7 @@ export async function undoSignal(params: {
     if (!res.ok || !data?.ok) {
       return { ok: false, reason: typeof data?.reason === 'string' ? data.reason : 'request_failed' };
     }
+    notifySavedChange();
     return { ok: true };
   } catch {
     return { ok: false, reason: 'network' };
