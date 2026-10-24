@@ -136,6 +136,13 @@ for (const level of ["log", "warn", "info", "error"]) console[level] = () => {};
     ...(code.match(/aria-label="([^"]+)"/g) || []).map((m) => m.slice(12, -1)),
   ].filter(Boolean);
   const allowed = new Set(["Saved", "Watched", "Favorites", "Show posters", "Close", "Your go-to (tap to unstar)"]);
+  // S18a — the three empty states, approved by Brad 2026-10-24.
+  check("empty states: the approved wording, exactly", [
+    sp.includes('Saved: "Nothing saved yet. Tap the bookmark on any card to keep it here."'),
+    sp.includes('Watched: "Nothing marked watched yet."'),
+    sp.includes('Favorites: "No favorites yet. Tap ☆ on a card you love."'),
+  ], [true, true, true]);
+  check("empty text waits for a real answer (not shown while loading or after a failed read)", /tabCount\[tab\] === 0 && \(tab === "Favorites" \|\| loaded\)/.test(sp), true);
   check("every visible string / label is approved or existing", [...new Set(visible)].filter((w) => !allowed.has(w)), []);
 
   say(`\n${passed} passed, ${failed} failed`);

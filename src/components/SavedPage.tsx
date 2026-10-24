@@ -41,6 +41,13 @@ const GROUPS: SavedCategory[] = ["Movies", "TV Shows", "Books", "Wine"];
 type Tab = "Saved" | "Watched" | "Favorites";
 const TABS: Tab[] = ["Saved", "Watched", "Favorites"];
 
+// S18a — what an empty tab says (Brad-approved wording, 2026-10-24).
+const EMPTY: Record<Tab, string> = {
+  Saved: "Nothing saved yet. Tap the bookmark on any card to keep it here.",
+  Watched: "Nothing marked watched yet.",
+  Favorites: "No favorites yet. Tap ☆ on a card you love.",
+};
+
 const targetFor = (category: SavedCategory, name: string, goTo?: GoTo): GoToTarget => {
   if (category === "Wine") return { category: "wine", name };
   const c = goToCategoryFor(category)!;
@@ -63,6 +70,9 @@ const SavedPage: React.FC = () => {
   const [saved, setSaved] = useState<SavedItem[]>([]);
   const [watched, setWatched] = useState<SavedItem[]>([]);
   const [favorites, setFavorites] = useState<Fav[]>([]);
+  // Saved/Watched say "empty" only once a read has actually answered — a
+  // list still loading (or a failed read) is not an empty list.
+  const [loaded, setLoaded] = useState(false);
   const postersOn = usePostersOn();
 
   const reload = useCallback(async () => {
@@ -70,6 +80,7 @@ const SavedPage: React.FC = () => {
     if (!lists) return; // a failed read keeps what's showing
     setSaved(lists.saved);
     setWatched(lists.watched);
+    setLoaded(true);
   }, []);
 
   useEffect(() => {
@@ -210,6 +221,11 @@ const SavedPage: React.FC = () => {
           </div>
 
           <div className="mx-auto w-full max-w-xl flex-1 overflow-y-auto overscroll-contain px-4 pb-6">
+            {tabCount[tab] === 0 && (tab === "Favorites" || loaded) && (
+              <p data-testid="saved-empty" className="pt-8 text-center text-[15px] leading-relaxed text-gray-500">
+                {EMPTY[tab]}
+              </p>
+            )}
             {tab === "Saved" &&
               grouped(saved, (s, i) =>
                 row(
