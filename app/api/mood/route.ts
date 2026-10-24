@@ -16,6 +16,11 @@
 // table is named (migration_pending) and the parse still answers.
 // Capped with the search route's key ("openai", 300/day): a voice search
 // is a search.
+//
+// S16 — `source: "typed"`: a mood typed on the Movies/TV bar takes the
+// same parse (docs/s16-watched-search-plan.md, Part B). It is not stored
+// in voice_moods (the voice readout counts what people SAID), and the
+// log names the source.
 
 import { runEnvCheck } from "../../../src/lib/envCheck";
 import { capGate } from "../../../src/lib/apiUsage";
@@ -47,6 +52,7 @@ async function handlePost(req: Request): Promise<Response> {
   const transcript = typeof body?.transcript === "string" ? body.transcript.trim().slice(0, 300) : "";
   if (!transcript) return Response.json({ error: "Missing transcript" }, { status: 400 });
   const barCategory = typeof body?.barCategory === "string" ? body.barCategory : "Movies";
+  const source: "voice" | "typed" = body?.source === "typed" ? "typed" : "voice";
   const goTos = {
     movies: names(body?.goTos?.movies),
     tv: names(body?.goTos?.tv),
@@ -105,7 +111,7 @@ async function handlePost(req: Request): Promise<Response> {
 
   // The record: the words, what they mapped to. Fail-soft and named.
   let moodId: string | null = null;
-  const store = clientId ? await getSnapshotStore() : null;
+  const store = clientId && source === "voice" ? await getSnapshotStore() : null;
   if (store && clientId) {
     const ins = await store
       .from("voice_moods")
@@ -134,6 +140,7 @@ async function handlePost(req: Request): Promise<Response> {
   }
 
   console.info("[mood] parsed", {
+    source,
     bar: barCategory,
     category: mood.category,
     lane: mood.lane?.label ?? null,

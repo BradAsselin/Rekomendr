@@ -597,6 +597,14 @@ export function commitmentOf(raw: any, kind: MediaKind): string | null {
   return parts.length ? parts.join(" · ") : null;
 }
 
+// S15/S16 — "on Netflix": the service the person named (a screen snap's
+// own), else TMDb's first US streaming service. Null when it streams
+// nowhere yet — the card then says nothing rather than guess.
+export const whereOf = (b: MediaBundle, service: string | null = null): string | null => {
+  const name = service ?? b.completion.watch?.stream[0]?.name ?? null;
+  return name ? `on ${name}` : null;
+};
+
 export async function loadMediaBundle(kind: MediaKind, id: number): Promise<MediaBundle | null> {
   const ck = `${kind}:${id}`;
   const hit = bundleCache.get(ck);

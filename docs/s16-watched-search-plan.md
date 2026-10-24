@@ -166,6 +166,19 @@ With no steer there is no writer, so complete = first paint.
 - Plus one "after" pass with two starred go-tos, so every set carries lines.
 - Script: the session scratchpad's `s16-timing.cjs`, with the results in the PR and the log.
 
+### Amended after measuring: the coverage gate (2026-10-24)
+- **What the measurement showed.** Routing every mapped mood through the recipe painted in ~1.3 s, but only ~3 of 10 sets matched the words:
+  - "an uplifting sports movie" → Drama + Feel-good (Forrest Gump, The Prestige);
+  - "a funny heist movie" → Comedy (The Truman Show);
+  - "a show like The Office" → its Comedy-lane web plus touchstones (The Rookie).
+
+  The AI search had 10/10 on-mood.
+- **The gate** (`src/lib/typedMoodGate.ts`). The fast path takes a mood only when:
+  - every content word is a category word, the parsed lane's word, or the parsed refiner's word;
+  - and no title is named.
+- **Everything else keeps the AI search**, logged with the reason and the words the vocabulary couldn't hold.
+- **The way to widen it** without a prompt change is TMDb keywords for those words (heist, sports, mind-bending, slow burn, …). That widens S12's pick logic, so it is Brad's call (logged as the next step).
+
 ### Out of scope
 - Books on the fast path (no TMDb).
 - Wine typed moods.

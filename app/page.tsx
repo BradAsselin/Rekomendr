@@ -19,6 +19,7 @@ import {
 import { getMoreLikeThisSet, getTop5FromEngine, type Rek } from "../src/engine/rekomendrEngine";
 import SteerByRow from "../src/components/SteerByRow";
 import { fetchSlots, type SlotRequest } from "../src/lib/slotsClient";
+import { typedMoodGate } from "../src/lib/typedMoodGate";
 import { fetchScreen, type ScreenAnswer, type ScreenTitles } from "../src/lib/screenClient";
 import { noteSetShown, seedEngineFromVisit } from "../src/lib/screenVisit";
 import { goToCategoryFor } from "../src/lib/goToCategory";
@@ -51,6 +52,69 @@ type TransientGoTo = { name: string; tmdbKind: "movie" | "tv"; tmdbId: number; a
 // S12b — a chip's refiner, as the slot route reads it.
 const slotRefiner = (r: Refiner | null): SlotRequest["refiner"] =>
   !r ? null : r.kind === "tone" ? { kind: "tone", vibe: r.vibe } : { kind: "era", era: r.era };
+
+// S13c/S16 — a parsed mood (/api/mood) as a slot-recipe run: the lane
+// chip, the refiner, and a named title as the steer (a starred go-to by
+// name, or a TMDb title steering this one request). Movies/TV only; null
+// for anything else (the caller keeps its own path).
+type SlotPlan = {
+  cat: "Movies" | "TV Shows";
+  chip: Chip;
+  refiner: Refiner | null;
+  req: SlotRequest;
+  steerOpts?: { req: SlotRequest; steer: string; extraGoTo?: TransientGoTo };
+};
+function slotPlanFromMood(data: any): SlotPlan | null {
+  const cat = data?.category;
+  if (!data?.mapped || (cat !== "Movies" && cat !== "TV Shows")) return null;
+  const lane = data.lane as { label: string; lane: string } | null;
+  const chip: Chip = lane ? { label: lane.label, lane: lane.lane } : { label: SURPRISE_ME, lane: "" };
+  const refiner = refinersFor(cat).find((r) => r.label === data.refiner) ?? null;
+  const req: SlotRequest = { category: cat, lane: chip.lane || null, refiner: slotRefiner(refiner) };
+  const goTo = data.goTo as { name: string; starred: boolean; tmdbKind: "movie" | "tv" | null; tmdbId: number | null } | null;
+  const steerOpts = goTo
+    ? {
+        req,
+        steer: goTo.name,
+        ...(!goTo.starred && goTo.tmdbKind && goTo.tmdbId
+          ? { extraGoTo: { name: goTo.name, tmdbKind: goTo.tmdbKind, tmdbId: goTo.tmdbId, at: new Date().toISOString() } }
+          : {}),
+      }
+    : undefined;
+  return { cat, chip, refiner, req, steerOpts };
+}
+
+// S16 — a TYPED mood takes the voice parser (docs/s16-watched-search-
+// plan.md, Part B). Null on any failure: the old AI search runs, and the
+// caller says so in the log.
+async function parseTypedMood(text: string, bar: string): Promise<any | null> {
+  try {
+    const res = await fetch("/api/mood", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        clientId: getAnonymousClientId(),
+        source: "typed",
+        transcript: text,
+        barCategory: bar,
+        goTos: {
+          movies: goTosFor("Movies").map((g) => g.name),
+          tv: goTosFor("TV Shows").map((g) => g.name),
+          wine: null,
+        },
+      }),
+    });
+    if (!res.ok) {
+      console.warn("[typed-mood] parse refused", { status: res.status });
+      return null;
+    }
+    const data = await res.json().catch(() => null);
+    return data?.ok ? data : null;
+  } catch {
+    console.warn("[typed-mood] parse unreachable");
+    return null;
+  }
+}
 import { onWineFavoriteChange } from "../src/lib/wineVisit";
 
 // S8b — what every wine call carries: the visit's shown/rejected names and
@@ -456,6 +520,9 @@ export default function Page() {
   // Honest AI-failure notice for a fresh search — the engine reports empty
   // on AI failure now (no silent pool fallback exists anymore).
   const [searchError, setSearchError] = useState<string | null>(null);
+  // S16 — early paint: the five are on screen, their "vs." lines are
+  // still being written.
+  const [linesPending, setLinesPending] = useState(false);
 
   const [snapLoading, setSnapLoading] = useState(false);
   const [snapResult, setSnapResult] = useState<SnapResult | null>(null);
@@ -942,6 +1009,7 @@ export default function Page() {
     setShelfPreview(null);
     setSearchError(null);
     setLoading(false);
+    setLinesPending(false);
     setHasSearched(true);
     setCategory(cat);
     setSteerAnswer({ category: cat, order: screen.order, selected: screen.steer });
@@ -976,6 +1044,7 @@ export default function Page() {
     setSearchError(null);
     setReksPending(false);
     setLateReks(null);
+    setLinesPending(false);
 
     const nextCategory = categoryFromQuery(query);
     // S12b — Movies/TV chip taps (and every steer) run the slot recipe.
@@ -995,9 +1064,14 @@ export default function Page() {
       // flow). The detection runs beside the prefs read, so a mood query
       // pays nothing extra; anything that isn't a title searches as before.
       const typedText = typedTextFromQuery(query);
-      const [prefs, typedAnchor] = await Promise.all([
+      // S16 — a typed MOOD on Movies/TV is parsed beside the title check
+      // (both in flight at once); a title still wins.
+      const typedMood =
+        !slotReq && !!typedText && (nextCategory === "Movies" || nextCategory === "TV Shows");
+      const [prefs, typedAnchor, mood] = await Promise.all([
         loadPrefsForCategory(nextCategory),
         typedText ? resolveTypedAnchor(typedText, nextCategory) : Promise.resolve(null),
+        typedMood ? parseTypedMood(typedText, nextCategory) : Promise.resolve(null),
       ]);
       if (searchId !== searchIdRef.current) return;
 
@@ -1035,24 +1109,81 @@ export default function Page() {
         prefs.shortlist.filter((e) => !watchedNow.has(e.title.trim().toLowerCase()))
       );
 
-      if (slotReq) {
-        const extraGoTo = steerOpts?.extraGoTo;
-        const ans = await fetchSlots(slotReq, {
-          steer: steerOpts?.steer ?? null,
+      // S16 — the typed mood, mapped: the slot recipe, exactly as if the
+      // chip (and a Steer by on the named title) had been tapped. Anything
+      // the parse can't place in Movies/TV runs the old AI search.
+      let runReq = slotReq;
+      let runSteer = steerOpts;
+      let runCat: Category = nextCategory;
+      if (typedMood) {
+        const plan = slotPlanFromMood(mood);
+        // Only a mood the chip vocabulary holds whole takes the fast path;
+        // anything more specific keeps the AI search (typedMoodGate.ts).
+        const gate = plan ? typedMoodGate(typedText, mood) : null;
+        if (plan && gate && !gate.fast) {
+          console.info("[typed-mood] → AI search", { reason: gate.reason, residual: gate.residual });
+        } else if (plan) {
+          runReq = plan.req;
+          runSteer = plan.steerOpts;
+          runCat = plan.cat;
+          console.info("[typed-mood] → slots", {
+            category: plan.cat,
+            lane: plan.chip.label,
+            refiner: plan.refiner?.label ?? null,
+            steer: plan.steerOpts ? (plan.steerOpts.extraGoTo ? "named" : "go-to") : null,
+          });
+          if (plan.cat !== nextCategory) {
+            // Category words win ("a dark crime show" on the Movies bar).
+            setCategory(plan.cat);
+            setBarCategoryHint((h) => ({ value: plan.cat, n: h.n + 1 }));
+          }
+        } else {
+          console.info("[typed-mood] → AI search", {
+            reason: !mood ? "parse_failed" : !mood.mapped ? "not_mapped" : "category",
+            category: mood?.category ?? null,
+          });
+        }
+      }
+
+      if (runReq) {
+        const req = runReq;
+        const extraGoTo = runSteer?.extraGoTo;
+        // S16 — early paint: the five land with TMDb's synopses as soon as
+        // they exist; the "vs." lines follow onto the same cards.
+        const show = (list: Rek[], steer: string | null, order: string[]) => {
+          slotReqRef.current = { req, steer, extraGoTo };
+          setSteerAnswer({ category: runCat, order, selected: steer });
+          noteSetShown(runCat, list.map((r) => r.title));
+          if (voice) setVoiceSet(voice.moodId, list.map((r) => r.title));
+          setReks(list);
+        };
+        let painted = false;
+        const ans = await fetchSlots(req, {
+          steer: runSteer?.steer ?? null,
           ...(extraGoTo ? { extraGoTos: [extraGoTo] } : {}),
+          onCards: (c) => {
+            if (searchId !== searchIdRef.current || c.reks.length === 0) return;
+            painted = true;
+            show(c.reks, c.steer, c.order);
+            setLinesPending(c.linesPending);
+            setLoading(false);
+          },
         });
         if (searchId !== searchIdRef.current) return;
+        setLinesPending(false);
         if (ans && ans.reks.length > 0) {
-          slotReqRef.current = { req: slotReq, steer: ans.steer, extraGoTo };
-          setSteerAnswer({ category: nextCategory, order: ans.order, selected: ans.steer });
-          noteSetShown(nextCategory, ans.reks.map((r) => r.title));
-          if (voice) setVoiceSet(voice.moodId, ans.reks.map((r) => r.title));
-          setReks(ans.reks);
+          // Same cards, lines merged in (ResultsV4 merges by id).
+          if (painted) setReks(ans.reks);
+          else show(ans.reks, ans.steer, ans.order);
           return;
         }
         // Named, never silent: fetchSlots logged the reason (or the pools
-        // ran dry); the AI chip search runs as before.
-        console.warn("[slots] FALLBACK — running the AI chip search", { empty: !!ans });
+        // ran dry); the AI search runs as before, on the bar's category.
+        console.warn("[slots] FALLBACK — running the AI chip search", { empty: !!ans, typed: typedMood });
+        if (runCat !== nextCategory) {
+          setCategory(nextCategory);
+          setBarCategoryHint((h) => ({ value: nextCategory, n: h.n + 1 }));
+        }
       }
       slotReqRef.current = null;
       setSteerAnswer({ category: nextCategory, order: [], selected: null });
@@ -1228,18 +1359,8 @@ export default function Page() {
       const laneText = [chip.lane, band ? bandText(band) : ""].filter(Boolean).join(" ");
       await handleSearch(chipQuery("Wine", { label: chip.label, lane: laneText }, refiner), "Wine", undefined, undefined, voice);
     } else {
-      const req: SlotRequest = { category: cat, lane: chip.lane || null, refiner: slotRefiner(refiner) };
-      const goTo = data.goTo as { name: string; starred: boolean; tmdbKind: "movie" | "tv" | null; tmdbId: number | null } | null;
-      const steerOpts = goTo
-        ? {
-            req,
-            steer: goTo.name,
-            ...(!goTo.starred && goTo.tmdbKind && goTo.tmdbId
-              ? { extraGoTo: { name: goTo.name, tmdbKind: goTo.tmdbKind, tmdbId: goTo.tmdbId, at: new Date().toISOString() } }
-              : {}),
-          }
-        : undefined;
-      await handleSearch(chipQuery(cat, chip, refiner), cat, { chip, refiner }, steerOpts, voice);
+      const plan = slotPlanFromMood(data)!;
+      await handleSearch(chipQuery(cat, plan.chip, plan.refiner), cat, { chip: plan.chip, refiner: plan.refiner }, plan.steerOpts, voice);
     }
     console.info("[voice] mood → picks", { ms: Date.now() - started, category: cat, lane: chip.label, refiner: refiner?.label ?? null, steer: !!data.goTo });
     return { mapped: true, category: cat, laneLabel: chip.label, refinerLabel: refiner?.label ?? null, closest: [] };
@@ -1345,6 +1466,7 @@ export default function Page() {
     snapIdRef.current++; // discard in-flight snap responses
     setReks([]);
     setLoading(false);
+    setLinesPending(false);
     setLoadingLabel("Reks Ray™ is finding fresh reks for you…");
     setHasSearched(false);
     setSearchError(null);
@@ -1468,6 +1590,7 @@ export default function Page() {
                 shortlist={shortlist}
                 onWatched={handleWatched}
                 onWatchedChange={handleWatchedChange}
+                linesPending={linesPending}
                 watchPendingTitle={watchPendingTitle}
                 watchFailedTitle={watchFailedTitle}
                 steerRow={

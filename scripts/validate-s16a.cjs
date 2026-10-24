@@ -233,11 +233,20 @@ const tick = () => new Promise((r) => setTimeout(r, 0));
   check("card: the dim wraps the content, not the bottom row", /dimmed \? "opacity-70/.test(card), true);
 
   console.log("\n10. Wording: only the approved words are new");
-  // Diff against the merge base (stays right after main moves), plus any
-  // new file not yet committed. Comment lines are dropped before matching.
-  const base = execSync("git merge-base main HEAD", { cwd: root, encoding: "utf8" }).trim();
-  const diff = execSync(`git diff ${base} -- src app`, { cwd: root, encoding: "utf8" });
-  const untracked = execSync("git ls-files --others --exclude-standard -- src app", { cwd: root, encoding: "utf8" })
+  // S16a's own range once merged (#59, a7665a2), so later sessions don't
+  // re-aim it; before the merge, the merge base plus uncommitted new
+  // files. Comment lines are dropped before matching.
+  const merged = (() => {
+    try {
+      execSync("git merge-base --is-ancestor a7665a2 HEAD", { cwd: root, stdio: "ignore" });
+      return true;
+    } catch {
+      return false;
+    }
+  })();
+  const range = merged ? "04f351c a7665a2" : execSync("git merge-base main HEAD", { cwd: root, encoding: "utf8" }).trim();
+  const diff = execSync(`git diff ${range} -- src app`, { cwd: root, encoding: "utf8" });
+  const untracked = (merged ? "" : execSync("git ls-files --others --exclude-standard -- src app", { cwd: root, encoding: "utf8" }))
     .split("\n")
     .filter(Boolean)
     .map((f) => read(f));

@@ -89,6 +89,9 @@ interface ResultsProps {
   // from the same recipe (the no-repeat guarantee covers it).
   steerRow?: React.ReactNode;
   backfillOverride?: (removed: Rek, current: Rek[]) => Promise<Rek | null>;
+  // S16 — early paint: the five are on screen and their "vs." lines are
+  // still being written (they land on the same cards, merged in place).
+  linesPending?: boolean;
 }
 
 const ResultsV4: React.FC<ResultsProps> = ({
@@ -106,6 +109,7 @@ const ResultsV4: React.FC<ResultsProps> = ({
   watchFailedTitle,
   steerRow,
   backfillOverride,
+  linesPending,
 }) => {
   const [reks, setReks] = useState<Rek[]>([]);
   // Mark state (graduation model, same as the snap lane): thumbs-up marks
@@ -202,7 +206,28 @@ const ResultsV4: React.FC<ResultsProps> = ({
   /* -----------------------------
    * SYNC WITH PROPS (ENGINE → UI)
    * ----------------------------- */
+  // The ids of the last set the page sent. The same ids again = the same
+  // set with its lines filled in (S16): merge, don't reset.
+  const lastIncomingIdsRef = useRef<string>("");
   useEffect(() => {
+    const ids = (incomingReks ?? []).map((r) => `${r.id}:${r.title}`).join("|");
+    if (ids && ids === lastIncomingIdsRef.current) {
+      const by = new Map(incomingReks.map((r) => [r.id, r]));
+      const merge = (list: Rek[]) => {
+        let changed = false;
+        const next = list.map((r) => {
+          const n = by.get(r.id);
+          if (!n || (n.short === r.short && n.vsGoTo === r.vsGoTo)) return r;
+          changed = true;
+          return { ...r, short: n.short, vsGoTo: n.vsGoTo };
+        });
+        return changed ? next : list;
+      };
+      setReks(merge);
+      setTrail(merge);
+      return;
+    }
+    lastIncomingIdsRef.current = ids;
     // A new search replaces the whole result view — the old trail leaves
     // with it, same as marked cards always vanished on a new search. The
     // marks persist in contenders/saved, so their titles keep feeding
@@ -744,7 +769,7 @@ const ResultsV4: React.FC<ResultsProps> = ({
           />
         </div>
       ) : (
-        <div className="w-full max-w-xl space-y-3">
+        <div className="w-full max-w-xl space-y-3" data-lines-pending={linesPending || undefined}>
           {/* THE TRAIL — the user's decided keeps, compact, at the top of
               the results. Tapping a row expands it in place to a full
               RekCard. Trail cards never get `swipeable` (keep-protection
