@@ -2233,3 +2233,176 @@ Each reverts with `git revert -m 1 <sha>`, newest first.
 - Picks come from TMDb's public data and the person's own go-tos, named ("vs. your Knives Out").
 - Nothing pays to move a pick.
 - The toast is a 4-second undo, not a prompt. Nothing nags.
+
+## Session 17 — mood first (S17a + S17b + S17c, S17v + S17w open) — 2026-10-24 — branches auto/s17a-guard-stats, auto/s17b-mood-first, auto/s17c-saved-page, auto/s17v-tmdb-synopsis, auto/s17w-poster-label — PRs #62, #63, #65 (merged), #66, #64 (open, VOICE) (local agent mode, §11)
+
+Brad's brief (canvas Option D2, "mood first"):
+- **Search field:** one row with genre and vibe chips.
+- **Cards:** Movies/TV get D2 cards: poster, ☆ · Save · ×, commitment + where, synopsis, Watched · Share · More like this, swipe left/right with Undo.
+- **Saved page:** Saved · Watched · Favorites, with a Show posters footer.
+- **Bug:** fix the Oct 24 4:03 PM "couldn't confirm is real" notice, and add a test.
+- **Stats:** add Watched to `/api/stats`.
+- **Wording:** approved only.
+- **Merging:** merge when green.
+
+Plan: `docs/s17-mood-first-plan.md` (merged in #62).
+
+**Merges** (self-merged, §10.3: green, checked on their own previews and on the main preview):
+
+| PR | merge SHA |
+|---|---|
+| #62 S17a | `feeba09` |
+| #63 S17b | `a931e60` |
+| #65 S17c | `c40e2bf` |
+
+Each reverts with `git revert -m 1 <sha>`, newest first.
+
+**Open, not merged (VOICE):**
+- **#66 S17v:** AI-search Movies/TV cards show TMDb's synopsis.
+- **#64 S17w:** the poster ×'s screen-reader name, "Hide posters".
+
+### Calls I made (each reversible)
+1. **The field bug was an outage reported as fiction.**
+   - When the title check fails as a whole (verify 503/timeout, a dropped request, every TMDb lookup failing), every title is dropped, which is correct. But they were counted as invented, so the person read "Every title … was one I couldn't confirm is real".
+   - The shortlist made it likelier: a bigger over-ask means longer verify calls, two in parallel.
+   - Fix (S17a):
+     - only titles TMDb *answered* "not there" count as fiction;
+     - an unverifiable set gets the one failure voice;
+     - the client retries the verify call once;
+     - the matcher accepts number words / digits ("Ocean's 8") and the pre-colon head ("Glass Onion").
+   - Reproduction found 0 fabricated sets over 28 searches on both providers.
+2. **"You liked this in October."** is S1's freshness-slot marker (charter §7 call #2). D2 cards no longer show it; the slot itself still works.
+3. **The search field and chip styles are one component**, so wine gets the new field and chips too. Its cards, shortlist and go-to stay as they were.
+4. **Books lose the Shortlist / Steer by / home go-tos with Movies/TV.** Books' go-tos live on the Saved page's Favorites tab.
+5. **Trail (compact) D2 cards don't show the screen note**; frontier cards keep it.
+6. **The poster × ships without a screen-reader name.** "Hide posters" isn't approved wording, so it's in #64.
+7. **Saved-page items open by the go-to path.** A Movies/TV title lands on the snap-lane anchor (classic card), as a go-to does.
+
+### SHIPPED
+
+**S17a (#62): guard + stats**
+- What's above, plus a Watched row in `/api/stats` (JSON `watched`; HTML row "Watched"; agents excluded).
+
+**S17b (#63): mood first, D2 cards**
+- **The field:** one row (category ▾ · text · mic · camera). No GO: the keyboard's Search key runs it.
+- **Chips:**
+  - genre and vibe rows always show, and they wrap;
+  - unselected = outline, selected = #3B6BD4, white bold;
+  - exhaustion buttons get the same outline.
+- **Removed:** the Shortlist strip, Steer by and the home go-tos list (Movies/TV/Books). Favorites still steer the slot recipe.
+- **Results header:** "Comedy · Feel-good", or the said/typed words in quotes.
+- **D2 cards (Movies/TV), `RekCard layout="d2"`:**
+  - poster (`PosterThumb`, TMDb w185 at 76×114, lazy/async, placeholder);
+  - ☆ · bookmark · × top right;
+  - commitment + where under the title;
+  - synopsis;
+  - Watched · Share · + More like this.
+- **AI-search cards** get poster and facts from the new `/api/facts`, keyed by the verify match's TMDb id.
+- **Posters off:** the × on a poster → "Posters hidden · Undo". Stored per device (`rekomendr.posters_hidden`, try/catch). Hidden = the D1 layout, and no image requests.
+- **Gestures:**
+  - swipe left = Not for me, with a backing label;
+  - swipe right = Save for later;
+  - Watched fades the card out.
+  - Each has an Undo toast ("Not for me · Undo", "Saved · Undo", "Watched · Undo").
+  - Reduced motion is respected; vertical drags still scroll.
+- **Undo** is the new `/api/signals/undo`: action-fixed to dislike/save, this client only, newest row within 10 min. `remove: true` deletes every save row of a title.
+
+**S17c (#65): the Saved page**
+- "Saved [n]" in the top bar (left of Share) opens a full-screen sheet with tabs Saved · Watched · Favorites, grouped Movies · TV Shows · Books · Wine.
+- **Sources:**
+  - Saved and Watched come from the new `/api/saved` (service role, this client; saved-then-watched moves tabs; a later Not for me is a reversal; category spellings merged);
+  - Favorites = the go-to mirror + wine's go-to.
+- **Actions:** the lit bookmark removes, the lit check un-watches, the lit star un-stars.
+- **Tap** opens the card.
+- **Footer:** the Show posters switch.
+- **Count updates:** every save / Not for me / watched / undo fires `rekomendr:saved-changed`, and the button re-reads.
+
+### MEASURED
+- **First card text, posters on vs off** (S17b preview, 10 each, alternating, fresh context):
+  - two bands in both modes: warm cache ~380 ms, cold ~880 ms;
+  - matched pairs: Drama 893/884, Sci-Fi 899/926, Comedy 382/378, Thriller 401/376;
+  - **no difference in first text paint**;
+  - posters fill in 7–290 ms after the text;
+  - posters off → 0 requests to image.tmdb.org.
+- **S17v closers** (typed searches, 6 each): **before 20 over 25 cards (3.3 per set); after 0 over 30.** One "before" set failed on main during the run (cozy, rainy night).
+
+### FOUND, NOT FIXED
+- **Snap-lane cards (`RekSnapResults`) are still the classic card** (thumbs). A Saved-page item opened there shows an unlit bookmark even though it's saved. A tap writes one more save row, which is harmless.
+- **Removing on the Saved page doesn't un-light a bookmark already on screen** until the next search.
+- **An empty Saved-page tab shows no text.** An empty-state line would be new wording.
+- **A synopsis whose first sentence runs past 220 characters is cut with "…"** on chip cards, and on AI cards if #66 merges.
+- **Harness hygiene:** s5, s12a, s12b, s13c, s15-screen and s16a asserted what S17 removed on purpose. Each now describes the S17 design. s16b is pinned to its own range; s13c ignores comment lines.
+- **Running harnesses on Windows Git Bash:** the suites that spawn `npx` need a `child_process` shim (spawn `npx.cmd` with `shell: true`). The session's copy is `npx-shim.cjs` in the scratchpad: `node -r <shim> scripts/validate-X.cjs`. Worth committing as `scripts/npx-shim.cjs` next time.
+
+### TEST RESIDUE
+- `user_likes` save/watched/dislike rows for `anon_agent_s17*`. Most were undone by the runs.
+- `go_tos` rows for `anon_agent_s17c_ui_*`, starred then un-starred.
+- `/api/stats` excludes `anon_agent*`.
+
+### BRAD MUST
+1. Run the phone checklist below on the main preview, then promote.
+2. **#66 (VOICE):** TMDb synopsis on AI-search cards. Merge it, or keep the generated voice. Counted: 20 closers → 0.
+3. **#64 (VOICE):** "Hide posters" as the poster ×'s screen-reader name. Merge it, or pick another word.
+4. **Wording, if wanted:** an empty-state line for an empty Saved-page tab.
+5. **Decide:** D2 for the snap lane (RekSnapResults), or keep it classic.
+
+### NEXT SESSION SHOULD KNOW
+- **The D2 card is `RekCard layout="d2"`.** ResultsV4 sets it for Movies/TV (`d2`). Behavior (toasts, undo, swipe direction, fade) stays in ResultsV4. Snap lane: untouched.
+- **One toast slot on D2** (`UndoToast`). Every Undo waits for its write (`writesRef`) before deleting through `/api/signals/undo`.
+- **`usePostersOn()` reads storage on first render**, so a hidden-posters device never builds an `<img>`.
+- **The Saved page is in `app/layout.tsx`'s TopBar** (`SavedPage`). It opens cards through the `rekomendr:open-saved-item` window event, which the page handles with `moreFromGoTo(t, { counted: false })`.
+- **Next route files may export only handlers:** list logic lives in `src/lib/savedLists.ts`.
+
+### VALIDATION
+- **Harnesses:** new validate-s17a 21/21, validate-s17b 55/55, validate-s17c 28/28 (validate-s17v 10/10 on #66). All 32 suites on main are green; tsc and lint are clean.
+- **UI on the main preview** (390×844, touch, service workers blocked):
+  - S17b 45/45: field, chips, header, D2 cards, posters, facts, ×/Save/Watched + Undo, swipes, vertical scroll on a card, posters off/remembered/zero requests, typed AI search with posters + facts, wine untouched.
+  - S17c 20/20: count, tabs, groups, un-star / un-watch / remove persisted server-side, tap opens the card, Show posters.
+
+### Brad's twenty minutes — phone checklist (iPhone home-screen app, main preview, then production after promotion)
+1. **Home.** One search row: Movies ▾ · text · mic · camera, no GO. Genre and vibe chips both show and wrap. Unselected chips are outlines; tap one and it fills blue with white bold text.
+2. **Tap Comedy, then Feel-good.**
+   - The header reads "Comedy · Feel-good".
+   - Five cards, each with a poster on the left; ☆ · bookmark · × at the top right; "1h 43m · on Netflix" under the title; the synopsis; and Watched · Share · + More like this along the bottom.
+3. **Mic:** tap it and say "something funny and short". The header shows your words.
+4. **×** on a card → it leaves, "Not for me · Undo". Tap Undo: it's back.
+5. **Swipe a card left** → "Not for me" shows behind it as it slides, then the toast. **Swipe one right** → "Save for later" behind it, then "Saved · Undo". Scroll up and down over cards: it scrolls, nothing gets swiped.
+6. **☆** on a card → gold star. **Bookmark** → filled blue, "Saved · Undo".
+7. **Watched** → the card fades out, "Watched · Undo". Undo brings it back.
+8. **Posters:** tap the small × on a poster → "Posters hidden · Undo". The cards go text-only. Close the app and reopen: still text-only.
+9. **Saved [n]** at the top → Saved · Watched · Favorites tabs, with your items under Movies / TV Shows.
+   - Tap the blue bookmark, the check, or the star to remove an item.
+   - Tap a title to open its card.
+   - Turn **Show posters** on, close, search: posters are back.
+10. **Wine:** the new field and chips, otherwise as before (shortlist, go-to).
+
+**What it should feel like:**
+- [ ] Mood first: chips and mic, no hunting for GO.
+- [ ] Cards scan fast: poster, how long, where.
+- [ ] Every act has an Undo.
+- [ ] Posters never slow the text.
+- [ ] Saved is one tap away.
+
+**What to screenshot if it's wrong:**
+- a card without a poster while posters are on;
+- a swipe that fired while you were scrolling;
+- an Undo that didn't undo;
+- a Saved count that's off;
+- the "couldn't confirm is real" notice (with the time).
+
+**Log lines:** `[fake-title] verification unavailable — set emptied, failure voice`, `[signal-undo]`, `[facts] bundles missing`, `[saved] read failed`, `[saved] remove not persisted`.
+
+### Production promotion steps (§11.8)
+1. Brad opens `main → release/v2` and merges after the checklist passes on the main preview.
+2. **Environment:** nothing new (TMDB_API_KEY and the Supabase service role are already set).
+3. **Migrations:** none. `/api/saved` and `/api/signals/undo` read and delete existing `user_likes` rows through the service role.
+4. **Revert SHAs:** #65 `c40e2bf`, then #63 `a931e60`, then #62 `feeba09`, each with `git revert -m 1 <sha>`.
+
+**§0 check:** consistent.
+- Mood first puts what you're in the mood for one tap away (chips, mic).
+- Cards say what a pick costs you (how long, where) before you commit.
+- Every act is undoable, and Not for me / Watched keep a title from coming back.
+- Picks still come from TMDb's public data and the person's own go-tos.
+- Nothing pays to move a pick; posters are TMDb's own art, credited in the footer.
+- The guard fix makes the app honest about an outage instead of blaming the picks.
+- Nothing nags: toasts are 4-second undos.
