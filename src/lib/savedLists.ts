@@ -26,7 +26,10 @@ export function savedCategoryFor(raw: unknown): SavedCategory | null {
 
 export type SavedRow = { category: string; title: string; year: number | null; action: string; created_at: string | null };
 
-export function buildSavedLists(rows: SavedRow[]): { saved: SavedItem[]; watched: SavedItem[] } {
+// `savedWatched` (S18b): saves the Saved tab hides because the title was
+// since watched — the row is still there, so a card shows its bookmark
+// filled (the Saved page itself ignores this list).
+export function buildSavedLists(rows: SavedRow[]): { saved: SavedItem[]; watched: SavedItem[]; savedWatched: SavedItem[] } {
   const key = (c: SavedCategory, t: string) => `${c}|${t.trim().toLowerCase()}`;
   const newestSave = new Map<string, SavedItem>();
   const newestWatched = new Map<string, SavedItem>();
@@ -50,8 +53,8 @@ export function buildSavedLists(rows: SavedRow[]): { saved: SavedItem[]; watched
       else newestWatched.set(k, item);
     } else if (r.action === "dislike" && !newestDislikeAt.has(k)) newestDislikeAt.set(k, r.created_at ?? "");
   }
-  const saved = Array.from(newestSave.entries())
-    .filter(([k, s]) => !newestWatched.has(k) && !((newestDislikeAt.get(k) ?? "") > (s.at ?? "")))
-    .map(([, s]) => s);
-  return { saved, watched: Array.from(newestWatched.values()) };
+  const live = Array.from(newestSave.entries()).filter(([k, s]) => !((newestDislikeAt.get(k) ?? "") > (s.at ?? "")));
+  const saved = live.filter(([k]) => !newestWatched.has(k)).map(([, s]) => s);
+  const savedWatched = live.filter(([k]) => newestWatched.has(k)).map(([, s]) => s);
+  return { saved, watched: Array.from(newestWatched.values()), savedWatched };
 }

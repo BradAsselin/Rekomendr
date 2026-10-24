@@ -81,6 +81,7 @@ for (const level of ["log", "warn", "info", "error"]) console[level] = () => {};
   const um = read("src/lib/useServerMarks.ts");
   check("reads /api/saved, re-reads on every change", /fetchSavedLists\(\)/.test(um) && /onSavedChange\(/.test(um), true);
   check("a failed read keeps the last answer", /if \(alive && lists\) setMarks/.test(um), true);
+  check("a save since watched still lights the bookmark", /saved: \[\.\.\.lists\.saved, \.\.\.lists\.savedWatched\]/.test(um), true);
   const wm = read("src/lib/useWatchedMarks.ts");
   check("watched hook: seed marks without a write", /const seed = useCallback\(\(titles: string\[\]\)/.test(wm) && /writes\.current\.set\(k, Promise\.resolve\(true\)\)/.test(wm), true);
 

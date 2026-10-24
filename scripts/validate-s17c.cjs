@@ -72,7 +72,9 @@ for (const level of ["log", "warn", "info", "error"]) console[level] = () => {};
   check("year from whichever row has it", saved[0].year, 2019);
   check("watched: newest per title", watched.map((s) => s.title), ["Heat", "Arrival"]);
   check("watched spellings merged", watched[1].rawCategories, ["Movies", "movies"]);
-  check("empty → empty", L.buildSavedLists([]), { saved: [], watched: [] });
+  check("empty → empty", L.buildSavedLists([]), { saved: [], watched: [], savedWatched: [] });
+  // S18b — the save behind a watched title is still a save (cards light it).
+  check("saved-then-watched: off the Saved tab, kept in savedWatched", L.buildSavedLists(rows).savedWatched.map((s) => s.title), ["Heat"]);
 
   say("\n3. The route: this client's rows only; failures are named, never a crash");
   let lastQuery = null;

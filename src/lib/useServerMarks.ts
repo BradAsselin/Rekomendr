@@ -25,7 +25,8 @@ export function useServerMarks(enabled: boolean): ServerMarks {
     let alive = true;
     const read = async () => {
       const lists = await fetchSavedLists();
-      if (alive && lists) setMarks({ ready: true, saved: lists.saved, watched: lists.watched });
+      // A card's bookmark = a live save row, watched or not.
+      if (alive && lists) setMarks({ ready: true, saved: [...lists.saved, ...lists.savedWatched], watched: lists.watched });
     };
     void read();
     const off = onSavedChange(() => void read());
