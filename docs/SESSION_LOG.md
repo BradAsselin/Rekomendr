@@ -2406,3 +2406,104 @@ Each reverts with `git revert -m 1 <sha>`, newest first.
 - Nothing pays to move a pick; posters are TMDb's own art, credited in the footer.
 - The guard fix makes the app honest about an outage instead of blaming the picks.
 - Nothing nags: toasts are 4-second undos.
+
+## Session 18 — S17 follow-ups (VOICE merges, empty states, snap-lane D2, watched stays gone) — 2026-10-24 — branches auto/s18a-saved-empty, auto/s18b-snap-d2, auto/s18c-snap-watched-exclude — PRs #66, #64 (approved VOICE), #68, #69, #70 (local agent mode, §11)
+
+Brad's message:
+- **Approved:** merge #66 (TMDb synopsis on typed cards) and #64 ("Hide posters" label).
+- **Empty states, approved wording:**
+  - Saved: "Nothing saved yet. Tap the bookmark on any card to keep it here."
+  - Watched: "Nothing marked watched yet."
+  - Favorites: "No favorites yet. Tap ☆ on a card you love."
+- **Follow-up:** use the D2 card for Movies/TV snap results and for titles opened from the Saved page, with the correct saved/starred/watched states.
+- **Merging:** merge when green.
+
+Plan: `docs/s18-followups-plan.md`.
+
+**Merges** (green, checked on their own previews and on the main preview; #66 and #64 merged on Brad's approval):
+
+| PR | merge SHA |
+|---|---|
+| #66 S17v (VOICE, approved) | `4163535` |
+| #64 S17w (VOICE, approved) | `aab3f51` |
+| #68 S18a | `ba69a83` |
+| #69 S18b | `5c28187` |
+| #70 S18c | `cd18a70` |
+
+Each reverts with `git revert -m 1 <sha>`, newest first.
+
+### Calls I made (each reversible)
+1. **The Saved and Watched empty lines wait for the first server answer**, so a slow read never flashes "Nothing saved yet" over a list that's coming. Favorites shows at once, since it's local.
+2. **D2 in the snap lane = any Movies/TV anchor that isn't health:** a snapped poster or screen, a typed title, or a title opened from the Saved page. Books and wine keep their cards.
+3. **The anchor never shows ×.** It's the title you asked about. It has ☆ · Save and a navy accent frame, and its where-to-watch keeps its tappable `WatchLine`.
+4. **Snap-lane saves and Not for me now also write `user_likes`.** That table is what the Saved page and later searches read. The snap signal is still written.
+5. **A title saved and then watched still lights its bookmark.** The save row is live, so the Saved page's Watched tab and the card both reflect it.
+6. **S18c:** a watched title never comes back on a snap backfill or chain. This covers titles watched this snap and the server's watched list (newest 60). The server already drops `excludeNames` at the response site, so it's a guarantee.
+
+### SHIPPED
+
+**#66, #64:** as approved.
+
+**S18a (#68): Saved-page empty states.** The three lines verbatim, under `data-testid="saved-empty"`.
+
+**S18b (#69): the D2 card in the snap lane**
+- **Anchor and reks on `RekCard layout="d2"`:**
+  - poster;
+  - ☆ · Save (· × on reks);
+  - commitment + where (via `/api/facts`, which now also matches by title through the title check's own `verifyTitles`; an unmatched title is absent, never a near miss);
+  - synopsis;
+  - Watched · Share · + More like this.
+- **Frontier gestures:** swipe left = Not for me, swipe right = Save for later; Watched fades the card and backfills. Each act has the lane's one Undo toast.
+- **Correct marks on open:** `useServerMarks` reads `/api/saved` and re-reads on every change.
+  - Saved names open with a filled bookmark.
+  - Watched names open with a filled check (`useWatchedMarks.seed`, no write).
+  - Stars follow the go-to mirror.
+  - A tap made this snap always wins over a read that was in flight.
+
+**S18c (#70): watched stays gone.** Details are under call 6.
+
+### FOUND, NOT FIXED
+- **Undoing a snap Not for me leaves its `reksnap_signals` row.** That table is write-only from the browser by design (S2a). The `user_likes` dislike is deleted.
+- **A fresh snap's first five aren't filtered by watched.** S18c covers backfills and chains only. A watched title in the first five opens with its check filled, which is correct, but it is shown. The search lane already excludes watched titles up front. The snap lane could do the same server-side in a later pass.
+- **Typing "Glass Onion" goes to the search lane, not a title anchor.** The UI run hit this on the main preview. It's typed-lane routing, pre-existing; see `docs/typed-lane-anchor-contract` (pending Brad review).
+
+### TEST RESIDUE
+- `user_likes` rows for `anon_agent_s18b_ui_*` / `anon_agent_s18c_ui_*`. Most were undone or un-watched by the runs; two crashed s18c runs left one watched row each.
+- `reksnap_signals` rows from the same clients.
+- `/api/stats` excludes `anon_agent*`.
+
+### BRAD MUST
+1. Run the phone checklist (S17's list plus the items below) on the main preview, then promote.
+
+### NEXT SESSION SHOULD KNOW
+- **Card markup** lives in `RekCard.tsx`; behavior stays per lane. `RekSnapResults` has `d2` (Movies/TV, not health), its own `UndoToast`, `writesRef`, `touchedRef`, `cardFacts`.
+- **`useServerMarks(enabled)`** returns `{ready, saved, watched}`. Its `saved` includes saved-then-watched (`savedWatched` from `buildSavedLists`).
+- **The snap exclusion union** (`buildExcludeNames`) now includes `watchedExclude()`.
+
+### VALIDATION
+- **Harnesses:** new validate-s18b 30/30 and validate-s18c 8/8; all 35 suites green; tsc and lint clean.
+- **UI on the main preview** (390×844, touch, service workers blocked): S17b 45/45, S17c 23/23 (incl. the three empty states), S18b 29/29 (typed + snapped anchors, acts + Undo, swipes, Saved-page open with the right marks), S18c 7/7 (watched title absent from backfill/chain requests and the screen, this snap and a fresh visit).
+
+### Phone checklist additions (iPhone home-screen app)
+1. **Saved page, fresh install:** each tab shows its line ("Nothing saved yet. …", "Nothing marked watched yet.", "No favorites yet. Tap ☆ on a card you love.").
+2. **Type "Knives Out".**
+   - The top card has a navy frame, a poster, ☆ · bookmark (no ×), and how long.
+   - The cards below are D2 cards with posters and "· on …".
+3. **On a card below:** × → "Not for me · Undo"; swipe left / right; Watched → it fades and a new one arrives. That title doesn't come back on later cards or after + More like this.
+4. **Snap a movie poster:** same cards.
+5. **Save a title, mark another watched, open both from Saved.** Each opens with its bookmark or check already filled.
+
+**Log lines:** `[facts]`, `[saved] read failed`, `[signal-undo]`.
+
+### Production promotion steps (§11.8)
+1. Brad opens `main → release/v2` after the checklist passes.
+2. **Environment:** nothing new.
+3. **Migrations:** none.
+4. **Revert SHAs:** #70 `cd18a70`, #69 `5c28187`, #68 `ba69a83`, #64 `aab3f51`, #66 `4163535`, newest first.
+
+**§0 check:** consistent.
+- The snap lane now says what a pick costs you (how long, where), the same as search.
+- Every act is undoable.
+- What you've watched stays out of the way.
+- Marks you've made open as you left them, so nothing asks twice.
+- No new wording beyond Brad's approved lines; nothing pays to move a pick; nothing nags.
