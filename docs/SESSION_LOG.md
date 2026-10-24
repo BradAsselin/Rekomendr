@@ -2076,3 +2076,160 @@ Each reverts with `git revert -m 1 <sha>`, newest first.
 - It names its reasoning ("vs. your Knives Out").
 - Ranking is the user's own go-to and TMDb's public data; nothing pays to move it.
 - The model switch changes no incentives and keeps the same prompts.
+
+---
+
+## Session 16 — watched + fast typed search (S16a + S16b) — 2026-10-24 — branches auto/s16a-watched, auto/s16b-fast-typed — PRs #59, #60 (local agent mode, §11)
+
+Brad's brief:
+- **Part A:** "Watched" bottom-left on every Movies/TV/Books card and the anchor.
+- **Part B:** typed Movies/TV moods go through the mood parser → the S12 slot recipe, with early paint, against a target of first card ≤ 3 s and complete ≤ 6 s.
+- **Wording:** "Watched" and "Watched · Undo" only.
+- **Prompts:** no prompt changes.
+- **Merging:** merge when green.
+
+Plan: `docs/s16-watched-search-plan.md` (amended once after measuring, see call 1).
+
+**Merges** (self-merged, §10.3: green, checked on their own previews and on the main preview):
+
+| PR | merge SHA |
+|---|---|
+| #59 S16a | `a7665a2` |
+| #60 S16b | `6beb7a6` |
+
+Each reverts with `git revert -m 1 <sha>`, newest first.
+
+### Calls I made (each reversible)
+1. **Typed moods go fast only when the chip vocabulary holds them whole** (`src/lib/typedMoodGate.ts`).
+   - As briefed, every mapped mood painted in ~1.3 s, but only ~3 of the 10 sets matched the words:
+     - "an uplifting sports movie" → Forrest Gump, The Prestige, Green Book;
+     - "a funny heist movie" → The Truman Show, Due Date;
+     - "a show like The Office" → The Rookie.
+   - The AI search had 10/10 on-mood. Fast picks you don't want fail §0.
+   - So the fast path takes a mood only when every content word is a category, lane or refiner word and no title is named ("a dark crime show", "something funny", "classic romance").
+   - Everything else keeps today's AI search, logged `[typed-mood] → AI search { reason, residual }`.
+2. **Named titles ("like Ted Lasso but darker") stay on the AI search.** The slot steer placed them badly in 2/2 (Chucky, Phil of the Future); the AI search placed them well (The Bear, Shrinking, Barry).
+3. **Every full slot set now paints early and carries S15's facts** ("1h 41m • on Amazon Prime Video"): chips, Steer by, voice and typed. One card shape however you got there; chips with a go-to also show their cards before the lines.
+4. **Watched sits in Share's row** (Watched left, Share right), so a rek card grows no new row. On the anchor, Share sits under the card (S2), so Watched has its own row inside it.
+5. **Tapping the filled check also undoes** (every mark in the app toggles). The toast lives with its lane: a new search drops the toast and the mark stands.
+6. **Typed moods are not stored in `voice_moods`**, so the voice readout still counts only what people said.
+
+### SHIPPED
+
+**S16a (#59) — Watched**
+- An outline check, bottom-left, on every Movies/TV/Books card in both lanes (frontier, trail, S15 screen cards) and on the snap/typed anchor.
+- Tap it: a filled navy check, "Watched", the card dims to 70% (the control stays full contrast), and "Watched · Undo" shows for 4 s.
+- **Undo** deletes this client's watched row for that title (`/api/signals/watched`, `undo: true`, still action-fixed). It waits for the mark's write first.
+- **A failed write** reverts the mark and is named in the log (`[watched] not persisted`).
+- **Wine and health:** none (the go-to allow-list, after the health check).
+- S1's expanded-only "Watched it" is gone.
+- The page's session watched list (fed by both lanes) keeps the title out of every re-run. Server-side, slots, the chooser and screen drop `taste.watched`.
+
+**S16b (#60) — fast typed search**
+- **Movies/TV typed text** runs three requests at once: the prefs read, the S3.0 title check, and the mood parse (Haiku, `/api/mood` `source: "typed"`).
+  - A title still lands as the anchor.
+  - A mood that passes the gate runs the slot recipe, steered by the nearest go-to.
+  - Anything else runs the AI search.
+- **Books and Wine:** unchanged; Books doesn't parse at all.
+- **`/api/slots` `stream: "ndjson"`:** the cards (TMDb synopsis, commitment, where to watch) as soon as the picks and their bundles exist, then the "vs." lines.
+  - The writer starts beside the bundle reads.
+  - Bundle reads have a 4 s hang guard; a miss ships the card without facts, logged.
+- **`ResultsV4` merges the lines into the same cards** (same ids and titles): no reset, and marks survive. `data-lines-pending` sits on the results while lines are pending.
+- `handleVoice` and the typed path share `slotPlanFromMood`. `whereOf` is shared by `/api/screen` and `/api/slots`.
+
+### MEASURED (preview, 390×844, one visit per run; script `s16-timing.cjs` in the session scratchpad)
+
+| run | first card (median) | complete (median) | relevance spot-check | repeats |
+|---|---|---|---|---|
+| Before (main), 10 typed moods | 29.5 s (18–35) | 29.5 s | 10/10 on-mood | 0 |
+| After, ungated (not shipped) | 1.3 s | 1.6 s | ~3/10 on-mood | 0 |
+| After, shipped (gated), same 10 | 9/10 stay AI: 27.1 s; "a dark crime show": 2.2 s | same | 10/10 on-mood | 0 |
+| After, shipped, 10 simple moods, two go-tos (lines written) | **1.4 s** (1.2–2.5) | **5.35 s** (4.2–6.2; 8/10 ≤ 6 s) | chip-equivalent (~6/10 clearly on-mood; the wildcard/fresh slots add odd picks) | 0 |
+
+- **The ten:** a cozy mystery · something like Ted Lasso but darker · a funny heist movie · a slow-burn psychological thriller · something light and romantic for date night · a mind-bending sci-fi movie · a dark crime show · an uplifting sports movie · a scary movie that isn't too gory · a show like The Office.
+- **The parse costs the AI path nothing measurable:** gated AI-path median 27.1 s vs 28.7 s before on the same nine.
+
+### FOUND, NOT FIXED
+- **The fast path is narrow.** 1 of the 10 real-world moods qualifies.
+  - TMDb has keywords for most of the words the gate turns away: heist #10051, sports #6075, mind-bending #362567, slow burn #277551, psychological thriller #12565, date night #254464, gore #10292 ("cozy mystery" has none).
+  - Residual words → keyword ids → discover with the lane genre + `with_keywords` / `without_keywords` would widen it with no prompt change.
+  - It widens S12's pick logic, so it's Brad's call.
+- **Fast-path relevance is the chips' relevance:**
+  - TV Sci-Fi is TMDb's "Sci-Fi & Fantasy" (One Hundred Years of Solitude);
+  - the wildcard/fresh slots bring non-English or very new titles (Dhurandhar, Our Universe).
+- **2 of 10 lines runs finished just over 6 s** (6.14 s, 6.18 s): Sonnet writer variance.
+- **`/api/stats` has no watched row.** Watched rows live in `user_likes`; stats doesn't read that table. Adding a readout row is new wording.
+- **The Shortlist chip's own button still says "Watched it"**: it's a strip, not a card, and renaming it is wording.
+- **Harness hygiene (fixed in #60):** s15-screen's wording check diffed `main` (failing since S15 merged). It's now pinned to S15's range, and s16a's to its own. s12b, s13c and s15-screen checks now follow code that S16 moved.
+
+### TEST RESIDUE
+- `user_likes` watched rows for `anon_agent_s16a_*`.
+- `go_tos` rows for `anon_agent_s16b_*` / `anon_agent_s16_simple-gotos_*` (Knives Out, Mindhunter).
+- `api_usage` rows for `anon_agent_s16*`.
+- `/api/stats` excludes `anon_agent*`.
+
+### BRAD MUST
+1. Run the phone checklist below on the main preview, then promote.
+2. **Decide:** widen the typed fast path with TMDb keywords (the next session), or keep it narrow.
+3. **Feel calls (§12.4):**
+   - the 70% dim;
+   - Watched beside Share;
+   - a card's text switching from synopsis to "vs. your …" a few seconds after it appears.
+
+### NEXT SESSION SHOULD KNOW
+- **The gate is the one place that decides which typed moods go fast:** `typedMoodGate.ts`, with its word lists and the measured verdicts in `validate-s16b` §7b. Widening the fast path means changing what counts as covered, and re-measuring relevance, not just speed.
+- **`fetchSlots(..., { onCards })` is the early-paint entry.** The final answer reuses the same `Rek` objects' ids. Any new landing site must keep ids stable, or `ResultsV4` will treat the lines as a new set.
+- **`useWatchedMarks` owns the card-level write.** The page only keeps the session list (`handleWatchedChange`). The strip still uses the S1 `handleWatched`.
+
+### VALIDATION
+- **Harnesses:** new validate-s16a 42/42 and validate-s16b 56/56. Every earlier suite is green: s1 50, s2 97, s4a 82, s4b 48, s5 32, s6 36, s7 21, s8a 39, s8b 44, s8c 20, s9 9, s10 25, s11 40, s12a 63, s12b 53, s13a 58, s13b 21, s13c 60, s13d 20, s14 39, s15 54, s15-screen 34, s21 364, s23 35, s30 69, s36 59, typed-category 31.
+- tsc and lint are clean.
+- **UI on the main preview (390×844):**
+  - Watched 24/24: bottom-left in Share's row, filled + word + dim + toast, the toast gone at 4 s, Undo deletes the row, the watched title in 0/12 re-runs for that client, `/api/prefs` lists it, anchor + reks on a typed TV anchor, no Watched on wine.
+  - Fast typed 8/8: early paint, then the lines on the same five, typed title → anchor, Books unparsed, a specific mood stays AI.
+
+### Brad's twenty minutes — phone checklist (main preview, then production after promotion)
+1. **Movies → Comedy.** Every card has a small check at the bottom left, with Share at the right.
+2. **Tap the check on one card.**
+   - It fills in and says "Watched".
+   - The card goes slightly grey.
+   - "Watched · Undo" shows at the bottom for a few seconds, then goes.
+3. **Tap Watched on another card, then Undo** in the toast. The card is back to normal.
+4. **Tap Comedy again, a few times.** The title you marked never comes back.
+5. **TV Shows → type "Lioness" → GO.** The Lioness card has its own check. Tap it. Its reks have checks too.
+6. **Wine:** no check anywhere.
+7. **Type "a dark crime show" → GO.**
+   - Cards in about 2 seconds, with "1h 41m • on Netflix"-style lines.
+   - If you have a starred go-to, "vs. your …" replaces the synopsis a few seconds later on the same cards.
+8. **Type "a funny heist movie" → GO.** The old ~25-second search, with real heist movies. That's the gate keeping relevance.
+9. **Type a title ("Knives Out") → GO.** Still the anchor on top.
+
+**What it should feel like:**
+- [ ] Watched is findable without opening anything.
+- [ ] The grey says "done", not "gone".
+- [ ] Undo is there when you need it.
+- [ ] Simple moods feel instant.
+- [ ] Specific moods are still right.
+- [ ] The "vs." line arriving late doesn't jolt.
+
+**What to screenshot if it's wrong:**
+- a marked title coming back;
+- a card without a check (Movies/TV/Books);
+- a check on wine;
+- a typed mood's five that don't match the words.
+
+**Log lines:** `[watched] not persisted`, `[watched-signal] undo`, `[typed-mood] → slots`, `[typed-mood] → AI search { reason, residual }`, `[slots] facts missing`, `[slots] lines never arrived`.
+
+### Production promotion steps (§11.8)
+1. Brad opens `main → release/v2` and merges after the checklist passes on the main preview.
+2. **Environment:** nothing new.
+   - Production on OpenAI (no `ANTHROPIC_API_KEY`): the parser and the line writer run on their OpenAI models (S13c: mood 1.3 s; lines 2.4–2.6 s). They're no slower.
+3. **Migrations:** none. The watched signal's CHECK constraint was already widened (S1; live rows confirmed).
+4. **Revert SHAs:** #60 `6beb7a6`, then #59 `a7665a2`, each with `git revert -m 1 <sha>`.
+
+**§0 check:** consistent.
+- Watched is "I've seen it" in one tap, so it never comes back. That shortens every later search.
+- The typed fast path only answers when it can answer what was asked. Otherwise the slower, right answer stands (call 1 exists for §0).
+- Picks come from TMDb's public data and the person's own go-tos, named ("vs. your Knives Out").
+- Nothing pays to move a pick.
+- The toast is a 4-second undo, not a prompt. Nothing nags.
