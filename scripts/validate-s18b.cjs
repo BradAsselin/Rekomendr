@@ -110,7 +110,7 @@ for (const level of ["log", "warn", "info", "error"]) console[level] = () => {};
 
   say("\n5. Wording: nothing new");
   const added = require("child_process")
-    .execSync("git diff main -- src/components/RekSnapResults.tsx src/components/RekCard.tsx src/lib/useServerMarks.ts", { cwd: root, encoding: "utf8" })
+    .execSync("git diff ba69a83 5c28187 -- src/components/RekSnapResults.tsx src/components/RekCard.tsx src/lib/useServerMarks.ts", { cwd: root, encoding: "utf8" })
     .split("\n")
     .filter((l) => l.startsWith("+") && !l.startsWith("+++") && !/^\+\s*(\/\/|\/\*|\*)/.test(l))
     .join("\n");

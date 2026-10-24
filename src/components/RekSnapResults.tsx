@@ -396,7 +396,18 @@ const RekSnapResults: React.FC<Props> = ({
 
   // S16 — "Watched" on the anchor and every Movies/TV/Books rek card.
   // S18b — on a D2 anchor the lane's one toast speaks for Watched too.
-  const watched = useWatchedMarks(onWatchedChange, { silent: d2 });
+  // S18c — a title watched here (this snap, or any earlier visit: the
+  // server's list) never comes back on a backfill or chain.
+  const watchedNamesRef = useRef(new Set<string>());
+  const serverWatchedRef = useRef<string[]>([]);
+  const watched = useWatchedMarks(
+    (item, on) => {
+      if (on) watchedNamesRef.current.add(item.title);
+      else watchedNamesRef.current.delete(item.title);
+      onWatchedChange?.(item, on);
+    },
+    { silent: d2 }
+  );
 
   // A new snap result resets the view to its inferred mode and clears all
   // per-snap state (highlights, dismissals, local lists, pending backfills).
@@ -462,6 +473,7 @@ const RekSnapResults: React.FC<Props> = ({
       setCardFacts({});
       factsAskedRef.current = new Set();
       touchedRef.current = new Set();
+      watchedNamesRef.current = new Set();
       if (toastTimer.current) clearTimeout(toastTimer.current);
       toastTimer.current = null;
       setToast(null);
@@ -547,6 +559,14 @@ const RekSnapResults: React.FC<Props> = ({
   // or watched (Movies/TV rows, server-side) shows filled. Never over a
   // tap made this snap.
   const seedWatched = watched.seed;
+  // Newest first (the Saved page's order); the prompt list stays bounded.
+  serverWatchedRef.current = d2
+    ? serverMarks.watched
+        .filter((x) => x.category === "Movies" || x.category === "TV Shows")
+        .slice(0, 60)
+        .map((x) => x.title)
+    : [];
+  const watchedExclude = (): string[] => [...Array.from(watchedNamesRef.current), ...serverWatchedRef.current];
   useEffect(() => {
     if (!d2 || !result || !serverMarks.ready) return;
     const media = (l: { category: string; title: string }[]) =>
@@ -1027,7 +1047,7 @@ const RekSnapResults: React.FC<Props> = ({
                 backfill: {
                   detectedItem: forResult.detected_item,
                   mode,
-                  excludeNames,
+                  excludeNames: Array.from(new Set([...excludeNames, ...watchedExclude()])),
                   rejectedNames,
                   // Keys the server's cross-session dislike shading (fail-soft).
                   clientId: getAnonymousClientId(),
@@ -1116,6 +1136,7 @@ const RekSnapResults: React.FC<Props> = ({
     const names = new Set<string>(everShownRef.current);
     trailRef.current.forEach((e) => names.add(e.rek.name));
     dismissedNamesRef.current.forEach((n) => names.add(n));
+    watchedExclude().forEach((n) => names.add(n));
     return Array.from(names);
   };
 

@@ -7,6 +7,7 @@ Brad approved #66 (TMDb synopsis on typed cards) and #64 ("Hide posters"), plus 
 | #66, #64 | (S17) | Merged as approved. |
 | S18a | `auto/s18a-saved-empty` | The three empty states, verbatim. Saved and Watched show theirs only after the read has answered. |
 | S18b | `auto/s18b-snap-d2` | The snap lane's Movies/TV anchor and reks on the D2 card, opening with the right marks. |
+| S18c | `auto/s18c-snap-watched-exclude` | A watched title never comes back on a snap backfill or chain. |
 
 ## S18b — design
 
@@ -42,3 +43,11 @@ Brad approved #66 (TMDb synopsis on typed cards) and #64 ("Hide posters"), plus 
 - **A late `/api/saved` read after an un-save or un-watch:** guarded by `touchedRef`, and the change event triggers a fresh read anyway.
 - **An Undo after a backfill already landed:** the restored card makes a carried sixth (the existing policy).
 - **A toast's Undo outliving its render:** it calls the newest `d2Save` through a ref and reads saved state from `savedNamesRef`.
+
+## S18c — watched stays gone
+
+- **Found in S18b:** a title watched from a frontier card faded out, but the snap backfill only excluded what was on screen, so it could come back. A title watched on an earlier visit could too.
+- **Fix:** the lane keeps the titles watched this snap (an un-watch takes one back out), plus the server's watched list (Movies/TV, newest 60, D2 only).
+  - Backfill `excludeNames` and the chain/re-roll exclusion union both carry them.
+  - The server already drops every `excludeNames` entry at the response site (the two-tier guarantee), so it holds even if the model ignores the prompt.
+- **Wording:** none.
