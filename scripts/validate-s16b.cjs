@@ -196,6 +196,38 @@ const readNdjson = async (res) => {
   const mood = read("app/api/mood/route.ts");
   check("typed moods are not stored as voice", /const store = clientId && source === "voice" \? await getSnapshotStore\(\) : null;/.test(mood), true);
 
+  console.log("\n7b. The gate: only moods the chip vocabulary holds whole go fast");
+  const G = load("src/lib/typedMoodGate.ts", {});
+  const L = (lane) => ({ label: lane, lane });
+  // The parses the preview produced for the ten measured moods (2026-10-24).
+  const measured = [
+    ["a cozy mystery", { lane: L("Mystery"), refiner: "Feel-good" }, false],
+    ["something like Ted Lasso but darker", { lane: L("Comedy"), refiner: "Dark", goTo: { name: "Ted Lasso" } }, false],
+    ["a funny heist movie", { lane: L("Comedy"), refiner: null }, false],
+    ["a slow-burn psychological thriller", { lane: L("Thriller"), refiner: "Smart" }, false],
+    ["something light and romantic for date night", { lane: L("Romance"), refiner: "Feel-good" }, false],
+    ["a mind-bending sci-fi movie", { lane: L("Sci-Fi"), refiner: "Smart" }, false],
+    ["a dark crime show", { lane: L("Crime"), refiner: "Dark" }, true],
+    ["an uplifting sports movie", { lane: L("Drama"), refiner: "Feel-good" }, false],
+    ["a scary movie that isn't too gory", { lane: L("Horror"), refiner: null }, false],
+    ["a show like The Office", { lane: L("Comedy"), refiner: null, goTo: { name: "The Office" } }, false],
+  ];
+  for (const [text, mood, fast] of measured) check(`"${text}" → ${fast ? "fast" : "AI search"}`, G.typedMoodGate(text, mood).fast, fast);
+  check("residual names what the vocabulary couldn't hold", G.typedMoodGate("an uplifting sports movie", measured[7][1]).residual, ["sports"]);
+  check("a named title is its own reason", G.typedMoodGate("a show like The Office", measured[9][1]).reason, "named_title");
+  const simple = [
+    ["something funny", { lane: L("Comedy"), refiner: null }],
+    ["I want a scary movie", { lane: L("Horror"), refiner: null }],
+    ["a feel-good comedy", { lane: L("Comedy"), refiner: "Feel-good" }],
+    ["a new sci-fi show", { lane: L("Sci-Fi"), refiner: "New" }],
+    ["classic romance", { lane: L("Romance"), refiner: "Classic" }],
+    ["something dark and twisty", { lane: L("Thriller"), refiner: "Dark" }],
+    ["a clever thriller tonight", { lane: L("Thriller"), refiner: "Smart" }],
+  ];
+  for (const [text, mood] of simple) check(`"${text}" → fast`, G.typedMoodGate(text, mood).fast, true);
+  check("a word the parse didn't use isn't covered (comedy words under Drama)", G.typedMoodGate("a funny drama", { lane: L("Drama"), refiner: null }).fast, false);
+  check("the page logs the gate's reason and residual", read("app/page.tsx").includes('console.info("[typed-mood] → AI search", { reason: gate.reason, residual: gate.residual });'), true);
+
   console.log("\n8. The results merge lines in place (no reset)");
   const rv = read("src/components/ResultsV4.tsx");
   check("same ids + titles → merge, return before the reset", /if \(ids && ids === lastIncomingIdsRef\.current\) \{[\s\S]*?setReks\(merge\);\s*setTrail\(merge\);\s*return;/.test(rv), true);

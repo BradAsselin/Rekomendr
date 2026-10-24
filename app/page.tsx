@@ -19,6 +19,7 @@ import {
 import { getMoreLikeThisSet, getTop5FromEngine, type Rek } from "../src/engine/rekomendrEngine";
 import SteerByRow from "../src/components/SteerByRow";
 import { fetchSlots, type SlotRequest } from "../src/lib/slotsClient";
+import { typedMoodGate } from "../src/lib/typedMoodGate";
 import { fetchScreen, type ScreenAnswer, type ScreenTitles } from "../src/lib/screenClient";
 import { noteSetShown, seedEngineFromVisit } from "../src/lib/screenVisit";
 import { goToCategoryFor } from "../src/lib/goToCategory";
@@ -1116,7 +1117,12 @@ export default function Page() {
       let runCat: Category = nextCategory;
       if (typedMood) {
         const plan = slotPlanFromMood(mood);
-        if (plan) {
+        // Only a mood the chip vocabulary holds whole takes the fast path;
+        // anything more specific keeps the AI search (typedMoodGate.ts).
+        const gate = plan ? typedMoodGate(typedText, mood) : null;
+        if (plan && gate && !gate.fast) {
+          console.info("[typed-mood] → AI search", { reason: gate.reason, residual: gate.residual });
+        } else if (plan) {
           runReq = plan.req;
           runSteer = plan.steerOpts;
           runCat = plan.cat;
