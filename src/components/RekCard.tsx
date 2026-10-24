@@ -1,6 +1,7 @@
 "use client";
 
 import React, { cloneElement, isValidElement } from "react";
+import { Bookmark, X } from "lucide-react";
 
 import { useSwipeToAction } from "../lib/useSwipeToAction";
 import SignalButtons from "./SignalButtons";
@@ -106,7 +107,26 @@ type Props = {
   // (the go-to mark), first in the verdict cluster. Both unset elsewhere.
   shortLead?: string;
   starSlot?: React.ReactNode;
+  // S17 — the D2 card (Movies/TV, search lane; docs/s17-mood-first-plan.md).
+  // `layout: "d2"`: the poster column on the left (`poster`, or nothing
+  // when posters are hidden — the D1 full-width text), the verdict
+  // cluster ☆ · Save · × ("Not for me" = onThumbDown; no thumbs), the
+  // commitment + where line under the title (`factsLine`), and ONE bottom
+  // row: Watched · Share · + More like this (`verbRight`). Trailer and
+  // where-to-watch (`verbLeft`/`verbMiddle`) stay on the expanded card.
+  layout?: "classic" | "d2";
+  poster?: React.ReactNode;
+  factsLine?: string;
+  // S17 — directional swipes (touch): left = Not for me, right = Save for
+  // later, each over a backing that names it. Replaces `swipeable`'s
+  // both-ways dismiss on the cards that set it.
+  onSwipeLeft?: () => void;
+  onSwipeRight?: () => void;
 };
+
+// Approved wording (Brad, S17).
+const NOT_FOR_ME = "Not for me";
+const SAVE_FOR_LATER = "Save for later";
 
 const RekCard: React.FC<Props> = ({
   title,
@@ -141,14 +161,148 @@ const RekCard: React.FC<Props> = ({
   shareSlot,
   shortLead,
   starSlot,
+  layout = "classic",
+  poster,
+  factsLine,
+  onSwipeLeft,
+  onSwipeRight,
 }) => {
   const titleText = year != null ? `${title} (${year})` : title;
+  const directional = !!(onSwipeLeft || onSwipeRight);
 
   const swipeHandlers = useSwipeToAction({
     // Protection rule: a liked or saved card never arms.
-    enabled: !!swipeable && thumbSignal !== "like" && !saved,
+    enabled: (!!swipeable || directional) && thumbSignal !== "like" && !saved,
     onSwipe: onThumbDown,
+    onSwipeLeft,
+    onSwipeRight,
   });
+
+  if (layout === "d2") {
+    const titleEl = titleHref ? (
+      <a
+        href={titleHref}
+        target="_blank"
+        rel="noopener noreferrer"
+        onClick={(e) => e.stopPropagation()}
+        data-rek-title
+        className="font-semibold text-[17px] leading-snug text-left hover:underline"
+      >
+        {titleText}
+      </a>
+    ) : (
+      <span data-rek-title className="font-semibold text-[17px] leading-snug">
+        {titleText}
+      </span>
+    );
+    // 44px touch targets (Apple HIG), drawn at icon size.
+    const iconBtn = "-m-1 flex h-11 w-11 items-center justify-center rounded-full transition active:scale-90";
+    const card = (
+      <div
+        {...(directional ? swipeHandlers : {})}
+        className={[
+          "relative rounded-2xl p-4 bg-white border border-gray-300 shadow-sm",
+          directional ? "touch-pan-y" : "",
+          className ?? "",
+        ]
+          .join(" ")
+          .trim()}
+        style={style}
+      >
+        <div className={dimmed ? "opacity-70 transition-opacity" : "transition-opacity"}>
+          <div className="flex gap-3">
+            {poster}
+            <div className="min-w-0 flex-1">
+              <div className="flex items-start justify-between gap-1">
+                <div className="min-w-0 pt-0.5">{titleEl}</div>
+                <div className="-mr-2 -mt-2 flex shrink-0 items-center" onClick={(e) => e.stopPropagation()}>
+                  {starSlot && <span className="flex h-11 w-11 items-center justify-center">{starSlot}</span>}
+                  <button
+                    type="button"
+                    onClick={onSave}
+                    aria-label={saved ? "Saved" : "Save"}
+                    aria-pressed={!!saved}
+                    className={iconBtn}
+                  >
+                    <Bookmark
+                      size={19}
+                      strokeWidth={1.8}
+                      className={saved ? "fill-[#3B6BD4] text-[#3B6BD4]" : "text-gray-500"}
+                    />
+                  </button>
+                  <button type="button" onClick={onThumbDown} aria-label={NOT_FOR_ME} className={iconBtn}>
+                    <X size={19} strokeWidth={1.8} className="text-gray-500" />
+                  </button>
+                </div>
+              </div>
+              {factsLine && <div className="mt-0.5 text-[13px] text-gray-600">{factsLine}</div>}
+              <p className="mt-2 text-[15px] leading-relaxed text-gray-900">
+                {shortLead && <span className="font-medium">{shortLead} </span>}
+                {short}
+                {(long || expandable) && onToggleDetails && (
+                  <>
+                    {" "}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onToggleDetails();
+                      }}
+                      className="text-xs text-gray-600 hover:underline"
+                    >
+                      {detailsOpen ? "Hide details" : "Show details"}
+                    </button>
+                  </>
+                )}
+              </p>
+              {long && detailsOpen && !detailsLoading && long !== short && (
+                <p className="mt-2 text-[15px] leading-relaxed text-gray-900">{long}</p>
+              )}
+              {infoSlot}
+              {(verbLeft || verbMiddle) && (
+                <div className="mt-2 flex items-center gap-5 text-sm text-gray-800" onClick={(e) => e.stopPropagation()}>
+                  {verbLeft}
+                  {verbMiddle}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+        {isValidElement(shareSlot) ? (
+          cloneElement(shareSlot as React.ReactElement<{ leading?: React.ReactNode; trailing?: React.ReactNode }>, {
+            leading: watchedSlot,
+            trailing: verbRight,
+          })
+        ) : (
+          (watchedSlot || verbRight) && (
+            <div className="mt-2 flex items-center gap-3 text-sm" onClick={(e) => e.stopPropagation()}>
+              <div className="mr-auto flex items-center">{watchedSlot}</div>
+              {verbRight}
+            </div>
+          )
+        )}
+      </div>
+    );
+    if (!directional) return card;
+    // The backing: hidden at rest; the swipe hook marks this wrapper with
+    // data-swipe="left" | "right" while a card is being dragged.
+    return (
+      <div className="group relative">
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 flex items-center justify-start rounded-2xl bg-[#3B6BD4] px-5 text-[15px] font-semibold text-white opacity-0 group-data-[swipe=right]:opacity-100"
+        >
+          {SAVE_FOR_LATER}
+        </div>
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 flex items-center justify-end rounded-2xl bg-gray-700 px-5 text-[15px] font-semibold text-white opacity-0 group-data-[swipe=left]:opacity-100"
+        >
+          {NOT_FOR_ME}
+        </div>
+        {card}
+      </div>
+    );
+  }
 
   return (
     <div

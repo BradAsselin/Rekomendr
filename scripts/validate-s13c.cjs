@@ -191,13 +191,17 @@ const noGoTos = { movies: [], tv: [], wine: null };
   const base = execSync("git show 0a81a81:src/components/SearchBar.tsx", { cwd: ROOT, encoding: "utf8" }).replace(/\r\n/g, "\n");
   // Quoted strings and JSX text that a person could read (a TS generic
   // like "=> Promise<" is not text).
-  const strings = (s) =>
-    new Set(
+  // S17 — comment lines aren't wording; they're dropped before matching.
+  const uncommented = (s) => s.split("\n").filter((l) => !/^\s*(\/\/|\/\*|\*)/.test(l)).join("\n");
+  const strings = (raw) => {
+    const s = uncommented(raw);
+    return new Set(
       (s.match(/"[A-Z][^"]{6,}"/g) || [])
         .concat(s.match(/>\s*[A-Z][^<{]{6,}</g) || [])
         .map((x) => x.replace(/\s+/g, " ").trim())
         .filter((x) => !/^> Promise</.test(x))
     );
+  };
   const added = [...strings(bar)].filter((x) => !strings(base).has(x));
   check("approved wording only: the two hints", added.sort(), ['"Say what you’re in the mood for"', '"Tap the keyboard mic to speak"'].sort());
   check("mic sits right before the camera, one tap target", bar.indexOf('data-testid="voice-mic"') < bar.indexOf('aria-label="Snap"') && (bar.match(/onClick=\{tapMic\}/g) || []).length, 1);

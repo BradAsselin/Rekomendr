@@ -49,6 +49,8 @@ type Props = {
   // S16 — the card's "Watched" control, left end of the same row (RekCard
   // passes it in, so the row's notices and name form stay full width).
   leading?: React.ReactNode;
+  // S17 — the D2 card's "+ More like this", right of Share in the same row.
+  trailing?: React.ReactNode;
 };
 
 const ShareRow: React.FC<Props> = ({
@@ -58,6 +60,7 @@ const ShareRow: React.FC<Props> = ({
   showNameLink,
   variant = "rek",
   leading,
+  trailing,
 }) => {
   const [share, setShare] = useState<ShareState>({ status: "idle" });
   const [nameSheet, setNameSheet] = useState<null | "first" | "change">(null);
@@ -218,6 +221,7 @@ const ShareRow: React.FC<Props> = ({
         >
           {share.status === "working" ? "Sharing…" : share.needsTap ? "Send link" : "Share"}
         </button>
+        {trailing}
       </div>
       {nameSheet && (
         <form

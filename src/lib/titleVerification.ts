@@ -22,6 +22,8 @@ export type VerifyResult = {
   // never checked (the call failed, or TMDb's lookup did): it still does
   // not ship, but it is not evidence of fiction either.
   answered: Set<string>;
+  // S17 — the TMDb match for each resolved title (id + poster path).
+  matches: Map<string, { tmdbId: number; posterPath: string | null }>;
 };
 
 // Mirrors normalizeTitle in tmdbVerify.ts — the two must agree or the
@@ -61,7 +63,7 @@ export async function verifyTitlesViaApi(args: {
   path: "search" | "search-freshness" | "mlt" | "search-backfill";
   category?: string;
 }): Promise<VerifyResult> {
-  const empty = (): VerifyResult => ({ enabled: true, resolved: new Map(), answered: new Set() });
+  const empty = (): VerifyResult => ({ enabled: true, resolved: new Map(), answered: new Set(), matches: new Map() });
   if (args.items.length === 0) return empty();
 
   // S17a — one retry when the CALL fails as a whole (a function timeout, a
@@ -90,6 +92,12 @@ export async function verifyTitlesViaApi(args: {
             const k = verifyKey(v.title);
             out.resolved.set(k, Boolean(v.resolved));
             if (v.resolved || v.reason === "no_match" || v.reason === "year_mismatch") out.answered.add(k);
+            if (v.resolved && Number.isInteger(v.tmdbId)) {
+              out.matches.set(k, {
+                tmdbId: v.tmdbId,
+                posterPath: typeof v.posterPath === "string" ? v.posterPath : null,
+              });
+            }
           }
         }
       }

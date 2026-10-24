@@ -156,7 +156,8 @@ for (const level of ["warn", "info", "error"]) console[level] = () => {};
   const snap = page.slice(page.indexOf("const handleSnapFile"), page.indexOf("const handleSearch = async"));
   check("screen read only on the Movies/TV bar", snap.includes('if (bar === "Movies" || bar === "TV Shows") {'), true);
   check("…beside the normal snap, which is aborted when the screen answers", ["const firstP = postSnap({ image }, snapAbort.signal);", "snapAbort.abort();", "data = await firstP;"].map((t) => snap.includes(t)), [true, true, true]);
-  check("Steer by on a screen set re-ranks the same titles", /if \(screenRef\.current\) \{[\s\S]*fetchScreen\(\{ titles: s\.titles, service: s\.service, steer: name \}\)/.test(page), true);
+  // S17 — the Steer by row is gone (Movies/TV), so it no longer re-ranks a screen set.
+  check("Steer by row removed (S17)", page.includes("SteerByRow"), false);
   check("a thumbs-down never brings in a title that wasn't on the screen", /slotBackfill = async[\s\S]{0,300}if \(screenRef\.current\) return null;/.test(page), true);
   check("a new search, snap or home leaves screen mode", (page.match(/leaveScreen\(\);/g) || []).length, 3);
   check("header wording", page.includes(">\n                          From your screen\n") || page.includes("From your screen"), true);
@@ -164,7 +165,8 @@ for (const level of ["warn", "info", "error"]) console[level] = () => {};
   check("no other new user-facing words in the page diff", require("child_process").execSync("git diff 1c60240 2ab1240 -- app/page.tsx" /* S15's own range (main moved on) */, { cwd: root, encoding: "utf8" })
     .split("\n").filter((l) => /^\+/.test(l) && !/^\+\+\+/.test(l) && /^\+\s*[A-Z][a-z]+[^=;(){}]*$/.test(l)).map((l) => l.slice(1).trim()), ["From your screen"]);
   check("Results: the screen note rides the marker line; facts ride the descriptor line",
-    [read("src/components/ResultsV4.tsx").split("markerLine={rek.resurfacedNote ?? rek.screenNote}").length - 1, read("src/components/DescriptorLine.tsx").includes("...(rek.facts ?? [])")], [2, true]);
+    // S17 — D2 (Movies/TV) frontier cards keep only the screen note on the marker line.
+    [(read("src/components/ResultsV4.tsx").match(/markerLine=\{d2 \? (rek\.screenNote|undefined) : rek\.resurfacedNote \?\? rek\.screenNote\}/g) || []).length, read("src/components/DescriptorLine.tsx").includes("...(rek.facts ?? [])")], [2, true]);
   void words;
 
   console.log(`\n${passed} passed, ${failed} failed.`);

@@ -31,6 +31,7 @@ import {
   resolveSnappedTitle,
   rowTitle,
   rowYear,
+  safePosterPath,
   tmdbGet,
   type MediaBundle,
   type MediaKind,
@@ -188,6 +189,7 @@ const asCandidate = (r: Row, kind: MediaKind): TmdbCandidate | null => {
     genreIds: Array.isArray(r.genre_ids) ? r.genre_ids : [],
     votes: r.vote_count ?? 0,
     rating: r.vote_average ?? 0,
+    posterPath: safePosterPath(r.poster_path),
   };
 };
 

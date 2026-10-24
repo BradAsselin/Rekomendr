@@ -54,3 +54,28 @@ export const WatchedToast: React.FC<{
       </button>
     </div>
   ) : null;
+
+// S17 — the search lane's one toast, for every undoable act on a D2 card.
+// Approved wording only: "Not for me · Undo", "Saved · Undo",
+// "Watched · Undo", "Posters hidden · Undo". The newest replaces the last.
+export type UndoToastLabel = "Not for me" | "Saved" | "Watched" | "Posters hidden";
+
+export const UndoToast: React.FC<{ label: UndoToastLabel | null; onUndo: () => void }> = ({ label, onUndo }) =>
+  label ? (
+    <div
+      role="status"
+      aria-live="polite"
+      data-testid="undo-toast"
+      className="fixed left-1/2 -translate-x-1/2 z-50 rounded-full bg-gray-900 text-white text-sm shadow-lg px-4 py-2 flex items-center gap-1 whitespace-nowrap"
+      style={{ bottom: "calc(env(safe-area-inset-bottom, 0px) + 20px)" }}
+    >
+      <span>{label} ·</span>
+      <button
+        type="button"
+        onClick={onUndo}
+        className="font-semibold underline underline-offset-2 py-1 -my-1 px-1"
+      >
+        Undo
+      </button>
+    </div>
+  ) : null;

@@ -169,3 +169,31 @@ export async function undoWatched(params: {
     return { ok: false, reason: 'network' };
   }
 }
+
+// S17 — the Undo for "Not for me" and "Saved", and the Saved page's
+// remove: through /api/signals/undo (action-fixed to dislike | save,
+// this client's rows only). The browser can insert a like but never
+// delete one.
+export async function undoSignal(params: {
+  category: string;
+  title: string;
+  action: 'dislike' | 'save';
+  remove?: boolean;
+}): Promise<{ ok: boolean; reason?: string }> {
+  const clientId = getAnonymousClientId();
+  if (!clientId) return { ok: false, reason: 'no_client_id' };
+  try {
+    const res = await fetch('/api/signals/undo', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clientId, ...params }),
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok || !data?.ok) {
+      return { ok: false, reason: typeof data?.reason === 'string' ? data.reason : 'request_failed' };
+    }
+    return { ok: true };
+  } catch {
+    return { ok: false, reason: 'network' };
+  }
+}

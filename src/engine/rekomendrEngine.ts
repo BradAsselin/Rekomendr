@@ -67,6 +67,10 @@ export interface Rek {
   // ("2h 10m", "on Netflix"), and "Start with this one" on the best match.
   facts?: string[];
   screenNote?: string;
+  // S17 — TMDb's poster path for the card's thumbnail (null = none; the
+  // card shows a neutral placeholder). AI-search reks get it, and their
+  // tmdbId, from the real-title check's match.
+  posterPath?: string | null;
 }
 
 export type Category = "Movies" | "TV Shows" | "Books" | "Wine";
@@ -941,7 +945,7 @@ async function dropUnresolvedMediaTitles(
   const kind = verifiedKindForCategory(ctx.category);
   if (!kind || candidates.length === 0) return { survivors: candidates, fake: 0, unverifiable: 0 };
 
-  const { enabled, resolved, answered } = await verifyTitlesViaApi({
+  const { enabled, resolved, answered, matches } = await verifyTitlesViaApi({
     items: candidates.map((r) => ({ title: r.title, year: r.year, kind })),
     anchor: ctx.anchor,
     path: ctx.path,
@@ -954,7 +958,14 @@ async function dropUnresolvedMediaTitles(
   // only the ones TMDb ANSWERED "not there" count as fiction. A title the
   // check never reached is unverifiable: the field case (Oct 24) was a
   // failed check reported to the person as five invented titles.
-  const survivors = candidates.filter((r) => resolved.get(verifyKey(r.title)) === true);
+  // S17 — each survivor carries its TMDb match (the card's poster, and the
+  // id its commitment/where facts are looked up by).
+  const survivors = candidates
+    .filter((r) => resolved.get(verifyKey(r.title)) === true)
+    .map((r) => {
+      const m = matches.get(verifyKey(r.title));
+      return m ? { ...r, tmdbId: m.tmdbId, posterPath: m.posterPath } : r;
+    });
   const dropped = candidates.filter((r) => resolved.get(verifyKey(r.title)) !== true);
   const fake = dropped.filter((r) => answered.has(verifyKey(r.title))).length;
   return { survivors, fake, unverifiable: dropped.length - fake };

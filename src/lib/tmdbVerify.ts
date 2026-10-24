@@ -46,6 +46,10 @@ export type VerifyVerdict = {
   // TMDb's own year when a title matched — diagnostic only. Nothing is
   // rewritten from it (see the PR's "Found, not fixed").
   tmdbYear?: number | null;
+  // S17 — the match's TMDb id and poster path, for the card (its poster
+  // thumbnail, and the facts lookup). Set only on a resolved verdict.
+  tmdbId?: number;
+  posterPath?: string | null;
 };
 
 // Hang protection, not a latency SLA (charter §2.11). A TMDb search is
@@ -216,6 +220,8 @@ function cacheSet(item: VerifyItem, verdict: VerifyVerdict): void {
    ONE LOOKUP
 ------------------------------------------------------------------- */
 type TmdbRow = {
+  id?: number;
+  poster_path?: string | null;
   title?: string;
   original_title?: string;
   name?: string;
@@ -347,6 +353,13 @@ async function verifyOne(item: VerifyItem, key: string): Promise<VerifyVerdict> 
           title: item.title,
           resolved: true,
           tmdbYear: rowYear,
+          ...(typeof row.id === "number" ? { tmdbId: row.id } : {}),
+          // TMDb's own path shape only (mirrors tmdbMedia's safePosterPath;
+          // that module imports this one, so it is not imported back).
+          posterPath:
+            typeof row.poster_path === "string" && /^\/[\w.-]{1,120}$/.test(row.poster_path)
+              ? row.poster_path
+              : null,
         };
         cacheSet(item, verdict);
         return verdict;
