@@ -65,6 +65,11 @@ export type MediaBundle = {
   genreIds: number[];
   completion: MediaCompletion;
   candidates: TmdbCandidate[];
+  // S15 — how much watching it asks: "2h 10m", or "3 seasons · 30 episodes".
+  commitment: string | null;
+  // S15 — TMDb's rating and vote count (the no-go-to screen ranking).
+  rating: number | null;
+  votes: number;
 };
 
 export type ResolvedTitle = {
@@ -575,6 +580,23 @@ const BUNDLE_TTL_MS = 60 * 60 * 1000;
 const BUNDLE_MAX = 200;
 const bundleCache = new Map<string, { at: number; bundle: MediaBundle }>();
 
+// S15 — the commitment line: a film's runtime, a show's seasons · episodes.
+export function commitmentOf(raw: any, kind: MediaKind): string | null {
+  if (kind === "movie") {
+    const m = Number(raw?.runtime);
+    if (!Number.isFinite(m) || m <= 0) return null;
+    const h = Math.floor(m / 60);
+    const r = m % 60;
+    return h > 0 ? (r > 0 ? `${h}h ${r}m` : `${h}h`) : `${r}m`;
+  }
+  const seasons = Number(raw?.number_of_seasons);
+  const episodes = Number(raw?.number_of_episodes);
+  const parts: string[] = [];
+  if (Number.isFinite(seasons) && seasons > 0) parts.push(`${seasons} season${seasons === 1 ? "" : "s"}`);
+  if (Number.isFinite(episodes) && episodes > 0) parts.push(`${episodes} episode${episodes === 1 ? "" : "s"}`);
+  return parts.length ? parts.join(" · ") : null;
+}
+
 export async function loadMediaBundle(kind: MediaKind, id: number): Promise<MediaBundle | null> {
   const ck = `${kind}:${id}`;
   const hit = bundleCache.get(ck);
@@ -609,6 +631,9 @@ export async function loadMediaBundle(kind: MediaKind, id: number): Promise<Medi
       };
     })(),
     candidates: parseCandidates(raw, kind, raw.id),
+    commitment: commitmentOf(raw, kind),
+    rating: typeof raw.vote_average === "number" ? raw.vote_average : null,
+    votes: typeof raw.vote_count === "number" ? raw.vote_count : 0,
   };
   if (bundleCache.size >= BUNDLE_MAX) {
     const oldest = bundleCache.keys().next().value;

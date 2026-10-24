@@ -1,4 +1,3 @@
-import OpenAI from "openai";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import {
@@ -17,7 +16,7 @@ import {
 } from "../../../src/lib/snapTitleGuard";
 import { currentDiag, jsonText, llmCall, withLlmContext, type LlmPart } from "../../../src/lib/llm";
 import { runEnvCheck } from "../../../src/lib/envCheck";
-import { ANCHOR_DETAIL_PROMPT } from "../../../src/lib/anchorDetailPrompt";
+import { ANCHOR_DETAIL_PROMPT, ANCHOR_DETAIL_SCHEMA } from "../../../src/lib/anchorDetailPrompt";
 import {
   signAnchor,
   tokensEnabled,
@@ -65,8 +64,6 @@ import {
 } from "../../../src/lib/wineReks";
 
 export const runtime = "nodejs";
-
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 // Boot-time env-pair check (logs once per process, hostnames only).
 runEnvCheck();
@@ -335,32 +332,26 @@ async function handleBackfill(backfill: any): Promise<Response> {
     false
   );
 
-  const completion = await openai.chat.completions.create({
-    model: "gpt-4o",
+  const completion = await llmCall({
+    step: "snap",
     temperature: 0.7,
-    max_tokens: 300,
-    response_format: { type: "json_object" },
-    messages: [
-      { role: "system", content: buildBackfillPrompt(mode) },
-      {
-        role: "user",
-        content:
-          `Detected item: ${item.name}\n` +
-          (typeof item.description === "string" && item.description
-            ? `Its signature profile: ${item.description}\n`
-            : "") +
-          (typeof item.category === "string" && item.category
-            ? `Category: ${item.category}\n`
-            : "") +
-          `Already shown (do not repeat): ${excludeNames.join(", ") || "(none)"}\n` +
-          `REJECTED (user disliked these — avoid them and lean away from their dominant characteristics): ${
-            rejectedNames.join(", ") || "(none)"
-          }` + (priorBlock ? `\n${priorBlock}` : ""),
-      },
-    ],
+    maxTokens: 300,
+    system: buildBackfillPrompt(mode),
+    user:
+      `Detected item: ${item.name}\n` +
+      (typeof item.description === "string" && item.description
+        ? `Its signature profile: ${item.description}\n`
+        : "") +
+      (typeof item.category === "string" && item.category
+        ? `Category: ${item.category}\n`
+        : "") +
+      `Already shown (do not repeat): ${excludeNames.join(", ") || "(none)"}\n` +
+      `REJECTED (user disliked these — avoid them and lean away from their dominant characteristics): ${
+        rejectedNames.join(", ") || "(none)"
+      }` + (priorBlock ? `\n${priorBlock}` : ""),
   });
 
-  const text = completion.choices?.[0]?.message?.content ?? "";
+  const text = jsonText(completion.text);
   let parsed: any = null;
   try {
     parsed = JSON.parse(text);
@@ -466,24 +457,19 @@ async function handleAnchorDetail(anchorDetail: any): Promise<Response> {
     );
   }
 
-  const completion = await openai.chat.completions.create({
-    model: "gpt-4o",
+  const completion = await llmCall({
+    step: "detail",
     temperature: 0.7,
-    max_tokens: 300,
-    response_format: { type: "json_object" },
-    messages: [
-      { role: "system", content: ANCHOR_DETAIL_PROMPT },
-      {
-        role: "user",
-        content:
-          `Item: ${name}\n` +
-          (category ? `Category: ${category}\n` : "") +
-          `Its displayed profile: ${shortDescription}`,
-      },
-    ],
+    maxTokens: 300,
+    system: ANCHOR_DETAIL_PROMPT,
+    user:
+      `Item: ${name}\n` +
+      (category ? `Category: ${category}\n` : "") +
+      `Its displayed profile: ${shortDescription}`,
+    schema: ANCHOR_DETAIL_SCHEMA,
   });
 
-  const text = completion.choices?.[0]?.message?.content ?? "";
+  const text = jsonText(completion.text);
   let parsed: any = null;
   try {
     parsed = JSON.parse(text);
@@ -953,25 +939,19 @@ async function handleChain(chain: any): Promise<Response> {
         (category ? `Category: ${category}\n` : "") +
         commonTail;
 
-  const completion = await openai.chat.completions.create({
-    model: "gpt-4o",
+  const completion = await llmCall({
+    step: "snap",
     temperature: 0.7,
     // Five cards at the backfill card budget.
-    max_tokens: 1500,
-    response_format: { type: "json_object" },
-    messages: [
-      {
-        role: "system",
-        content:
-          kind === "steer"
-            ? buildChainSteerPrompt(mode)
-            : buildChainRerollPrompt(mode),
-      },
-      { role: "user", content: userContent },
-    ],
+    maxTokens: 1500,
+    system:
+      kind === "steer"
+        ? buildChainSteerPrompt(mode)
+        : buildChainRerollPrompt(mode),
+    user: userContent,
   });
 
-  const text = completion.choices?.[0]?.message?.content ?? "";
+  const text = jsonText(completion.text);
   let parsed: any = null;
   try {
     parsed = JSON.parse(text);
@@ -1060,7 +1040,8 @@ async function handleChain(chain: any): Promise<Response> {
 // the non-streamed call returned. A stream error rejects `done` and lands
 // in POST's outer catch with every named-failure voice intact.
 // ---------------------------------------------------------------------------
-type VisionContent = LlmPart[];
+// S14 — a typed wine streams its text through the same reader.
+type VisionContent = string | LlmPart[];
 
 async function startVisionStream(content: VisionContent) {
   const controller = new AbortController();
@@ -1243,22 +1224,30 @@ async function tryMediaSnap(
 const TYPED_WINE_CLASSIFIER =
   "Decide whether the user's text names ONE specific wine a person could buy — a producer, brand, label or bottling (e.g. 'Caymus Cabernet', 'Whispering Angel', 'Meiomi Pinot Noir', 'Bonanza', 'La Crema Chardonnay') — or describes a style, grape, region, price, food or mood ('something bold', 'dry white under $20', 'Pinot Noir', 'Napa cab', 'wine for steak'). A grape, region or style alone is NOT a specific wine.\n" +
   'Return JSON only: { "specific": true | false, "name": "<the wine as commonly written>" | null }';
+// S14 — Claude only: the shape the line above states, as a schema.
+const TYPED_WINE_SCHEMA = {
+  type: "object",
+  properties: {
+    specific: { type: "boolean" },
+    name: { anyOf: [{ type: "string" }, { type: "null" }] },
+  },
+  required: ["specific", "name"],
+  additionalProperties: false,
+};
 
 async function classifyTypedWine(raw: unknown): Promise<string | null> {
   const text = typeof raw === "string" ? raw.trim().slice(0, 120) : "";
   if (!text) return null;
-  const completion = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
+  const completion = await llmCall({
+    step: "classify",
     temperature: 0,
-    max_tokens: 60,
-    response_format: { type: "json_object" },
-    messages: [
-      { role: "system", content: TYPED_WINE_CLASSIFIER },
-      { role: "user", content: text },
-    ],
+    maxTokens: 60,
+    system: TYPED_WINE_CLASSIFIER,
+    user: text,
+    schema: TYPED_WINE_SCHEMA,
   });
   try {
-    const parsed = JSON.parse(completion.choices?.[0]?.message?.content ?? "");
+    const parsed = JSON.parse(jsonText(completion.text));
     const name = typeof parsed?.name === "string" ? parsed.name.trim() : "";
     const verdict = parsed?.specific === true && !!name;
     console.info("[typed-anchor] wine classify", { specific: verdict });
@@ -1686,24 +1675,63 @@ async function handlePost(req: Request, hooks: SnapHooks = {}) {
       // that still lands outside wine is never shipped: one retry, then
       // { anchor: null }, so the wine search runs on the text instead.
       let typedCategory = "";
-      for (let attempt = 1; attempt <= 2; attempt++) {
-        const completion = await llmCall({
-          step: "vision",
-          temperature: attempt === 1 ? 0.7 : 0.3,
-          maxTokens: 4000,
-          system: SYSTEM_PROMPT,
-          user:
+      // The first read's category as streamed (a stopped read won't parse).
+      let streamedCategory = "";
+      const typedUser =
             `No photo this time: the user typed a wine's name on the Wine bar instead — "${typedName}". Treat that named wine as the item in the photo. It is a wine: its category is wine, and every rek is a wine.` +
             (priorBlock ? `
-${priorBlock}` : ""),
-        });
-        text = jsonText(completion.text);
-        usage = completion.usage;
+${priorBlock}` : "");
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        if (attempt === 1) {
+          // S14 — the first read streams, with the photo path's wine cut
+          // (S10): the picks start the moment the bottle is named and the
+          // stream stops once Similar closes. Claude writes all three lists
+          // in full (~1,800 tokens, ~17 s on Sonnet); waiting for them made
+          // a typed wine ~30 s.
+          const vision = await startVisionStream(typedUser);
+          const early = await vision.detected;
+          const earlyCat = typeof early?.category === "string" ? early.category.trim().toLowerCase() : "";
+          streamedCategory = earlyCat;
+          if (early && isWineCategory(earlyCat) && startWine(early)) {
+            const sim = await vision.similar;
+            if (sim) {
+              vision.stop();
+              const d = await vision.done();
+              text = JSON.stringify({
+                detected_item: early,
+                mode: "similar",
+                results: { similar: sim, uses: [], alternatives: [] },
+              });
+              ({ usage, finishReason, refusal } = d);
+              finishReason = finishReason ?? "wine_cut";
+              wineCut = true;
+              console.info("[wine] typed read cut after Similar", {
+                anchor: early.name,
+                similar: sim.length,
+                charsRead: d.text.length,
+              });
+            }
+          } else if (early) {
+            // Not a wine: this read is retried below, so stop writing it.
+            vision.stop();
+          }
+          if (!wineCut) ({ text, usage, finishReason, refusal } = await vision.done());
+        } else {
+          const completion = await llmCall({
+            step: "vision",
+            temperature: 0.3,
+            maxTokens: 4000,
+            system: SYSTEM_PROMPT,
+            user: typedUser,
+          });
+          text = jsonText(completion.text);
+          usage = completion.usage;
+        }
         try {
           const cat = JSON.parse(text)?.detected_item?.category;
           typedCategory = typeof cat === "string" ? cat : "";
         } catch {
-          typedCategory = "";
+          typedCategory = attempt === 1 ? streamedCategory : "";
         }
         if (isWineCategory(typedCategory)) break;
         console.error("[typed-anchor] wine bar read landed outside wine", {

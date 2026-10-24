@@ -770,7 +770,7 @@ const ResultsV4: React.FC<ResultsProps> = ({
                     }
                     title={rek.title}
                     year={rek.year}
-                    markerLine={rek.resurfacedNote}
+                    markerLine={rek.resurfacedNote ?? rek.screenNote}
                     short={rek.short}
                     long={rek.long}
                     detailAction={watchedVerb(rek)}
@@ -833,7 +833,7 @@ const ResultsV4: React.FC<ResultsProps> = ({
                 year={rek.year}
                 /* S1 — set by the engine on the freshness slot only, and
                    only when that slot landed on a real past like. */
-                markerLine={rek.resurfacedNote}
+                markerLine={rek.resurfacedNote ?? rek.screenNote}
                 short={rek.short}
                 long={rek.long}
                 detailAction={watchedVerb(rek)}

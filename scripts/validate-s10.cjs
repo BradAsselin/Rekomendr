@@ -45,7 +45,8 @@ check("empty Similar is still a complete list", extractCompleteArray('{"results"
 
 console.log("\n2. The route: wine stops after Similar; everything else unchanged");
 const route = read("app/api/reksnap/route.ts");
-const vStart = route.indexOf("const early = await vision.detected;");
+// S14: the typed read streams too; this slice is the photo path's.
+const vStart = route.indexOf("const early = await vision.detected;", route.indexOf("S8a — detail \"high\" explicit"));
 const vision = route.slice(vStart, route.indexOf("let parsed: any = null;", vStart));
 check("cut only when startWine took the anchor (wine, not health)", /if \(startWine\(early\)\) \{\s*const sim = await vision\.similar;/.test(vision), true);
 check("stops the stream, ships Similar with empty uses/alternatives", ["vision.stop();", "uses: [], alternatives: []", 'mode: "similar"'].every((t) => vision.includes(t)), true);

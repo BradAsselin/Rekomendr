@@ -91,7 +91,9 @@ for (const level of ["warn", "info", "error"]) console[level] = (...a) => logs.p
 
   console.log("\n2. Sonnet 5.5 / Haiku 5.5 on the switch");
   const llm = load("src/lib/llm.ts");
-  check("default still OpenAI on every step", llm.LLM_STEPS.map((s) => llm.resolveStep(s).provider), Array(5).fill("openai"));
+  // S14: with a key, Claude is the default; REKS_MODEL_PROVIDER=openai is the rollback.
+  process.env.REKS_MODEL_PROVIDER = "openai";
+  check("REKS_MODEL_PROVIDER=openai → OpenAI on every step", llm.LLM_STEPS.map((s) => llm.resolveStep(s).provider), Array(10).fill("openai"));
   process.env.REKS_PROVIDER_LINES = "anthropic";
   process.env.REKS_MODEL_LINES = "claude-sonnet-5-5";
   process.env.REKS_PROVIDER_MOOD = "anthropic";
@@ -106,6 +108,7 @@ for (const level of ["warn", "info", "error"]) console[level] = (...a) => logs.p
   await llm.llmCall({ step: "lines", maxTokens: 900, system: "S", user: "U", schema: SCHEMA });
   check("a schema rides as Claude structured output", calls.anthropic.at(-1).output_config, { effort: "low", format: { type: "json_schema", schema: SCHEMA } });
   for (const k of Object.keys(process.env)) if (k.startsWith("REKS_")) delete process.env[k];
+  process.env.REKS_MODEL_PROVIDER = "openai";
   await llm.llmCall({ step: "lines", maxTokens: 900, system: "S", user: "U", schema: SCHEMA });
   check("…and never reaches OpenAI (json_object mode as before)", [calls.openai.at(-1).response_format, "output_config" in calls.openai.at(-1)], [{ type: "json_object" }, false]);
   const mr = read("src/lib/mediaReks.ts");

@@ -24,3 +24,12 @@ export const ANCHOR_DETAIL_PROMPT =
   "- WRONG (profile said 'Smooth and slightly sweet, with notes of vanilla, honey, and a hint of fruitiness'): 'Its silky texture glides across the palate, enhanced by a subtle sweetness akin to clover honey. The vanilla notes are gentle yet persistent, rounding out the soft edges with a comforting warmth... its understated elegance complements without overwhelming.' (nearly double the allowed length; tasting-poetry that could describe fifty bottles; opens by repeating the item's name; never names a neighbor; ends on a mood, not a noun)\n" +
   "\n" +
   'Return JSON only, in this exact shape: { "long": string }';
+
+// S14 — Claude only (structured outputs): the shape the prompt's last line
+// states. Not prompt text; the string above is unchanged.
+export const ANCHOR_DETAIL_SCHEMA = {
+  type: "object",
+  properties: { long: { type: "string" } },
+  required: ["long"],
+  additionalProperties: false,
+};
