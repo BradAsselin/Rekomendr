@@ -64,7 +64,7 @@ Two PRs, one per part:
 ### Races
 - **Mark, then undo fast:** undo awaits the mark's promise before deleting.
 - **Mark fails after undo:** nothing left to revert.
-- **Mark, new search, undo from the toast:** the toast is page-level, so undo still deletes the row and clears the session list. The old card is gone, which is fine.
+- **Mark, then a new search:** the toast lives with its lane, so it leaves with the old set. The mark stands; the card's check is the way back in that set.
 - **Mark on a card that is then thumbed down or swiped:** the card leaves and the watched row stands. Two signals, both true.
 
 ### Files
