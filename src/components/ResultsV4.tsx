@@ -17,6 +17,8 @@ import { postJson, tmdbCardSnapshot } from "../lib/shareSnapshot";
 import RekSkeleton, { RekSkeletonCard } from "./RekSkeleton";
 import RekTrail, { TrailRow } from "./RekTrail";
 import ShortlistStrip, { type ShortlistItem } from "./ShortlistStrip";
+import { WatchedButton, WatchedToast } from "./WatchedControl";
+import { useWatchedMarks, watchedCategory, type WatchedItem } from "../lib/useWatchedMarks";
 
 // Scroll-compensated layout commits for trail migrations (see the module
 // comment — layout changes once, animation is transform/opacity only).
@@ -71,9 +73,12 @@ interface ResultsProps {
   // S1 — the Shortlist strip. Owned by the page (so it survives search to
   // search within the visit) and rendered here, above the results.
   shortlist?: ShortlistItem[];
-  // Fires for every "Watched it" tap, from the strip or an expanded card.
-  // The page owns the write and the optimistic list update.
+  // Fires for every "Watched it" tap on the strip. The page owns the
+  // write and the optimistic list update.
   onWatched?: (item: { title: string; year: number | null }) => void;
+  // S16 — a card's "Watched" mark or undo (this component owns the write;
+  // the page keeps its session list, which every re-run excludes).
+  onWatchedChange?: (item: WatchedItem, watched: boolean) => void;
   watchPendingTitle?: string | null;
   watchFailedTitle?: string | null;
   initialVertical?: Category;
@@ -96,6 +101,7 @@ const ResultsV4: React.FC<ResultsProps> = ({
   persistedDislikedTitles = [],
   shortlist = [],
   onWatched,
+  onWatchedChange,
   watchPendingTitle,
   watchFailedTitle,
   steerRow,
@@ -655,22 +661,17 @@ const ResultsV4: React.FC<ResultsProps> = ({
   // S12b — "vs. your Lioness: …" leads a card steered by a go-to.
   const vsLead = (rek: Rek) => (rek.vsGoTo ? `vs. your ${goToShortName(rek.vsGoTo)}:` : undefined);
 
-  // S1 — "Watched it". Media only: the charter's watched arc is the
-  // can't-wait-to-watch arc, and the media-adjacent verb pairs (Listen /
-  // Read for music and books) are explicitly a later, prepared-only item.
-  // Wine has no "finished" verb at all. Non-media categories therefore get
-  // a Shortlist they can read but not retire from — deliberate, and named
-  // in the PR rather than half-built here.
-  const watchedVerb = (rek: Rek): React.ReactNode =>
-    isMedia && onWatched ? (
-      <button
-        type="button"
-        disabled={watchPendingTitle === rek.title}
-        onClick={() => onWatched({ title: rek.title, year: rek.year ?? null })}
-        className="rounded-lg border border-gray-300 px-2.5 py-1 text-[13px] text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-      >
-        {watchPendingTitle === rek.title ? "Saving…" : "Watched it"}
-      </button>
+  // S16 — "Watched" on every Movies/TV/Books card (bottom-left, always
+  // visible; replaces S1's expanded-only "Watched it"). Wine has its own
+  // actions and gets none; the gate is the go-to allow-list.
+  const watched = useWatchedMarks(onWatchedChange);
+  const watchCat = watchedCategory(category);
+  const watchedFor = (rek: Rek): React.ReactNode =>
+    watchCat ? (
+      <WatchedButton
+        on={watched.isWatched(rek.title)}
+        onToggle={() => watched.toggle({ title: rek.title, year: rek.year || null, category: watchCat })}
+      />
     ) : undefined;
 
   return (
@@ -773,7 +774,8 @@ const ResultsV4: React.FC<ResultsProps> = ({
                     markerLine={rek.resurfacedNote ?? rek.screenNote}
                     short={rek.short}
                     long={rek.long}
-                    detailAction={watchedVerb(rek)}
+                    watchedSlot={watchedFor(rek)}
+                    dimmed={watched.isWatched(rek.title)}
                     titleHref={isMedia ? titleInfoUrl(rek.title) : undefined}
                     detailsOpen={expandedTop === rek.id}
                     onToggleDetails={() => {
@@ -836,7 +838,8 @@ const ResultsV4: React.FC<ResultsProps> = ({
                 markerLine={rek.resurfacedNote ?? rek.screenNote}
                 short={rek.short}
                 long={rek.long}
-                detailAction={watchedVerb(rek)}
+                watchedSlot={watchedFor(rek)}
+                dimmed={watched.isWatched(rek.title)}
                 titleHref={isMedia ? titleInfoUrl(rek.title) : undefined}
                 detailsOpen={expandedTop === rek.id}
                 onToggleDetails={() => {
@@ -908,6 +911,7 @@ const ResultsV4: React.FC<ResultsProps> = ({
         </div>
       )}
 
+      <WatchedToast item={watched.toast} onUndo={watched.undo} />
     </div>
   );
 };

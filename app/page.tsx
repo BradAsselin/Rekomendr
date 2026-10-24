@@ -1321,6 +1321,19 @@ export default function Page() {
     });
   };
 
+  // S16 — a card's "Watched" mark (either lane): the title joins the
+  // visit's watched list, which every re-run excludes and the strip
+  // filters; Undo takes it back out. The card lanes own the write.
+  const handleWatchedChange = (item: { title: string }, isWatched: boolean) => {
+    const key = item.title.trim().toLowerCase();
+    setSessionWatchedTitles((p) =>
+      isWatched
+        ? p.some((t) => t.trim().toLowerCase() === key) ? p : [...p, item.title]
+        : p.filter((t) => t.trim().toLowerCase() !== key)
+    );
+    if (isWatched) setShortlist((prev) => prev.filter((e) => e.title.trim().toLowerCase() !== key));
+  };
+
   // Wordmark tap → the snap-first cold-load state. No confirmation: the
   // app is forward-only until history ships, and reset is the same
   // dismissal grammar as starting a new search. The session snap count
@@ -1413,6 +1426,7 @@ export default function Page() {
               lateReks={lateReks}
               shelfPreview={shelfPreview}
               onHaulSaved={() => void refreshWineState(false)}
+              onWatchedChange={handleWatchedChange}
             />
           ) : !hasSearched && !loading ? (
             <>
@@ -1453,6 +1467,7 @@ export default function Page() {
                 persistedDislikedTitles={persistedDislikedTitles}
                 shortlist={shortlist}
                 onWatched={handleWatched}
+                onWatchedChange={handleWatchedChange}
                 watchPendingTitle={watchPendingTitle}
                 watchFailedTitle={watchFailedTitle}
                 steerRow={

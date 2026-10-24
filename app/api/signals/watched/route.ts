@@ -17,6 +17,10 @@
 // Scope: the action is FIXED to 'watched'. This is not a general signal
 // endpoint and must not grow into one — every other action keeps its
 // existing browser write path.
+//
+// S16 — `undo: true` is the toast's Undo (and a second tap on the filled
+// check): it deletes THIS client's 'watched' row(s) for that title and
+// category, and nothing else. Still action-fixed.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { runEnvCheck } from "../../../../src/lib/envCheck";
@@ -86,6 +90,28 @@ export async function POST(req: Request): Promise<Response> {
 
   const server = await getServerClient();
   if (!server) return fail("supabase_unconfigured");
+
+  if ((body as { undo?: unknown })?.undo === true) {
+    const del = await server
+      .from("user_likes")
+      .delete()
+      .eq("client_id", clientId)
+      .eq("category", category)
+      .eq("title", title)
+      .eq("action", "watched")
+      .select("id");
+    if (del.error) {
+      console.warn("[watched-signal] undo failed", {
+        code: (del.error as { code?: string }).code,
+        message: del.error.message,
+      });
+      return Response.json({ ok: false, reason: "delete_error" }, { status: 200 });
+    }
+    const removed = Array.isArray(del.data) ? del.data.length : 0;
+    // Zero rows is named, not an error: the mark never landed.
+    console.info("[watched-signal] undo", { category, removed });
+    return Response.json({ ok: true, removed }, { status: 200 });
+  }
 
   const { error } = await server.from("user_likes").insert({
     client_id: clientId,

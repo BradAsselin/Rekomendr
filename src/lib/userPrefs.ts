@@ -145,3 +145,27 @@ export async function recordWatched(params: {
     return { ok: false, reason: 'network' };
   }
 }
+
+// S16 — the toast's Undo: deletes this client's 'watched' row(s) for the
+// title, through the same single-purpose route.
+export async function undoWatched(params: {
+  category: string;
+  title: string;
+}): Promise<{ ok: boolean; reason?: string }> {
+  const clientId = getAnonymousClientId();
+  if (!clientId) return { ok: false, reason: 'no_client_id' };
+  try {
+    const res = await fetch('/api/signals/watched', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clientId, category: params.category, title: params.title, undo: true }),
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok || !data?.ok) {
+      return { ok: false, reason: typeof data?.reason === 'string' ? data.reason : 'request_failed' };
+    }
+    return { ok: true };
+  } catch {
+    return { ok: false, reason: 'network' };
+  }
+}

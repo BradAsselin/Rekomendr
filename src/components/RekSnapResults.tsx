@@ -29,6 +29,8 @@ import QuietTip from "./QuietTip";
 import WineFacts from "./WineFacts";
 import GoToStar from "./GoToStar";
 import { goToCategoryFor } from "../lib/goToCategory";
+import { WatchedButton, WatchedToast } from "./WatchedControl";
+import { useWatchedMarks, watchedCategory, type WatchedItem } from "../lib/useWatchedMarks";
 import { isGoTo, logGoToEvent, onGoTosChange } from "../lib/goTos";
 import HaulConfirm from "./HaulConfirm";
 import {
@@ -159,6 +161,9 @@ type Props = {
   // S13b — early paint: the bottles a shelf snap read, while the picks
   // are still being written. Names and tag prices only, no new words.
   shelfPreview?: { name: string; price: number | null }[] | null;
+  // S16 — a card's "Watched" mark or undo; the page keeps its session
+  // list, which every re-run excludes.
+  onWatchedChange?: (item: WatchedItem, watched: boolean) => void;
 };
 
 // One failure voice, shared verbatim with the search lane's AI misses.
@@ -189,6 +194,7 @@ const RekSnapResults: React.FC<Props> = ({
   lateReks,
   onHaulSaved,
   shelfPreview,
+  onWatchedChange,
 }) => {
   // Thumb marks and saves are independent per item name (a card can be
   // thumbed-up AND saved). Thumbs are one-active-within-thumbs and toggle on
@@ -332,6 +338,8 @@ const RekSnapResults: React.FC<Props> = ({
   // Which intent list is on screen. Defaults to the model's inferred mode;
   // all three lists are already loaded, so switching is instant (no API call).
   const [activeMode, setActiveMode] = useState<SnapMode>(result?.mode ?? "similar");
+  // S16 — "Watched" on the anchor and every Movies/TV/Books rek card.
+  const watched = useWatchedMarks(onWatchedChange);
 
   // A new snap result resets the view to its inferred mode and clears all
   // per-snap state (highlights, dismissals, local lists, pending backfills).
@@ -1492,6 +1500,21 @@ const RekSnapResults: React.FC<Props> = ({
   // and the anchor's verbs are the bottle and where to buy it instead of
   // "View recipe" (the "Use it for" pairing cards keep theirs — food).
   const anchorIsWine = !anchorIsHealthMedical && isWineCategory(detectedCategory);
+  // S16 — "Watched" for a card in a watchable category (Movies/TV/Books),
+  // never under a health anchor (§2.2); wine keeps its own actions.
+  const watchCatFor = (category?: string) =>
+    anchorIsHealthMedical ? null : watchedCategory(category ?? detectedCategory);
+  const watchedOn = (name: string, category?: string) => !!watchCatFor(category) && watched.isWatched(name);
+  const watchedFor = (name: string, year: number | null | undefined, category?: string) => {
+    const cat = watchCatFor(category);
+    return cat ? (
+      <WatchedButton
+        on={watched.isWatched(name)}
+        onToggle={() => watched.toggle({ title: name, year: year ?? null, category: cat })}
+      />
+    ) : undefined;
+  };
+
   // The title link for any card under this anchor: media → info page,
   // wine → the bottle. A rek labeled with a non-wine category under a wine
   // anchor (a cheese in "Use it for") keeps a plain title.
@@ -1769,6 +1792,8 @@ const RekSnapResults: React.FC<Props> = ({
           onThumbUp={() => toggleThumb(result.detected_item.name, "like")}
           onThumbDown={() => toggleThumb(result.detected_item.name, "dislike")}
           onSave={() => handleSave(result.detected_item.name)}
+          watchedSlot={watchedFor(result.detected_item.name, result.detected_item.year)}
+          dimmed={watchedOn(result.detected_item.name)}
           /* Anchor verbs follow the SAME category gates as the rek cards
              (categoryGates.ts) so the two can never drift, in fixed zones —
              with PROGRESSIVE DISCLOSURE (cold-tester validated): collapsed,
@@ -1963,6 +1988,8 @@ const RekSnapResults: React.FC<Props> = ({
                   }
                   onSave={() => handleSave(entry.rek.name, entry.rek.category)}
                   shareSlot={rekShare(entry.rek, entry.mode)}
+                  watchedSlot={watchedFor(entry.rek.name, entry.rek.year, entry.rek.category)}
+                  dimmed={watchedOn(entry.rek.name, entry.rek.category)}
                   infoSlot={wineFactsFor(entry.rek)}
                   shortLead={wineLead(entry.rek)}
                   starSlot={
@@ -2121,6 +2148,8 @@ const RekSnapResults: React.FC<Props> = ({
                 onThumbDown={() => handleDislikeRek(rek)}
                 onSave={() => handleSave(rek.name, rek.category)}
                 shareSlot={rekShare(rek, activeMode)}
+                watchedSlot={watchedFor(rek.name, rek.year, rek.category)}
+                dimmed={watchedOn(rek.name, rek.category)}
                 infoSlot={wineFactsFor(rek)}
                 shortLead={wineLead(rek)}
                 starSlot={
@@ -2191,6 +2220,7 @@ const RekSnapResults: React.FC<Props> = ({
           Snap another
         </button>
       )}
+      <WatchedToast item={watched.toast} onUndo={watched.undo} />
     </div>
   );
 };

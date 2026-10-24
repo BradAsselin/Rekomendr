@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { cloneElement, isValidElement } from "react";
 
 import { useSwipeToAction } from "../lib/useSwipeToAction";
 import SignalButtons from "./SignalButtons";
@@ -74,14 +74,19 @@ type Props = {
   verbLeft?: React.ReactNode;
   verbMiddle?: React.ReactNode;
   verbRight?: React.ReactNode;
-  // S1 — an action that exists ONLY while the card is expanded ("Watched
-  // it"). Kept out of the three verb zones on purpose: those are LEFT
-  // learn / MIDDLE complete / RIGHT continue (charter §2.5), and this is
-  // a VERDICT — it belongs with the signals, not with the links. Kept out
-  // of the collapsed card on purpose too: the collapsed surface may grow
-  // by at most one tap target per feature, and this session spends that
-  // one on the Shortlist chip.
+  // S1 — an action that exists ONLY while the card is expanded. Kept out
+  // of the three verb zones on purpose: those are LEFT learn / MIDDLE
+  // complete / RIGHT continue (charter §2.5). (S16 moved "Watched it" out
+  // of here to `watchedSlot`; nothing uses this slot today.)
   detailAction?: React.ReactNode;
+  // S16 — "Watched" (Movies/TV/Books): bottom-left, always visible. A
+  // verdict, so it stays out of the three verb zones; it shares the
+  // bottom row with Share (Share right) so the card grows no new row.
+  // With no Share on the card it gets that row to itself.
+  watchedSlot?: React.ReactNode;
+  // S16 — a watched card dims slightly (still readable); the Watched
+  // control itself stays at full contrast.
+  dimmed?: boolean;
   // Emphasized chrome for the snap detected-item card.
   accent?: boolean;
   // Touch-only swipe: a committed swipe in EITHER direction fires
@@ -127,6 +132,8 @@ const RekCard: React.FC<Props> = ({
   verbMiddle,
   verbRight,
   detailAction,
+  watchedSlot,
+  dimmed,
   accent,
   swipeable,
   className,
@@ -163,6 +170,7 @@ const RekCard: React.FC<Props> = ({
         .trim()}
       style={style}
     >
+      <div className={dimmed ? "opacity-70 transition-opacity" : "transition-opacity"}>
       {genreLine}
 
       {/* TITLE + THUMBS — media titles link out to their Google info page
@@ -316,8 +324,22 @@ const RekCard: React.FC<Props> = ({
           <div className="flex justify-end">{verbRight}</div>
         </div>
       )}
+      </div>
 
-      {shareSlot}
+      {/* S16 — the bottom row: Watched left, Share right (ShareRow's
+          `leading` slot keeps its name form and notices full width). */}
+      {watchedSlot && isValidElement(shareSlot) ? (
+        cloneElement(shareSlot as React.ReactElement<{ leading?: React.ReactNode }>, { leading: watchedSlot })
+      ) : (
+        <>
+          {watchedSlot && (
+            <div className="mt-2 flex items-center text-sm" onClick={(e) => e.stopPropagation()}>
+              {watchedSlot}
+            </div>
+          )}
+          {shareSlot}
+        </>
+      )}
     </div>
   );
 };
