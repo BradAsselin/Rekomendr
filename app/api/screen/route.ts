@@ -19,7 +19,7 @@ import { runEnvCheck } from "../../../src/lib/envCheck";
 import { withLlmContext } from "../../../src/lib/llm";
 import { cleanClientId } from "../../../src/lib/anchorSnapshots";
 import { capGate } from "../../../src/lib/apiUsage";
-import { mediaConfigured, type MediaBundle, type MediaKind } from "../../../src/lib/tmdbMedia";
+import { mediaConfigured, whereOf, type MediaBundle, type MediaKind } from "../../../src/lib/tmdbMedia";
 import { linesVsGoTo, raceTaste } from "../../../src/lib/mediaReks";
 import { genreLine, leadLine, loadGoTos, shortSynopsis, type GoToIn } from "../../../src/lib/slotRecipe";
 import {
@@ -65,11 +65,6 @@ async function loadAllGoTos(goTos: GoToIn[]) {
   ]);
   return [...movies, ...shows];
 }
-
-const whereOf = (b: MediaBundle, service: string | null): string | null => {
-  const name = service ?? b.completion.watch?.stream[0]?.name ?? null;
-  return name ? `on ${name}` : null;
-};
 
 async function handlePost(req: Request): Promise<Response> {
   const started = Date.now();
