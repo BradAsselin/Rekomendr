@@ -122,6 +122,9 @@ type Props = {
   // both-ways dismiss on the cards that set it.
   onSwipeLeft?: () => void;
   onSwipeRight?: () => void;
+  // S18b — the snap lane's anchor: it is the title you asked about, so it
+  // is never dismissed — its D2 cluster is ☆ · Save, no ×.
+  noDismiss?: boolean;
 };
 
 // Approved wording (Brad, S17).
@@ -166,6 +169,7 @@ const RekCard: React.FC<Props> = ({
   factsLine,
   onSwipeLeft,
   onSwipeRight,
+  noDismiss,
 }) => {
   const titleText = year != null ? `${title} (${year})` : title;
   const directional = !!(onSwipeLeft || onSwipeRight);
@@ -201,7 +205,10 @@ const RekCard: React.FC<Props> = ({
       <div
         {...(directional ? swipeHandlers : {})}
         className={[
-          "relative rounded-2xl p-4 bg-white border border-gray-300 shadow-sm",
+          // S18b — the anchor keeps its accent frame (navy, one step up).
+          accent
+            ? "relative rounded-2xl p-4 bg-white border-[3px] border-[#1E3A8A] shadow-lg"
+            : "relative rounded-2xl p-4 bg-white border border-gray-300 shadow-sm",
           directional ? "touch-pan-y" : "",
           className ?? "",
         ]
@@ -230,9 +237,11 @@ const RekCard: React.FC<Props> = ({
                       className={saved ? "fill-[#3B6BD4] text-[#3B6BD4]" : "text-gray-500"}
                     />
                   </button>
-                  <button type="button" onClick={onThumbDown} aria-label={NOT_FOR_ME} className={iconBtn}>
-                    <X size={19} strokeWidth={1.8} className="text-gray-500" />
-                  </button>
+                  {!noDismiss && (
+                    <button type="button" onClick={onThumbDown} aria-label={NOT_FOR_ME} className={iconBtn}>
+                      <X size={19} strokeWidth={1.8} className="text-gray-500" />
+                    </button>
+                  )}
                 </div>
               </div>
               {factsLine && <div className="mt-0.5 text-[13px] text-gray-600">{factsLine}</div>}
@@ -254,6 +263,12 @@ const RekCard: React.FC<Props> = ({
                   </>
                 )}
               </p>
+              {detailsOpen && detailsLoading && (
+                <div className="mt-2 animate-pulse" aria-hidden="true">
+                  <div className="mb-2 h-3 w-full rounded bg-gray-100" />
+                  <div className="h-3 w-3/4 rounded bg-gray-100" />
+                </div>
+              )}
               {long && detailsOpen && !detailsLoading && long !== short && (
                 <p className="mt-2 text-[15px] leading-relaxed text-gray-900">{long}</p>
               )}

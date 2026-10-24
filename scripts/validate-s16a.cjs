@@ -224,7 +224,8 @@ const tick = () => new Promise((r) => setTimeout(r, 0));
   const rs = read("src/components/RekSnapResults.tsx");
   check("search lane: watchedSlot on frontier + trail", (rv.match(/watchedSlot=\{watchedFor\(rek(, true)?\)\}/g) || []).length, 2); // S17: the frontier passes fade-out
   check("search lane: no expanded 'Watched it' left", /detailAction=\{watchedVerb/.test(rv), false);
-  check("snap lane: anchor + trail + frontier", (rs.match(/watchedSlot=\{watchedFor\(/g) || []).length, 3);
+  // S18b — each site picks the D2 Watched (the lane's toast) or S16's.
+  check("snap lane: anchor + trail + frontier", (rs.match(/: watchedFor\(/g) || []).length, 3);
   check("snap lane: health anchors get none", /anchorIsHealthMedical \? null : watchedCategory/.test(rs), true);
   check("both lanes render the toast", [/<WatchedToast/.test(rv), /<WatchedToast/.test(rs)], [true, true]);
   check("page keeps the session list from both lanes", (read("app/page.tsx").match(/onWatchedChange=\{handleWatchedChange\}/g) || []).length, 2);

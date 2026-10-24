@@ -29,8 +29,12 @@ import QuietTip from "./QuietTip";
 import WineFacts from "./WineFacts";
 import GoToStar from "./GoToStar";
 import { goToCategoryFor } from "../lib/goToCategory";
-import { WatchedButton, WatchedToast } from "./WatchedControl";
-import { useWatchedMarks, watchedCategory, type WatchedItem } from "../lib/useWatchedMarks";
+import { WatchedButton, WatchedToast, UndoToast, type UndoToastLabel } from "./WatchedControl";
+import { useWatchedMarks, watchedCategory, type WatchedItem, TOAST_MS } from "../lib/useWatchedMarks";
+import PosterThumb from "./PosterThumb";
+import { setPostersHidden, usePostersOn } from "../lib/posterPref";
+import { markKey, useServerMarks } from "../lib/useServerMarks";
+import { recordLike, undoSignal } from "../lib/userPrefs";
 import { isGoTo, logGoToEvent, onGoTosChange } from "../lib/goTos";
 import HaulConfirm from "./HaulConfirm";
 import {
@@ -164,6 +168,12 @@ type Props = {
   // S16 — a card's "Watched" mark or undo; the page keeps its session
   // list, which every re-run excludes.
   onWatchedChange?: (item: WatchedItem, watched: boolean) => void;
+};
+
+// S18b — the D2 card is Movies/TV's (books and wine keep theirs).
+const isD2Category = (raw: unknown) => {
+  const c = goToCategoryFor(raw);
+  return c === "movies" || c === "tv";
 };
 
 // One failure voice, shared verbatim with the search lane's AI misses.
@@ -338,8 +348,55 @@ const RekSnapResults: React.FC<Props> = ({
   // Which intent list is on screen. Defaults to the model's inferred mode;
   // all three lists are already loaded, so switching is instant (no API call).
   const [activeMode, setActiveMode] = useState<SnapMode>(result?.mode ?? "similar");
+  /* -----------------------------
+   * S18b — THE D2 CARD IN THE SNAP LANE (Movies/TV anchors: a snapped
+   * poster or screen, a typed title, a title opened from the Saved page).
+   * Same card and grammar as the search lane (S17b): poster, ☆ · Save ·
+   * ×, commitment + where, one Undo toast. The anchor is never dismissed
+   * (☆ · Save only). Marks open right: what this client already saved or
+   * watched (server-side) shows filled.
+   * ----------------------------- */
+  const d2 = !!result && isD2Category(result.detected_item.category) &&
+    !isHealthMedical((result.detected_item.category ?? "").trim().toLowerCase());
+  const postersOn = usePostersOn();
+  const serverMarks = useServerMarks(d2);
+  // Names this snap's person already acted on: a server read that was in
+  // flight before their tap must not re-light (or re-clear) them.
+  const touchedRef = useRef(new Set<string>());
+
+  const [toast, setToast] = useState<{ label: UndoToastLabel; undo: () => void } | null>(null);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showToast = (label: UndoToastLabel, undo: () => void) => {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    setToast({ label, undo });
+    toastTimer.current = setTimeout(() => {
+      toastTimer.current = null;
+      setToast(null);
+    }, TOAST_MS);
+  };
+  const dropToast = () => {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    toastTimer.current = null;
+    setToast(null);
+  };
+  useEffect(() => () => {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+  }, []);
+
+  // Commitment + where and the poster, by name (snap cards carry no TMDb
+  // id; /api/facts matches them with the title check's own lookup).
+  const [cardFacts, setCardFacts] = useState<Record<string, { facts: string[]; posterPath: string | null }>>({});
+  const factsAskedRef = useRef(new Set<string>());
+  // The like-table writes in flight, by "action|name": an Undo waits for
+  // its write before deleting (the search lane's rule).
+  const writesRef = useRef(new Map<string, Promise<void>>());
+  // The newest render's D2 save, for a toast's Undo (which outlives the
+  // render that made it).
+  const d2SaveRef = useRef<(name: string, category?: string, year?: number | null) => void>(() => {});
+
   // S16 — "Watched" on the anchor and every Movies/TV/Books rek card.
-  const watched = useWatchedMarks(onWatchedChange);
+  // S18b — on a D2 anchor the lane's one toast speaks for Watched too.
+  const watched = useWatchedMarks(onWatchedChange, { silent: d2 });
 
   // A new snap result resets the view to its inferred mode and clears all
   // per-snap state (highlights, dismissals, local lists, pending backfills).
@@ -401,6 +458,13 @@ const RekSnapResults: React.FC<Props> = ({
       setPriceChip(null);
       priceChipRef.current = null;
       setHaulOpen(result.wine?.scene === "haul");
+      // S18b — a new anchor: its own facts, marks and toast.
+      setCardFacts({});
+      factsAskedRef.current = new Set();
+      touchedRef.current = new Set();
+      if (toastTimer.current) clearTimeout(toastTimer.current);
+      toastTimer.current = null;
+      setToast(null);
       setWineBand(result.wine?.band ?? null);
       // S8b — the visit remembers every wine it showed (no repeats).
       if (!health && isWineCategory(result.detected_item.category)) {
@@ -422,6 +486,94 @@ const RekSnapResults: React.FC<Props> = ({
     lateReks.reks.forEach((r) => everShownRef.current.add(r.name));
     setLateNotice(lateReks.reks.length === 0 ? lateReks.notice ?? null : null);
   }, [lateReks]);
+
+  // S18b — commitment + where and the poster for every D2 card on screen,
+  // asked once per name per anchor; a late answer for an old anchor drops.
+  useEffect(() => {
+    if (!d2 || !result) return;
+    const forResult = result;
+    const anchorCat = forResult.detected_item.category;
+    const kindOf = (c?: string) => (goToCategoryFor(c ?? anchorCat) === "tv" ? "tv" : "movie");
+    const ask: Record<string, unknown>[] = [];
+    const add = (name: string, body: Record<string, unknown>) => {
+      const k = markKey(name);
+      if (factsAskedRef.current.has(k)) return;
+      factsAskedRef.current.add(k);
+      ask.push(body);
+    };
+    const anchorName = forResult.detected_item.name;
+    add(
+      anchorName,
+      forResult.media
+        ? { kind: forResult.media.kind, id: forResult.media.id }
+        : { kind: kindOf(), title: anchorName, year: forResult.detected_item.year ?? undefined }
+    );
+    const shown = [
+      ...(lists?.similar ?? []),
+      ...(lists?.uses ?? []),
+      ...(lists?.alternatives ?? []),
+      ...trail.map((e) => e.rek),
+    ];
+    for (const r of shown) {
+      if (!isD2Category(r.category ?? anchorCat)) continue;
+      add(r.name, { kind: kindOf(r.category), title: r.name, year: r.year ?? undefined });
+    }
+    for (let i = 0; i < ask.length; i += 12) {
+      void fetch("/api/facts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ items: ask.slice(i, i + 12) }),
+      })
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => {
+          if (resultRef.current !== forResult) return;
+          const next: Record<string, { facts: string[]; posterPath: string | null }> = {};
+          for (const f of Array.isArray(data?.facts) ? data.facts : []) {
+            const key =
+              typeof f?.title === "string"
+                ? markKey(f.title)
+                : forResult.media && f?.id === forResult.media.id
+                ? markKey(anchorName)
+                : null;
+            if (key) next[key] = { facts: Array.isArray(f.facts) ? f.facts : [], posterPath: f.posterPath ?? null };
+          }
+          if (Object.keys(next).length > 0) setCardFacts((p) => ({ ...p, ...next }));
+        })
+        .catch(() => console.warn("[facts] request failed — cards keep no line"));
+    }
+  }, [d2, result, lists, trail]);
+
+  // S18b — open with the right marks: a title this client already saved
+  // or watched (Movies/TV rows, server-side) shows filled. Never over a
+  // tap made this snap.
+  const seedWatched = watched.seed;
+  useEffect(() => {
+    if (!d2 || !result || !serverMarks.ready) return;
+    const media = (l: { category: string; title: string }[]) =>
+      new Set(l.filter((x) => x.category === "Movies" || x.category === "TV Shows").map((x) => markKey(x.title)));
+    const savedKeys = media(serverMarks.saved);
+    const watchedKeys = media(serverMarks.watched);
+    const names = [
+      result.detected_item.name,
+      ...(lists?.similar ?? []).map((r) => r.name),
+      ...(lists?.uses ?? []).map((r) => r.name),
+      ...(lists?.alternatives ?? []).map((r) => r.name),
+      ...trail.map((e) => e.rek.name),
+    ].filter((n) => !touchedRef.current.has(markKey(n)));
+    const toSave = names.filter((n) => savedKeys.has(markKey(n)));
+    if (toSave.length > 0) {
+      setSavedNames((p) => {
+        let next = p;
+        for (const n of toSave) {
+          if (next[n]) continue;
+          if (next === p) next = { ...p };
+          next[n] = true;
+        }
+        return next;
+      });
+    }
+    seedWatched(names.filter((n) => watchedKeys.has(markKey(n))));
+  }, [d2, result, lists, trail, serverMarks, seedWatched]);
 
   // S8b — is this list the wine shelf engine's? (Similar under a wine
   // anchor; Use it for / Instead try keep the vision prompt's paths.)
@@ -761,7 +913,9 @@ const RekSnapResults: React.FC<Props> = ({
   const markAnchorSaved = () => {
     const forResult = resultRef.current;
     if (forResult && !savedNames[forResult.detected_item.name]) {
-      handleSave(forResult.detected_item.name);
+      // S18b — on a D2 anchor the save is a real one (the Saved page).
+      if (d2) d2Save(forResult.detected_item.name, undefined, forResult.detected_item.year);
+      else handleSave(forResult.detected_item.name);
     }
   };
 
@@ -1417,6 +1571,147 @@ const RekSnapResults: React.FC<Props> = ({
     if (anchorLong === null && !anchorLoading) void fetchAnchorLong();
   };
 
+  /* -----------------------------
+   * S18b — D2 acts. Each writes the like table (user_likes: what the Saved
+   * page and later searches read) beside the snap signal it always wrote,
+   * and each has the lane's one Undo.
+   * ----------------------------- */
+  const writeLike = (name: string, category: string | undefined, year: number | null | undefined, action: "dislike" | "save") => {
+    const cat = watchedCategory(category ?? result?.detected_item.category);
+    if (!cat) return;
+    const p = recordLike({ category: cat, title: name, year: year ?? undefined, action }).catch(() => {});
+    writesRef.current.set(`${action}|${name}`, p);
+  };
+  const unwriteLike = (name: string, category: string | undefined, action: "dislike" | "save", remove = false) => {
+    const cat = watchedCategory(category ?? result?.detected_item.category);
+    if (!cat) return;
+    const pending = writesRef.current.get(`${action}|${name}`) ?? Promise.resolve();
+    writesRef.current.delete(`${action}|${name}`);
+    void pending.then(async () => {
+      const res = await undoSignal({ category: cat, title: name, action, ...(remove ? { remove: true } : {}) });
+      if (!res.ok) console.warn("[signal-undo] not persisted", { action, reason: res.reason });
+    });
+  };
+
+  // Save / un-save. Un-saving is real (every save row of the title leaves,
+  // the Saved page's remove), including a save from an earlier visit.
+  const d2Save = (name: string, category?: string, year?: number | null) => {
+    touchedRef.current.add(markKey(name));
+    if (savedNames[name]) {
+      handleSave(name, category);
+      unwriteLike(name, category, "save", true);
+      dropToast();
+      return;
+    }
+    handleSave(name, category);
+    writeLike(name, category, year, "save");
+    showToast("Saved", () => {
+      dropToast();
+      if (savedNamesRef.current[name]) d2SaveRef.current(name, category, year);
+    });
+  };
+  d2SaveRef.current = d2Save;
+
+  // Put a card back where it was (Undo). A backfill that already landed
+  // makes a carried sixth for a moment — the existing policy.
+  const restoreRek = (rek: SnapRek, mode: SnapMode, index: number) => {
+    setLists((prev) => {
+      if (!prev) return prev;
+      const list = prev[mode];
+      if (list.some((r) => r.name === rek.name)) return prev;
+      const next = [...list];
+      next.splice(Math.max(0, Math.min(index, next.length)), 0, rek);
+      return { ...prev, [mode]: next.map((r, i) => ({ ...r, rank: i + 1 })) };
+    });
+    setExiting((cur) => (cur === rek.name ? null : cur));
+  };
+  const unDismiss = (name: string) =>
+    setDismissedNames((p) => {
+      const i = p.lastIndexOf(name);
+      return i < 0 ? p : [...p.slice(0, i), ...p.slice(i + 1)];
+    });
+
+  // × / swipe left on a frontier card: Not for me (dismiss + backfill).
+  const d2NotForMe = (rek: SnapRek) => {
+    touchedRef.current.add(markKey(rek.name));
+    const mode = activeMode;
+    const index = (listsRef.current?.[mode] ?? []).findIndex((r) => r.name === rek.name);
+    handleDislikeRek(rek);
+    writeLike(rek.name, rek.category, rek.year, "dislike");
+    showToast("Not for me", () => {
+      dropToast();
+      unDismiss(rek.name);
+      unwriteLike(rek.name, rek.category, "dislike");
+      setTimeout(() => restoreRek(rek, mode, index), 260);
+    });
+  };
+  // × on a trail card: it leaves the trail; Undo puts it (and its Save) back.
+  const d2NotForMeTrail = (entry: TrailEntry) => {
+    const name = entry.rek.name;
+    touchedRef.current.add(markKey(name));
+    const wasSaved = !!savedNames[name];
+    handleDislikeFromTrail(name, entry.rek.category);
+    writeLike(name, entry.rek.category, entry.rek.year, "dislike");
+    showToast("Not for me", () => {
+      dropToast();
+      unDismiss(name);
+      unwriteLike(name, entry.rek.category, "dislike");
+      setTrail((prev) => (prev.some((e) => e.rek.name === name) ? prev : [...prev, entry]));
+      if (wasSaved) setSavedNames((p) => ({ ...p, [name]: true }));
+    });
+  };
+
+  // A watched frontier card leaves the five (it's decided) and the slot
+  // backfills, as in the search lane; the anchor and trail cards just dim.
+  const leaveFrontier = (rek: SnapRek, mode: SnapMode) => {
+    const forResult = resultRef.current;
+    const current = listsRef.current;
+    if (!forResult || !current) return;
+    const epochAtTap = listEpochRef.current[mode];
+    const excludeNames = [
+      forResult.detected_item.name,
+      ...current[mode].map((r) => r.name).filter((n) => n !== rek.name),
+      ...trailRef.current.map((e) => e.rek.name),
+      rek.name,
+    ];
+    setExiting(rek.name);
+    setTimeout(() => {
+      setLists((prev) => {
+        if (!prev) return prev;
+        const remaining = prev[mode].filter((r) => r.name !== rek.name).map((r, i) => ({ ...r, rank: i + 1 }));
+        return { ...prev, [mode]: remaining };
+      });
+      setExiting(null);
+      void backfillSlot(mode, excludeNames, dismissedNamesRef.current, epochAtTap);
+    }, 250);
+  };
+  const d2ToggleWatched = (name: string, year: number | null | undefined, category: string | undefined, rek?: SnapRek) => {
+    const cat = watchedCategory(category ?? result?.detected_item.category);
+    if (!cat) return;
+    touchedRef.current.add(markKey(name));
+    const item = { title: name, year: year ?? null, category: cat };
+    if (watched.isWatched(name)) {
+      watched.toggle(item);
+      dropToast();
+      return;
+    }
+    watched.toggle(item);
+    let restore: (() => void) | null = null;
+    if (rek) {
+      const mode = activeMode;
+      const index = (listsRef.current?.[mode] ?? []).findIndex((r) => r.name === rek.name);
+      if (index >= 0) {
+        leaveFrontier(rek, mode);
+        restore = () => restoreRek(rek, mode, index);
+      }
+    }
+    showToast("Watched", () => {
+      dropToast();
+      watched.undo(item);
+      if (restore) setTimeout(restore, 260);
+    });
+  };
+
   if (loading) {
     // S13b — once the shelf is read, its bottles show at once and the
     // label moves on to the picks (both existing lines, no new wording).
@@ -1513,6 +1808,32 @@ const RekSnapResults: React.FC<Props> = ({
         onToggle={() => watched.toggle({ title: name, year: year ?? null, category: cat })}
       />
     ) : undefined;
+  };
+
+  // S18b — the D2 card's parts: Watched (the lane's toast; a frontier card
+  // fades out), the poster (or nothing: posters hidden → D1), and the
+  // commitment + where line. On the anchor, where-to-watch keeps its own
+  // tappable line (WatchLine), so its facts line is the commitment only.
+  const d2WatchedFor = (name: string, year: number | null | undefined, category?: string, rek?: SnapRek) =>
+    watchCatFor(category) ? (
+      <WatchedButton on={watched.isWatched(name)} onToggle={() => d2ToggleWatched(name, year, category, rek)} />
+    ) : undefined;
+  const hidePosters = () => {
+    setPostersHidden(true);
+    showToast("Posters hidden", () => {
+      dropToast();
+      setPostersHidden(false);
+    });
+  };
+  const factsFor = (name: string) => cardFacts[markKey(name)];
+  const posterFor = (name: string): React.ReactNode =>
+    postersOn ? (
+      <PosterThumb key={factsFor(name)?.posterPath ?? "none"} path={factsFor(name)?.posterPath} onHide={hidePosters} />
+    ) : undefined;
+  const factsLineFor = (name: string, isAnchor = false) => {
+    const all = factsFor(name)?.facts ?? [];
+    const list = isAnchor && result.media?.watch ? all.filter((f) => !/^on /.test(f)) : all;
+    return list.length > 0 ? list.join(" · ") : undefined;
   };
 
   // The title link for any card under this anchor: media → info page,
@@ -1741,6 +2062,10 @@ const RekSnapResults: React.FC<Props> = ({
             the client twin of the server-side 403 in /api/reksnap. */}
         <RekCard
           accent
+          layout={d2 ? "d2" : undefined}
+          poster={d2 ? posterFor(result.detected_item.name) : undefined}
+          factsLine={d2 ? factsLineFor(result.detected_item.name, true) : undefined}
+          noDismiss={d2}
           title={result.detected_item.name}
           year={result.detected_item.year ?? undefined}
           /* S2.5/S2.6: a health anchor shows its category only — the
@@ -1791,8 +2116,16 @@ const RekSnapResults: React.FC<Props> = ({
           saved={!!savedNames[result.detected_item.name]}
           onThumbUp={() => toggleThumb(result.detected_item.name, "like")}
           onThumbDown={() => toggleThumb(result.detected_item.name, "dislike")}
-          onSave={() => handleSave(result.detected_item.name)}
-          watchedSlot={watchedFor(result.detected_item.name, result.detected_item.year)}
+          onSave={() =>
+            d2
+              ? d2Save(result.detected_item.name, undefined, result.detected_item.year)
+              : handleSave(result.detected_item.name)
+          }
+          watchedSlot={
+            d2
+              ? d2WatchedFor(result.detected_item.name, result.detected_item.year)
+              : watchedFor(result.detected_item.name, result.detected_item.year)
+          }
           dimmed={watchedOn(result.detected_item.name)}
           /* Anchor verbs follow the SAME category gates as the rek cards
              (categoryGates.ts) so the two can never drift, in fixed zones —
@@ -1967,6 +2300,9 @@ const RekSnapResults: React.FC<Props> = ({
                 }
               >
                 <RekCard
+                  layout={d2 ? "d2" : undefined}
+                  poster={d2 ? posterFor(entry.rek.name) : undefined}
+                  factsLine={d2 ? factsLineFor(entry.rek.name) : undefined}
                   title={entry.rek.name}
                   year={entry.rek.year ?? undefined}
                   short={entry.rek.description}
@@ -1984,11 +2320,19 @@ const RekSnapResults: React.FC<Props> = ({
                     toggleThumb(entry.rek.name, "like", entry.rek.category)
                   }
                   onThumbDown={() =>
-                    handleDislikeFromTrail(entry.rek.name, entry.rek.category)
+                    d2 ? d2NotForMeTrail(entry) : handleDislikeFromTrail(entry.rek.name, entry.rek.category)
                   }
-                  onSave={() => handleSave(entry.rek.name, entry.rek.category)}
+                  onSave={() =>
+                    d2
+                      ? d2Save(entry.rek.name, entry.rek.category, entry.rek.year)
+                      : handleSave(entry.rek.name, entry.rek.category)
+                  }
                   shareSlot={rekShare(entry.rek, entry.mode)}
-                  watchedSlot={watchedFor(entry.rek.name, entry.rek.year, entry.rek.category)}
+                  watchedSlot={
+                    d2
+                      ? d2WatchedFor(entry.rek.name, entry.rek.year, entry.rek.category)
+                      : watchedFor(entry.rek.name, entry.rek.year, entry.rek.category)
+                  }
                   dimmed={watchedOn(entry.rek.name, entry.rek.category)}
                   infoSlot={wineFactsFor(entry.rek)}
                   shortLead={wineLead(entry.rek)}
@@ -2127,6 +2471,12 @@ const RekSnapResults: React.FC<Props> = ({
               }}
             >
               <RekCard
+                layout={d2 ? "d2" : undefined}
+                poster={d2 ? posterFor(rek.name) : undefined}
+                factsLine={d2 ? factsLineFor(rek.name) : undefined}
+                // S18b — swipe left = Not for me, right = Save for later.
+                onSwipeLeft={d2 ? () => d2NotForMe(rek) : undefined}
+                onSwipeRight={d2 ? () => d2Save(rek.name, rek.category, rek.year) : undefined}
                 title={rek.name}
                 year={rek.year ?? undefined}
                 rank={rek.rank}
@@ -2141,14 +2491,16 @@ const RekSnapResults: React.FC<Props> = ({
                 // direction dismisses + backfills (thumbs-down). Liked or
                 // saved cards don't arm. The anchor card above never gets
                 // swipeable — it never dismisses.
-                swipeable
+                swipeable={!d2}
                 thumbSignal={thumbSignals[rek.name] ?? null}
                 saved={!!savedNames[rek.name]}
                 onThumbUp={() => toggleThumb(rek.name, "like", rek.category)}
-                onThumbDown={() => handleDislikeRek(rek)}
-                onSave={() => handleSave(rek.name, rek.category)}
+                onThumbDown={() => (d2 ? d2NotForMe(rek) : handleDislikeRek(rek))}
+                onSave={() => (d2 ? d2Save(rek.name, rek.category, rek.year) : handleSave(rek.name, rek.category))}
                 shareSlot={rekShare(rek, activeMode)}
-                watchedSlot={watchedFor(rek.name, rek.year, rek.category)}
+                watchedSlot={
+                  d2 ? d2WatchedFor(rek.name, rek.year, rek.category, rek) : watchedFor(rek.name, rek.year, rek.category)
+                }
                 dimmed={watchedOn(rek.name, rek.category)}
                 infoSlot={wineFactsFor(rek)}
                 shortLead={wineLead(rek)}
@@ -2158,7 +2510,7 @@ const RekSnapResults: React.FC<Props> = ({
                     : undefined
                 }
                 className={[
-                  "transition-all duration-300 ease-out",
+                  "transition-all duration-300 ease-out motion-reduce:transition-none",
                   migrating === rek.name
                     ? "opacity-0 -translate-y-2 scale-[0.97]" // graduating up to the trail
                     : entering === rek.name
@@ -2220,7 +2572,11 @@ const RekSnapResults: React.FC<Props> = ({
           Snap another
         </button>
       )}
-      <WatchedToast item={watched.toast} onUndo={watched.undo} />
+      {d2 ? (
+        <UndoToast label={toast?.label ?? null} onUndo={() => toast?.undo()} />
+      ) : (
+        <WatchedToast item={watched.toast} onUndo={watched.undo} />
+      )}
     </div>
   );
 };
