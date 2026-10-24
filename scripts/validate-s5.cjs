@@ -109,7 +109,8 @@ const ref = (cat, label) => chips.refinersFor(cat).find((r) => r.label === label
   check("no 'Lane:' line", /Lane:\s*</.test(code), false);
   check("no + dropdown (Plus icon / 'Pick a lane' / 'Clear lane')", [code.includes("Plus"), code.includes('title="Pick a lane"'), code.includes("Clear lane")], [false, false, false]);
   check("no Play button in the bar", code.includes("<Play"), false);
-  check("row 1 renders unconditionally; row 2 only after a tap", [/\{chips\.map\(/.test(code), /\{activeChip && \(/.test(code)], [true, true]);
+  // S17 — both rows (genre, vibe) always show, wrapping.
+  check("row 1 and row 2 both render unconditionally", [/\{chips\.map\(/.test(code), /\{activeChip && \(/.test(code)], [true, false]);
   check("a chip tap searches at once (no GO)", /const tapChip[\s\S]{0,300}startSearch\(chipQuery\(/.test(code), true);
   check("category switch never searches (3eaa04b holds)", /const handleSelectCategory[\s\S]{0,260}startSearch/.test(code), false);
   check("typed text keeps its path: cat||||text||mode:ai", code.includes("startSearch(`${categoryRef.current}||||${trimmed}||mode:ai`"), true);

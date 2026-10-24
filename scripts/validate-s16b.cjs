@@ -242,7 +242,7 @@ const readNdjson = async (res) => {
       return false;
     }
   })();
-  const range = mergedB ? "a7665a2 main" : execSync("git merge-base main HEAD", { cwd: root, encoding: "utf8" }).trim();
+  const range = mergedB ? "a7665a2 6beb7a6" /* S16b's own range (#60; main moved on) */ : execSync("git merge-base main HEAD", { cwd: root, encoding: "utf8" }).trim();
   const promptDiff = execSync(`git diff ${range} -- src/lib/mediaReks.ts src/lib/voiceMood.ts src/engine/rekomendrEngine.ts src/lib/screenSnap.ts`, { cwd: root, encoding: "utf8" });
   check("prompts untouched (mediaReks, voiceMood, engine, screen read)", promptDiff, "");
   const diff = execSync(`git diff ${range} -- src app`, { cwd: root, encoding: "utf8" })

@@ -140,8 +140,8 @@ const page = read("app/page.tsx");
 check("Movies/TV chip taps run the recipe", page.includes('(meta && (nextCategory === "Movies" || nextCategory === "TV Shows")'), true);
 check("a failed recipe falls back loudly to the AI chip search", page.includes('console.warn("[slots] FALLBACK — running the AI chip search"'), true);
 check("every landed set is counted for repeats", (page.match(/noteSetShown\(/g) || []).length >= 3, true);
-check("Steer by switches are counted", page.includes('logGoToEvent("steer_switch"'), true);
-check("Books steer uses the seeded search", page.includes('category: "Books",') && page.includes("getMoreLikeThisSet({"), true);
+// S17 — the Steer by row is gone; favorites still steer underneath (the slot recipe).
+check("Steer by row removed (S17)", page.includes("SteerByRow"), false);
 const res = read("src/components/ResultsV4.tsx");
 check("touchstone label + inline star", res.includes("A classic to steer by") && res.includes('logGoToEvent("touchstone_star"'), true);
 check("touchstones shown are counted", res.includes('logGoToEvent("touchstone_shown"'), true);
