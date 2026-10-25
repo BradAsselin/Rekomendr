@@ -92,6 +92,7 @@ function refinerOf(raw: any): Refiner {
     return { kind: "tone", vibe: raw.vibe.slice(0, 60) };
   if (raw?.kind === "era" && (raw.era === "classic" || raw.era === "new"))
     return { kind: "era", era: raw.era };
+  if (raw?.kind === "short") return { kind: "short" };
   return null;
 }
 
@@ -348,7 +349,9 @@ async function handlePost(req: Request): Promise<Response> {
         refiner: refiner
           ? refiner.kind === "tone"
             ? refiner.vibe
-            : refiner.era
+            : refiner.kind === "era"
+              ? refiner.era
+              : "short"
           : null,
         recipe,
         mood: mood ? { concepts: concepts.length, reference: !!reference, pool: pools.all?.length ?? 0, left: poolLeft } : null,

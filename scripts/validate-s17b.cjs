@@ -232,7 +232,8 @@ for (const level of ["log", "warn", "info", "error"]) console[level] = () => {};
   check("swipe: vertical pans stay native", /touch-pan-y/.test(card), true);
   check("search field: no GO, Search key, mic + camera", [/>\s*GO\s*</.test(bar), /enterKeyHint="search"/.test(bar)], [false, true]);
   check("chips: selected #3B6BD4 white bold", /bg-\[#3B6BD4\][^"]*font-semibold[^"]*text-white|border-\[#3B6BD4\] bg-\[#3B6BD4\] font-semibold text-white/.test(bar), true);
-  check("chips wrap", /flex-wrap/.test(bar), true);
+  // S21 — the rows scroll sideways now instead of wrapping.
+  check("chips scroll in one row (S21)", [/flex-wrap/.test(bar), /overflow-x-auto/.test(bar)], [false, true]);
   check("page: no Steer by row", /SteerByRow/.test(page), false);
   check("page: shortlist only for wine", /shortlist=\{category === "Wine" \? shortlist : \[\]\}/.test(page), true);
   check("page: results header wired", /header=\{resultsHeader\}/.test(page), true);

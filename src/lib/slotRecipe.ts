@@ -53,6 +53,7 @@ export type SlotPick = TmdbCandidate & { slot: SlotKind };
 export type Refiner =
   | { kind: "tone"; vibe: string }
   | { kind: "era"; era: "classic" | "new" }
+  | { kind: "short" }
   | null;
 
 export type GoToIn = {
@@ -66,15 +67,20 @@ export type GoToIn = {
    Lanes → TMDb genres. Movie and TV genre ids differ (TV has no
    Thriller, so its thriller lane is Mystery or Crime).
 ------------------------------------------------------------------- */
+// S21 — War and Western on Movies; Sci-Fi & Fantasy, Action & Adventure
+// and Western on TV (the old "sci-fi", "action", "thriller" keys stay as
+// aliases: the voice parser and older requests still send them).
 const MOVIE_GENRES: Record<string, number[]> = {
   comedy: [35], drama: [18], thriller: [53], crime: [80], action: [28],
   romance: [10749], "sci-fi": [878], horror: [27], documentary: [99],
   mystery: [9648], animation: [16], family: [10751], fantasy: [14],
+  war: [10752], western: [37],
 };
 const TV_GENRES: Record<string, number[]> = {
   comedy: [35], drama: [18], crime: [80], thriller: [9648, 80], "sci-fi": [10765],
-  reality: [10764], documentary: [99], mystery: [9648], animation: [16],
-  action: [10759], family: [10751],
+  "sci-fi & fantasy": [10765], reality: [10764], documentary: [99], mystery: [9648],
+  animation: [16], action: [10759], "action & adventure": [10759], family: [10751],
+  western: [37],
 };
 
 const GENRE_NAMES: Record<number, string> = {
@@ -112,6 +118,32 @@ export function floorFor(lane: string | null | undefined): number {
 }
 
 // Tone refiners: genres to keep out, or a genre the title must also carry.
+// S21 — each chip vibe by its exact engine key (moodChips.ts). Exact, not
+// a regex: Cozy's "Comfort Watch" must not read as Feel-good's "Comfort
+// Rewatch". Typed and spoken moods send the same keys.
+type Tone = "feel-good" | "funny" | "dark" | "smart" | "cozy" | "tense" | "epic" | null;
+const TONE_BY_KEY: Record<string, Tone> = {
+  "feel-good crowd pleaser": "feel-good",
+  "comfort rewatch": "feel-good",
+  "comfort read": "feel-good",
+  "goofy / silly fun": "funny",
+  "dark & twisty": "dark",
+  "smart & witty": "smart",
+  "comfort watch": "cozy",
+  "suspense / edge-of-seat": "tense",
+  "edge-of-seat": "tense",
+  "epic / immersive": "epic",
+  // The chip labels too, so a request naming the label reads the same.
+  "feel-good": "feel-good",
+  funny: "funny",
+  dark: "dark",
+  smart: "smart",
+  cozy: "cozy",
+  tense: "tense",
+  epic: "epic",
+};
+export const toneOf = (vibe: string): Tone => TONE_BY_KEY[vibe.trim().toLowerCase()] ?? null;
+
 const DARK_ANY = { movie: [53, 80, 9648, 27], tv: [80, 9648, 10768] };
 // S20c — TV Feel-good keeps Crime out unless the lane carries it (Brad
 // 2026-10-24: Dexter, The Blacklist, Bones sat in Drama + Feel-good).
@@ -149,6 +181,21 @@ const TEEN_OUT = [193400, 369277, 6270, 33910, 246466, 188237];
 // consultant — plus inspirational (Blue Bloods), a tone Dark never wants.
 // Not "spin off": it tags Better Call Saul and Berlin.
 const PROCEDURAL_OUT = [207694, 298849, 157241, 180668, 15271, 206958, 212513, 281585];
+// S21 — Cozy: warm, low-stakes. Feel-good's keep-outs, Crime and Action
+// out unless the lane carries them, and one of these tags: cozy, cosy,
+// heartwarming, heart warming, feel good, feelgood, wholesome, small town,
+// found family, friendship.
+const COZY_ANY = [326774, 326004, 319357, 194088, 383896, 275276, 335803, 1415, 248927, 6054];
+const COZY_OUT = { movie: [80, 28], tv: [80, 10759] };
+// S21 — Tense: suspense genres (TV has no Thriller genre).
+const TENSE_ANY = { movie: [53, 9648], tv: [9648, 80, 10759] };
+// S21 — Epic: scale genres; movies also run long (EPIC_MIN_RUNTIME).
+const EPIC_ANY = { movie: [12, 14, 878, 10752, 36, 37, 28], tv: [10759, 10765, 10768] };
+const EPIC_MIN_RUNTIME = 130;
+// S21 — Short: a movie under ~100 minutes; a show that is a miniseries or
+// has at most two seasons (read from each show's details, below).
+const SHORT_MAX_RUNTIME = 100;
+const SHORT_MAX_SEASONS = 2;
 
 type PoolSpec = {
   kind: MediaKind;
@@ -166,6 +213,10 @@ type PoolSpec = {
   // ids to keep out.
   withKeywords?: string;
   withoutKeywords?: string;
+  // S21 — runtime bounds (movies, minutes) and a season cap (TV).
+  runtimeMin?: number;
+  runtimeMax?: number;
+  maxSeasons?: number;
 };
 
 const iso = (d: Date) => d.toISOString().slice(0, 10);
@@ -184,14 +235,27 @@ function baseSpec(kind: MediaKind, lane: string | null, refiner: Refiner): PoolS
   let before: string | null = null;
   // Call (logged): the chips are grown-up lanes. TMDb's most-voted comedies
   // are mostly kids' animation (Up, Ratatouille, Madagascar), so Animation
-  // and Family stay out unless the lane is one of them.
-  for (const g of [16, 10751, 10762]) if (!genres.includes(g)) without.push(g);
-  const tone = refiner?.kind === "tone" ? refiner.vibe.toLowerCase() : "";
+  // and Family stay out unless the lane is one of them. S21 — the Animation
+  // and Family lanes keep each other (Pixar is both); TV Kids stays out
+  // unless the lane is Family.
+  const kidsLane = genres.includes(16) || genres.includes(10751);
+  for (const g of [16, 10751, 10762]) {
+    if (genres.includes(g)) continue;
+    if (kidsLane && g !== 10762) continue;
+    if (g === 10762 && genres.includes(10751)) continue;
+    without.push(g);
+  }
+  const tone = refiner?.kind === "tone" ? toneOf(refiner.vibe) : null;
   const withoutK: number[] = [];
   let allOf: number[] = [];
-  if (/feel-good|comfort/.test(tone)) {
+  let withK: number[] = [];
+  let runtimeMin: number | undefined;
+  let runtimeMax: number | undefined;
+  let maxSeasons: number | undefined;
+  const keepOut = (ids: number[]) => without.push(...ids.filter((g) => !genres.includes(g) && !without.includes(g)));
+  if (tone === "feel-good" || tone === "cozy") {
     // Bright: no horror/thriller/war — unless the lane itself is one.
-    without.push(...BRIGHT_OUT[kind].filter((g) => !genres.includes(g)));
+    keepOut(BRIGHT_OUT[kind]);
     withoutK.push(...FEEL_GOOD_OUT);
     if (kind === "tv") withoutK.push(...TV_HORROR_OUT);
     // S20b — feel-good TV drama is no teen drama (Riverdale, Euphoria).
@@ -199,16 +263,32 @@ function baseSpec(kind: MediaKind, lane: string | null, refiner: Refiner): PoolS
     // S20b — feel-good romance is romcom: Comedy too. Catches the
     // tear-jerkers no tag names (A Star Is Born, Brokeback Mountain).
     if (genres.includes(10749) && !genres.includes(35)) allOf = [35];
-  } else if (/dark/.test(tone)) {
+    if (tone === "cozy") {
+      keepOut(COZY_OUT[kind]);
+      withK = COZY_ANY;
+    }
+  } else if (tone === "dark") {
     anyOf = DARK_ANY[kind];
     // Dark on TV is grown-up and serialized: no teen drama, no horror, no
     // procedurals (S20 crime lanes; S20b every TV lane).
     if (kind === "tv") withoutK.push(...TV_HORROR_OUT, ...TEEN_OUT, ...PROCEDURAL_OUT);
-  } else if (/smart/.test(tone)) {
+  } else if (tone === "smart") {
     floor = Math.max(floor, 7.4);
+  } else if (tone === "funny") {
+    if (!genres.includes(35)) allOf = [35];
+  } else if (tone === "tense") {
+    anyOf = TENSE_ANY[kind];
+    if (kind === "tv") withoutK.push(...PROCEDURAL_OUT);
+  } else if (tone === "epic") {
+    anyOf = EPIC_ANY[kind];
+    if (kind === "movie") runtimeMin = EPIC_MIN_RUNTIME;
   }
   if (refiner?.kind === "era" && refiner.era === "classic") before = "1999-12-31";
   if (refiner?.kind === "era" && refiner.era === "new") after = monthsAgo(24);
+  if (refiner?.kind === "short") {
+    if (kind === "movie") runtimeMax = SHORT_MAX_RUNTIME;
+    else maxSeasons = SHORT_MAX_SEASONS;
+  }
   return {
     kind,
     genres,
@@ -220,7 +300,11 @@ function baseSpec(kind: MediaKind, lane: string | null, refiner: Refiner): PoolS
     before,
     pages: 8,
     ...(allOf.length ? { allOf } : {}),
+    ...(withK.length ? { withKeywords: withK.join("|") } : {}),
     ...(withoutK.length ? { withoutKeywords: withoutK.join(",") } : {}),
+    ...(runtimeMin ? { runtimeMin } : {}),
+    ...(runtimeMax ? { runtimeMax } : {}),
+    ...(maxSeasons ? { maxSeasons } : {}),
   };
 }
 
@@ -269,6 +353,13 @@ async function discover(spec: PoolSpec): Promise<TmdbCandidate[] | null> {
   if (spec.withKeywords) params.with_keywords = spec.withKeywords;
   if (spec.withoutKeywords) params.without_keywords = spec.withoutKeywords;
   if (spec.kind === "movie") params.with_runtime_gte = "60";
+  // S21 — runtime bounds only when a vibe sets them (Short: 60-100,
+  // Epic: 130+). The old with_runtime_gte above is not a TMDb parameter and
+  // never filtered; existing chips keep that behavior (logged, not fixed).
+  if (spec.kind === "movie" && (spec.runtimeMin || spec.runtimeMax)) {
+    params["with_runtime.gte"] = String(spec.runtimeMin ?? 60);
+    if (spec.runtimeMax) params["with_runtime.lte"] = String(spec.runtimeMax);
+  }
   const pages = await Promise.all(
     Array.from({ length: spec.pages }, (_, i) =>
       tmdbGet(`discover/${spec.kind}`, { ...params, page: String(i + 1) })
@@ -288,12 +379,47 @@ async function discover(spec: PoolSpec): Promise<TmdbCandidate[] | null> {
     }
   }
   list.sort((a, b) => (b.votes ?? 0) - (a.votes ?? 0));
+  if (spec.maxSeasons) {
+    const kept = await withinSeasons(list, spec.maxSeasons);
+    list.length = 0;
+    list.push(...kept);
+  }
   if (poolCache.size >= POOL_MAX) {
     const oldest = poolCache.keys().next().value;
     if (oldest !== undefined) poolCache.delete(oldest);
   }
   poolCache.set(key, { at: Date.now(), list });
   return list;
+}
+
+// S21 — TV Short: discover can't filter by season count, so each show's
+// details are read (the most-voted SEASONS_READ_MAX of a pool; cached per
+// process). A miniseries or <= max seasons passes; an unread show is
+// dropped (honest-short beats a long show under "Short").
+const SEASONS_READ_MAX = 80;
+const SEASONS_CACHE_MAX = 4000;
+const seasonsCache = new Map<number, { seasons: number; mini: boolean }>();
+
+async function withinSeasons(list: TmdbCandidate[], max: number): Promise<TmdbCandidate[]> {
+  const head = list.slice(0, SEASONS_READ_MAX);
+  const facts = await Promise.all(
+    head.map(async (c) => {
+      const hit = seasonsCache.get(c.id);
+      if (hit) return hit;
+      const d = await tmdbGet(`tv/${c.id}`, { language: "en-US" });
+      if (!d || typeof d.number_of_seasons !== "number") return null;
+      const f = { seasons: d.number_of_seasons, mini: d.type === "Miniseries" };
+      if (seasonsCache.size >= SEASONS_CACHE_MAX) seasonsCache.clear();
+      seasonsCache.set(c.id, f);
+      return f;
+    })
+  );
+  const unread = facts.filter((f) => !f).length;
+  if (unread) console.warn("[slots] short: season reads failed", { unread, of: head.length });
+  return head.filter((_, i) => {
+    const f = facts[i];
+    return !!f && (f.mini || f.seasons <= max);
+  });
 }
 
 export type Pools = {

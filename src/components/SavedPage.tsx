@@ -8,7 +8,8 @@
 //               removes one (every save row of that title, /api/signals/undo).
 //   Watched   → watched rows (/api/saved); the lit check un-watches (S16's route).
 //   Favorites → go-tos (the S12 mirror) + wine's one go-to (S8); the lit
-//               star un-stars.
+//               star un-stars. S21 — each tile has "+ More like this" (the
+//               home screen's go-tos bar is gone; this is its home).
 //   Tap a title → its card opens on the page (the go-to open path).
 //   Footer    → "Show posters" (S17b's switch, back on after the poster ×).
 //
@@ -20,7 +21,7 @@ import { Bookmark, Star, X } from "lucide-react";
 
 import { WatchedButton } from "./WatchedControl";
 import GoToStar from "./GoToStar";
-import type { GoToTarget } from "./GoTosList";
+import { MoreLikeThisButton, type GoToTarget } from "./GoTosList";
 import { BAR_CATEGORY, goToCategoryFor } from "../lib/goToCategory";
 import { getGoTos, onGoTosChange, type GoTo } from "../lib/goTos";
 import { getWineFavorite, onWineFavoriteChange, setWineFavorite } from "../lib/wineVisit";
@@ -31,8 +32,14 @@ import type { SavedCategory, SavedItem } from "../lib/savedLists";
 const OPEN_EVENT = "rekomendr:open-saved-item";
 
 // The page listens and opens the card (app/page.tsx → moreFromGoTo).
-export function onOpenSavedItem(fn: (t: GoToTarget) => void): () => void {
-  const h = (e: Event) => fn((e as CustomEvent<GoToTarget>).detail);
+// `counted`: a Favorites "+ More like this" counts as a go-to "more"; a
+// tapped title doesn't.
+type OpenDetail = { target: GoToTarget; counted: boolean };
+export function onOpenSavedItem(fn: (t: GoToTarget, counted: boolean) => void): () => void {
+  const h = (e: Event) => {
+    const d = (e as CustomEvent<OpenDetail>).detail;
+    fn(d.target, d.counted);
+  };
   window.addEventListener(OPEN_EVENT, h);
   return () => window.removeEventListener(OPEN_EVENT, h);
 }
@@ -113,12 +120,12 @@ const SavedPage: React.FC = () => {
 
   const count = saved.length + watched.length + favorites.length;
 
-  const openItem = (t: GoToTarget) => {
+  const openItem = (t: GoToTarget, counted = false) => {
     setOpen(false);
     try {
       window.scrollTo({ top: 0 });
     } catch {}
-    window.dispatchEvent(new CustomEvent(OPEN_EVENT, { detail: t }));
+    window.dispatchEvent(new CustomEvent<OpenDetail>(OPEN_EVENT, { detail: { target: t, counted } }));
   };
 
   // Optimistic: the row leaves at once; a failed write puts it back.
@@ -141,7 +148,15 @@ const SavedPage: React.FC = () => {
     }
   };
 
-  const row = (key: string, category: SavedCategory, name: string, year: number | null, control: React.ReactNode, goTo?: GoTo) => (
+  const row = (
+    key: string,
+    category: SavedCategory,
+    name: string,
+    year: number | null,
+    control: React.ReactNode,
+    goTo?: GoTo,
+    more?: boolean
+  ) => (
     <li key={key} className="flex items-center justify-between gap-3 py-1">
       <button
         type="button"
@@ -154,6 +169,7 @@ const SavedPage: React.FC = () => {
           {year ? <span className="text-gray-500"> ({year})</span> : null}
         </span>
       </button>
+      {more && <MoreLikeThisButton onClick={() => openItem(targetFor(category, name, goTo), true)} />}
       <span className="flex h-11 w-11 shrink-0 items-center justify-center">{control}</span>
     </li>
   );
@@ -260,7 +276,8 @@ const SavedPage: React.FC = () => {
                       <Star size={20} strokeWidth={1.8} className="fill-amber-400 text-amber-500" />
                     </button>
                   ),
-                  f.goTo
+                  f.goTo,
+                  true
                 )
               )}
           </div>

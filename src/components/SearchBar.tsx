@@ -1,5 +1,11 @@
 "use client";
 
+// S21 — chip rows (docs/s21-chip-rows-plan.md): genres are ONE horizontal
+// scrolling row (no scrollbar; it runs to the screen edge, so the last
+// visible chip is cut off — the hint that it scrolls). Vibes are a second
+// scrolling row that appears only once a genre is picked; tapping the
+// picked genre again clears it and hides the vibes (no search).
+//
 // S17 — mood first (docs/s17-mood-first-plan.md, canvas Option D2): ONE
 // search field — category ▾ · text · mic · camera — submitted by the
 // keyboard's Search key (no GO; "Surprise me" is the empty search), and
@@ -77,7 +83,7 @@ const CATEGORIES = ["Movies", "TV Shows", "Books", "Wine"];
 // Selected: filled brighter blue, white bold text.
 const bubble = (active: boolean) =>
   [
-    "rounded-full border px-3 py-1.5 text-[13px] transition-colors",
+    "shrink-0 whitespace-nowrap rounded-full border px-3 py-1.5 text-[13px] transition-colors",
     active
       ? "border-[#3B6BD4] bg-[#3B6BD4] font-semibold text-white"
       : "border-white/25 bg-transparent text-white/80 hover:border-white/50 sm:border-gray-300 sm:text-gray-700 sm:hover:border-gray-400",
@@ -173,11 +179,19 @@ const SearchBar: React.FC<SearchBarProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hintN]);
 
-  // Row 1: one tap = results. A new lane starts unrefined.
+  // Row 1: one tap = results. A new lane starts unrefined. S21 — a tap on
+  // the picked genre clears it and its vibe, and hides the vibe row; it
+  // runs no search (the results on screen stay).
   const tapChip = (c: Chip) => {
     voiceEpoch.current++;
     setChipOrder(null);
     setOpenCategory(false);
+    if (chipRef.current?.label === c.label) {
+      chipRef.current = null;
+      setActiveChip(null);
+      setRefiner(null);
+      return;
+    }
     setActiveChip(c);
     setRefiner(null);
     setInput("");
@@ -323,6 +337,16 @@ const SearchBar: React.FC<SearchBarProps> = ({
     : chipsFor(category);
   const refiners = refinersFor(category);
 
+  // S21 — a genre picked off-screen (by voice, or after a scroll) slides
+  // into view; no smooth scroll under reduced motion.
+  const activeChipEl = useRef<HTMLButtonElement | null>(null);
+  useEffect(() => {
+    const el = activeChipEl.current;
+    if (!el || typeof el.scrollIntoView !== "function") return;
+    const reduce = typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    el.scrollIntoView({ block: "nearest", inline: "nearest", behavior: reduce ? "auto" : "smooth" });
+  }, [activeChip?.label]);
+
   return (
     <div className="w-full relative">
       {/* SEARCH FIELD — one row: category ▾ · text · mic · camera. The
@@ -390,11 +414,19 @@ const SearchBar: React.FC<SearchBarProps> = ({
         </button>
       </form>
 
-      {/* CHIPS — genres, then vibes; both always showing, wrapping. */}
-      <div className="mt-3 flex flex-wrap gap-2" aria-label="Moods">
+      {/* CHIPS (S21) — genres in one scrolling row; vibes in a second row
+          once a genre is picked. Both rows bleed to the screen edge (the
+          page's 16px gutter is undone with -mx-4/px-4) so a cut-off chip
+          shows there's more; desktop's column keeps its own edges. */}
+      <div
+        className="mt-3 -mx-4 flex gap-2 overflow-x-auto overscroll-x-contain px-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:mx-0 sm:px-0"
+        aria-label="Moods"
+        data-testid="genre-row"
+      >
         {chips.map((c) => (
           <button
             key={c.label}
+            ref={activeChip?.label === c.label ? activeChipEl : undefined}
             type="button"
             onClick={() => tapChip(c)}
             aria-pressed={activeChip?.label === c.label}
@@ -404,19 +436,25 @@ const SearchBar: React.FC<SearchBarProps> = ({
           </button>
         ))}
       </div>
-      <div className="mt-2 flex flex-wrap gap-2" aria-label="Refine">
-        {refiners.map((r) => (
-          <button
-            key={r.label}
-            type="button"
-            onClick={() => tapRefiner(r)}
-            aria-pressed={refiner?.label === r.label}
-            className={bubble(refiner?.label === r.label)}
-          >
-            {r.label}
-          </button>
-        ))}
-      </div>
+      {activeChip && (
+        <div
+          className="vibe-row mt-2 -mx-4 flex gap-2 overflow-x-auto overscroll-x-contain px-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:mx-0 sm:px-0"
+          aria-label="Refine"
+          data-testid="vibe-row"
+        >
+          {refiners.map((r) => (
+            <button
+              key={r.label}
+              type="button"
+              onClick={() => tapRefiner(r)}
+              aria-pressed={refiner?.label === r.label}
+              className={bubble(refiner?.label === r.label)}
+            >
+              {r.label}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* CATEGORY DROPDOWN */}
       {openCategory && (
@@ -442,6 +480,24 @@ const SearchBar: React.FC<SearchBarProps> = ({
       />
 
       <style jsx>{`
+        .vibe-row {
+          animation: vibeIn 220ms ease-out;
+        }
+        @keyframes vibeIn {
+          from {
+            opacity: 0;
+            transform: translateY(-6px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .vibe-row {
+            animation: none;
+          }
+        }
         @keyframes pulseLine {
           0% {
             opacity: 0.3;
