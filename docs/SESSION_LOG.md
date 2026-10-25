@@ -2905,7 +2905,7 @@ Brad's brief: genres in one scrolling row; vibes in a second row that appears on
 - **No new wording:** only Brad's approved labels.
 - **No pressure:** nothing nags. Removing the go-tos bar removes nothing the person relied on: Favorites still steer and live one tap away under Saved.
 
-## Session 21b — S21 calls — 2026-10-25 — branch auto/s21b-floor-books (local agent mode, §11)
+## Session 21b — S21 calls — 2026-10-25 — branch auto/s21b-floor-books — PR #82, merged d7172a0 (local agent mode, §11)
 
 Brad's S21 calls: (1) fix the 60-minute movie floor; (2) Books gets the same layout, keeping its chips; (3) short sets stay as they are.
 
@@ -2938,3 +2938,47 @@ Brad's S21 calls: (1) fix the 60-minute movie floor; (2) Books gets the same lay
 - **Phone check:** Movies → Documentary shows nothing under an hour; Books shows one scrolling row, and its vibes appear only after a genre tap.
 
 **§0 check: consistent.** Plain chips now honor the feature-length floor they always claimed to have, so the picks are more honest. The layout doesn't change and no wording is new.
+
+**Revert:** `git revert -m 1 d7172a0`.
+
+## Session 22 — grants audit + loud DB failures — 2026-10-25 — branch auto/s22-grants-audit (local agent mode, §11)
+
+Brad's brief: Supabase's Oct 30 change (new `public` tables get no default grants). Add the standing rule to the charter, run a read-only grants/RLS audit on production, save it as a baseline, and make server Supabase failures loud. **No database change**: tightening is a separate step Brad approves.
+
+### SHIPPED
+- **Charter §11.2a** (Brad-authorized amendment) holds the full rule. No CLAUDE.md exists, so the charter is its only home.
+- **Audit**, read-only (`default_transaction_read_only = on`), project `zbkwlilrjdbnmgavcdmp`:
+  - the queries are in `docs/sql/grants-audit.sql`, so they can be rerun;
+  - the results are in `docs/sql/grants-snapshot-2026-10.md`, with the flags and a tightening draft marked NOT RUN.
+- **Loud failures** (`src/lib/dbError.ts`): one classifier names every server failure `permission_denied`, `migration_pending` or `db_error`, checking permission first and logging it as an error. The bug it fixes:
+  - **go-tos, wine, mood and voice** decided `migration_pending` by finding the table's name in the error message. "permission denied for table wine_marks" contains the name too, so after Oct 30 a missing GRANT would have been logged as a missing migration. Measured on production: anon reads of wine_marks, go_tos, api_usage and anchor_snapshots all return 42501 with the table in the message.
+  - **`reasonForDbError`** (snapshots, share, card-save, completion, cardEvents) and **apiUsage** now go through the classifier. A permission failure also logs `console.error`.
+  - **Silent swallows fixed:**
+    - reksnap prior-dislikes read and wine-dislikes read (returned null or [] with no log);
+    - the `/api/save` long-tier enrich update (never checked);
+    - `/api/prefs` (now `ok:false` + reason, same empty shape so the client stays fail-soft);
+    - the browser `recordLike` insert (never checked; now logs and skips the saved-change notify);
+    - profile and cardEvents (hard-coded `db_error`, now the named reason).
+
+### FLAGS (from the audit)
+- **Anon can write, 3 tables:** `account_devices`, `reksnap_signals` and `user_likes` hold anon/authenticated INSERT, UPDATE, DELETE and TRUNCATE.
+  - Real anon reach through the Data API is INSERT on reksnap_signals and user_likes, both by design (S2a). Everything else is blocked by RLS. TRUNCATE sits outside RLS but isn't exposed by PostgREST.
+  - `user_likes`' anon insert policy checks nothing (`with_check true`).
+- **RLS off while grants are held:** none. All 12 tables have RLS on; the 9 server-only tables hold no public grants.
+- **Sequences:** anon/authenticated hold USAGE, SELECT and UPDATE on all 5 identity sequences, which none of them needs.
+- **RLS denial is silent:** an anon SELECT on user_likes returns 0 rows and no error. Server routes are service_role (BYPASSRLS), so they're unaffected.
+
+### FOUND, NOT FIXED
+- `src/lib/tokenManager.ts` reads and writes a `tokens` table that doesn't exist. Nothing imports it (dead code), so it's left as is.
+- Warn-only sites that already log the code and return `ok:false` were left as they were (merge, undo, watched, saved, share sender name, card providers, stats). A 42501 shows in their logs by code.
+
+### VALIDATION
+- New `validate-s22` 27/27: classifier units on real production error shapes, no table-name classifiers left, swallow sites log, the snapshot has no secrets, the charter rule is present.
+- All suites green (s36 api-cap log lines unchanged). tsc and lint clean.
+- Local smoke through the server path: prefs, wine state, go-tos state and saved all answer normally.
+
+### Promotion
+- `main → release/v2`. No env, no migrations.
+- The tightening SQL in the snapshot doc waits for Brad's approval and then runs under §11.2.
+
+**§0 check: consistent.** No user-facing change. This keeps saved things and signals from silently vanishing when the grants change, so what a person saves stays saved.

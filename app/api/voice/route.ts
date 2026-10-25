@@ -11,6 +11,7 @@
 
 import { runEnvCheck } from "../../../src/lib/envCheck";
 import { cleanClientId, getSnapshotStore } from "../../../src/lib/anchorSnapshots";
+import { logDbError } from "../../../src/lib/dbError";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -44,14 +45,17 @@ export async function POST(req: Request) {
   }
   // Ownership: the mood is this client's.
   const own = await store.from("voice_moods").select("id").eq("id", moodId).eq("client_id", clientId).maybeSingle();
-  if (own.error || !own.data) {
-    const missing = own.error && (own.error.code === "42P01" || own.error.code === "PGRST205" || /voice_moods/.test(own.error.message ?? ""));
-    console.warn("[voice] event refused", { reason: missing ? "migration_pending" : own.error ? "db_error" : "not_owner" });
+  if (own.error) {
+    logDbError("voice owner read", own.error);
+    return done();
+  }
+  if (!own.data) {
+    console.warn("[voice] event refused", { reason: "not_owner" });
     return done();
   }
   const ins = await store
     .from("voice_events")
     .insert(events.map((e: { kind: string; title: string; position: number | null }) => ({ mood_id: moodId, client_id: clientId, ...e })));
-  if (ins.error) console.warn("[voice] event write failed", { code: ins.error.code ?? null });
+  if (ins.error) logDbError("voice event write", ins.error);
   return done();
 }

@@ -27,6 +27,7 @@ import {
   openAIFailureResponse,
 } from "../../../src/lib/openaiFailure";
 import { capGate } from "../../../src/lib/apiUsage";
+import { logDbError } from "../../../src/lib/dbError";
 import { mediaKindFor } from "../../../src/lib/snapTitleGuard";
 import { extractCompleteArray, extractCompleteObject } from "../../../src/lib/jsonEarly";
 import {
@@ -577,7 +578,11 @@ async function loadPriorDislikes(args: {
     query = query.ilike("item_category", args.category);
   }
   const { data, error } = await query;
-  if (error || !Array.isArray(data)) return null;
+  if (error) {
+    logDbError("reksnap prior dislikes read", error);
+    return null;
+  }
+  if (!Array.isArray(data)) return null;
 
   const normalize = (s: string) => s.trim().toLowerCase();
   // Rows arrive newest-first; insertion order keeps both the group list
@@ -1323,7 +1328,11 @@ async function loadWineDislikes(clientId: string): Promise<string[]> {
     .eq("action", "dislike")
     .order("created_at", { ascending: false })
     .limit(500);
-  if (error || !Array.isArray(data)) return [];
+  if (error) {
+    logDbError("reksnap wine dislikes read", error);
+    return [];
+  }
+  if (!Array.isArray(data)) return [];
   return data
     .filter(
       (r) =>

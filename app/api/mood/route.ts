@@ -31,6 +31,7 @@
 import { runEnvCheck } from "../../../src/lib/envCheck";
 import { capGate } from "../../../src/lib/apiUsage";
 import { cleanClientId, getSnapshotStore } from "../../../src/lib/anchorSnapshots";
+import { logDbError } from "../../../src/lib/dbError";
 import { llmJson, withLlmContext } from "../../../src/lib/llm";
 import { openAIFailureResponse } from "../../../src/lib/openaiFailure";
 import { mediaConfigured, resolveSnappedTitle } from "../../../src/lib/tmdbMedia";
@@ -167,8 +168,7 @@ async function handlePost(req: Request): Promise<Response> {
       .select("id")
       .maybeSingle();
     if (ins.error) {
-      const missing = ins.error.code === "42P01" || ins.error.code === "PGRST205" || /voice_moods/.test(ins.error.message ?? "");
-      console.warn("[mood] record failed", { reason: missing ? "migration_pending" : "db_error", code: ins.error.code ?? null });
+      logDbError("mood record", ins.error);
     } else {
       moodId = (ins.data as { id?: string } | null)?.id ?? null;
     }

@@ -21,6 +21,7 @@
 // happened client-side and stands. Every refusal is a named log line.
 
 import { runEnvCheck } from "../../../src/lib/envCheck";
+import { logDbError } from "../../../src/lib/dbError";
 import { tokensEnabled, verifyAnchor } from "../../../src/lib/mintToken";
 import {
   LIMITS,
@@ -130,11 +131,12 @@ export async function POST(req: Request): Promise<Response> {
     // The user opened the long tier between two saves: the row gets richer,
     // never poorer. Idempotent on the IS NULL guard.
     if (long && !existing.data.long_description) {
-      await store
+      const enriched = await store
         .from("anchor_snapshots")
         .update({ long_description: long })
         .eq("id", existing.data.id)
         .is("long_description", null);
+      if (enriched.error) logDbError("snapshot long-tier enrich", enriched.error, { id: existing.data.id });
     }
     return Response.json({ ok: true, id: existing.data.id }, { status: 200 });
   }
