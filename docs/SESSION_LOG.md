@@ -2676,3 +2676,58 @@ Each one reverts with `git revert -m 1 <sha>`, newest first.
 - **No pressure:** no new wording, and nothing nags.
 - **Nothing asks twice:** watched titles stay out of snaps.
 - **Flag:** the wider fast path shows some TMDb-tag noise: about 1 card in 5, on 3 of the 15 fast sets. Brad's phone check is the judge.
+
+## Session 20 — chip pools + "vs." lead (Brad's S19 decisions) — 2026-10-24 — branch auto/s20-chip-pools — PR #77 (local agent mode, §11)
+
+Brad's decisions:
+1. Tighten the chip pools with the typed moods' filters: sad/tear-jerkers out of Feel-good; teen drama and horror out of TV Crime + Dark.
+2. "vs. your" only for a starred favorite; a named title reads "vs. The Office:" (approved wording).
+
+### SHIPPED (#77)
+- **Shared keep-outs:** they now live in `baseSpec`, so chips and mood pools share them.
+- **`FEEL_GOOD_OUT` widened** with tear-jerker tags: tragic romance/love, grief, tragic, somber, death in family, tear jerker, sadness, tears, dementia, dying and death, loss of loved one, death row, holocaust.
+- **TV Feel-good** also keeps horror out by keyword (`TV_HORROR_OUT`).
+- **TV lanes carrying Crime** (Crime, Thriller) **+ Dark** keep out `TEEN_OUT` and `TV_HORROR_OUT`.
+- **The lead:** `ResultsV4` `vsLead` checks `isGoTo(category, name)`. Starred: "vs. your Office:"; named only: "vs. The Office:".
+
+### MEASURED (local, 4 calls × 5 per chip, seen accumulating; off-mood = sad tag or a named tear-jerker list / teen-drama or horror tag)
+
+| Chip | Before | After |
+|---|---|---|
+| Movies Romance + Feel-good | 3/16 | 1/20 |
+| Movies Drama + Feel-good | 7/20 | 0/20 |
+| Movies Comedy + Feel-good | 2/20 | 0/20 |
+| Movies (any) + Feel-good | 2/20 | 0/20 |
+| TV Drama + Feel-good | 3/20 | 0/20 |
+| TV Comedy + Feel-good | 1/20 | 0/20 |
+| TV Crime + Dark | 2/20 | 0/20 |
+| TV Drama + Dark (untouched) | 5/20 | 5/20 |
+| TV Mystery + Dark (untouched) | 10/20 | 6/20 |
+| Movies Crime + Dark (untouched) | 2/20 | 2/20 |
+
+- **PR preview:** Romance + Feel-good 1/20, TV Drama + Feel-good 0/20, TV Crime + Dark 0/20.
+- **"vs." lead in the real UI:** local and preview both show "vs. The Office:" (named) and "vs. your Office:" (starred).
+
+### FOUND, NOT FIXED (Brad's call)
+- **Tear-jerkers with no sad tag still pass:** A Star Is Born, Brokeback Mountain, The Bridges of Madison County, Meet Joe Black. Keywords can't reach them; a genre rule could (e.g., Romance + Feel-good requires Comedy).
+- **TV Drama + Dark and TV Mystery + Dark** still carry Riverdale / Elite / Pretty Little Liars and horror (AHS, Chucky, Marianne). Same lever, if wanted.
+- **Some chips are on-filter but off-tone:**
+  - TV Crime + Dark still includes procedurals (NCIS, Blue Bloods, Only Murders);
+  - TV Drama + Feel-good includes Riverdale and Euphoria.
+- **`webPools`** (a named reference's own recs) can't apply keyword keep-outs without per-title keyword reads.
+
+### TEST RESIDUE
+`api_usage` / signal rows for `anon_agent_s20_*` (chips, vs). `/api/stats` excludes `anon_agent*`.
+
+### VALIDATION
+- **Suites:** new validate-s20 22/22; s19a updated for the designed change; all 39 suites green; tsc and lint clean.
+
+### Promotion
+- **Ships with S19:** `main → release/v2`. No env, no migrations.
+- **Phone check:**
+  - tap Romance + Feel-good: no Titanic / Notebook / Me Before You;
+  - tap TV Crime + Dark: no Riverdale / Chucky;
+  - "a show like The Office" without a star: "vs. The Office:".
+- **Revert:** `git revert -m 1 <#77 merge sha>`.
+
+**§0 check: consistent.** Chips now answer the tone they name, a shorter path to a happy choice. "your" is said only for the person's own favorite, so it's honest about whose taste is speaking. It's wording Brad approved; nothing nags; nothing paid.
