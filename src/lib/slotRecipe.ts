@@ -113,7 +113,9 @@ export function floorFor(lane: string | null | undefined): number {
 
 // Tone refiners: genres to keep out, or a genre the title must also carry.
 const DARK_ANY = { movie: [53, 80, 9648, 27], tv: [80, 9648, 10768] };
-const BRIGHT_OUT = { movie: [27, 53, 10752], tv: [10768] };
+// S20c — TV Feel-good keeps Crime out unless the lane carries it (Brad
+// 2026-10-24: Dexter, The Blacklist, Bones sat in Drama + Feel-good).
+const BRIGHT_OUT = { movie: [27, 53, 10752], tv: [10768, 80] };
 
 // Keywords a tone keeps out, chips and mood pools alike (S19a for moods;
 // S20 for chips, Brad 2026-10-24).

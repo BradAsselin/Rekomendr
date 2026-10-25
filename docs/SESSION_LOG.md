@@ -2784,3 +2784,37 @@ New `validate-s20b` 20/20; `validate-s20` updated for the designed change; all 4
 - **Revert:** `git revert -m 1 <#78 merge sha>`.
 
 **§0 check: consistent.** Chips answer the tone they name; precision was bought without dropping the dark serials people mean by "dark" (measured). No wording, nothing nags, nothing paid.
+
+## Session 20c — Crime out of TV Feel-good — 2026-10-24 — branch auto/s20c-feelgood-crime — PR #79 (local agent mode, §11)
+
+Brad: "Keep Crime out of TV Feel-good chips unless the lane is Crime." This closes S20.
+
+### SHIPPED (#79)
+- `BRIGHT_OUT.tv` gains Crime (80). As with every BRIGHT_OUT genre, it applies only when the lane doesn't carry it.
+- So TV Crime + Feel-good keeps Crime, and so does TV Thriller + Feel-good (its lane is Mystery|Crime).
+- Movie Feel-good and TV Dark are unchanged.
+
+### MEASURED (local, 20 titles per chip: share of titles carrying TMDb's Crime genre)
+
+| Chip | Before | After |
+|---|---|---|
+| TV Drama + Feel-good | 8/20 (Dexter, The Blacklist, Bones, Peaky Blinders) | 0/20 |
+| TV Comedy + Feel-good | 2/20 (The Rookie, Brooklyn Nine-Nine) | 0/20 |
+| TV (any) + Feel-good | 4/20 | 0/20 |
+| TV Mystery + Feel-good | 7/20 | 0/20 |
+| TV Sci-Fi + Feel-good | 2/20 | 0/20 |
+| TV Crime + Feel-good (control) | 20/20 | 20/20 |
+
+### FOUND, NOT FIXED
+- **TV Crime + Feel-good** still serves dark crime (You, Mr. Robot, Unbelievable). A feel-good crime lane would need a light-tone signal (Comedy, say), which is Brad's call.
+- **Teen shows on non-Drama TV Feel-good chips:** Teen Wolf and Sex Education appear on Comedy and (any). The teen keep-out covers only Drama + Feel-good, by design (teen comedies stay).
+
+### VALIDATION
+`validate-s20b` 29/29 (9 new); all 40 suites green; tsc and lint clean.
+
+### Promotion
+- **Ships with S19/S20:** `main → release/v2`. No env, no migrations.
+- **Phone check:** TV Drama + Feel-good shows no Dexter, The Blacklist or Bones.
+- **Revert:** `git revert -m 1 <#79 merge sha>`.
+
+**§0 check: consistent.** A feel-good tap no longer serves serial killers. No wording, nothing nags, nothing paid.

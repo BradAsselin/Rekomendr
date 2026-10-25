@@ -78,6 +78,21 @@ for (const level of ["warn", "info", "error"]) console[level] = () => {};
   r = await first("tv", "comedy", tone("Feel-good"));
   check("TV Comedy + Feel-good keeps teen comedies (Never Have I Ever)", TEEN.some((i) => r.ids.has(i)), false);
 
+  console.log("\n2b. S20c — TV Feel-good keeps Crime out unless the lane carries it");
+  const wg = (q) => (q.without_genres ?? "").split(",").filter(Boolean).map(Number);
+  for (const lane of ["drama", "comedy", "mystery", "sci-fi", null]) {
+    r = await first("tv", lane, tone("Feel-good"));
+    check(`TV ${lane ?? "(any)"} + Feel-good: Crime out`, wg(r.q).includes(80), true);
+  }
+  r = await first("tv", "crime", tone("Feel-good"));
+  check("TV Crime + Feel-good keeps Crime", [wg(r.q).includes(80), r.q.with_genres], [false, "80"]);
+  r = await first("tv", "thriller", tone("Feel-good"));
+  check("TV Thriller (Mystery|Crime) + Feel-good keeps Crime (the lane carries it)", wg(r.q).includes(80), false);
+  r = await first("tv", "drama", tone("Dark"));
+  check("TV Dark chips keep Crime", wg(r.q).includes(80), false);
+  r = await first("movie", "drama", tone("Feel-good"));
+  check("movie Feel-good unchanged (Crime allowed)", wg(r.q).includes(80), false);
+
   console.log("\n3. Romance + Feel-good is romcom");
   r = await first("movie", "romance", tone("Feel-good"));
   check("with_genres = Romance AND Comedy", r.q.with_genres, "10749,35");
