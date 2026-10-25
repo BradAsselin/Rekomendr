@@ -214,7 +214,7 @@ const noGoTos = { movies: [], tv: [], wine: null };
   check("one phrase, interim words shown", /continuous = false/.test(vin) && /interimResults = true/.test(vin), true);
   check("no audio leaves the page (only text is posted)", !/MediaRecorder|getUserMedia|audio\/webm/.test(vin + bar), true);
   const page = read("app/page.tsx");
-  check("screens: the slot recipe with the mapped chip, steered when a title was named", (/await handleSearch\(chipQuery\(cat, chip, refiner\), cat, \{ chip, refiner \}, steerOpts, voice\);/.test(page) || /await handleSearch\(chipQuery\(cat, plan\.chip, plan\.refiner\), cat, \{ chip: plan\.chip, refiner: plan\.refiner \}, plan\.steerOpts, voice\);/.test(page)) /* S16: slotPlanFromMood */, true);
+  check("screens: the slot recipe with the mapped chip, steered when a title was named", (/await handleSearch\(chipQuery\(cat, chip, refiner\), cat, \{ chip, refiner \}, steerOpts, voice\);/.test(page) || /await handleSearch\(chipQuery\(cat, plan\.chip, plan\.refiner\), cat, \{ chip: plan\.chip, refiner: plan\.refiner \}, plan\.steerOpts, voice\);/.test(page) /* S16: slotPlanFromMood */ || /await handleSearch\(`\$\{cat\}\|\|\|\|\$\{transcript\}\|\|mode:ai`, cat, undefined, undefined, voice, data\);/.test(page)) /* S19a: the typed branch, parse in hand */, true);
   check("wine: the wine chip search, price as lane words", /chipQuery\("Wine", \{ label: chip\.label, lane: laneText \}, refiner\)/.test(page), true);
   check("a named title rides as a transient go-to, kept for replacements", /extraGoTos: \[extraGoTo\]/.test(page) && /\.\.\.\(s\.extraGoTo \? \{ extraGoTos: \[s\.extraGoTo\] \} : \{\}\)/.test(page), true);
   check("any other search ends the voice set", /if \(!voice\) clearVoiceSet\(\);/.test(page), true);

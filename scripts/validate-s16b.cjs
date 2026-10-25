@@ -184,7 +184,8 @@ const readNdjson = async (res) => {
 
   console.log("\n7. The page: typed moods → slots; titles, Books and Wine unchanged");
   const page = read("app/page.tsx");
-  check("parse runs beside the prefs read and the title check", /Promise\.all\(\[\s*loadPrefsForCategory\(nextCategory\),\s*typedText \? resolveTypedAnchor\(typedText, nextCategory\) : Promise\.resolve\(null\),\s*typedMood \? parseTypedMood\(typedText, nextCategory\) : Promise\.resolve\(null\),/.test(page), true);
+  // S19a — a spoken mood arrives parsed (parsedMood): no second parse, no title check.
+  check("parse runs beside the prefs read and the title check", /Promise\.all\(\[\s*loadPrefsForCategory\(nextCategory\),\s*typedText && !parsedMood \? resolveTypedAnchor\(typedText, nextCategory\) : Promise\.resolve\(null\),\s*parsedMood\s*\? Promise\.resolve\(parsedMood\)\s*: typedMood\s*\? parseTypedMood\(typedText, nextCategory\)\s*: Promise\.resolve\(null\),/.test(page), true);
   check("typed moods only on Movies/TV, never on a chip or steer run", /const typedMood =\s*!slotReq && !!typedText && \(nextCategory === "Movies" \|\| nextCategory === "TV Shows"\);/.test(page), true);
   const iAnchor = page.indexOf("if (typedAnchor) {");
   const iPlan = page.indexOf("const plan = slotPlanFromMood(mood);");
@@ -192,7 +193,8 @@ const readNdjson = async (res) => {
   check("the parse posts source: typed", /source: "typed",/.test(page), true);
   check("fallbacks are named", ['"[typed-mood] → AI search"', "parse_failed", "not_mapped", '"category"'].every((s) => page.includes(s)), true);
   check("slots path paints early and merges lines", /onCards: \(c\) => \{[\s\S]*?setLinesPending\(c\.linesPending\);[\s\S]*?setLoading\(false\);/.test(page) && /if \(painted\) setReks\(ans\.reks\);/.test(page), true);
-  check("voice and typed share one mapping", (page.match(/slotPlanFromMood\(/g) || []).length, 3);
+  // S19a — voice now runs the typed branch with its parse in hand (one mapping site).
+  check("voice and typed share one mapping", (page.match(/slotPlanFromMood\(/g) || []).length === 2 && /await handleSearch\(`\$\{cat\}\|\|\|\|\$\{transcript\}\|\|mode:ai`, cat, undefined, undefined, voice, data\);/.test(page), true);
   const mood = read("app/api/mood/route.ts");
   check("typed moods are not stored as voice", /const store = clientId && source === "voice" \? await getSnapshotStore\(\) : null;/.test(mood), true);
 
@@ -205,7 +207,8 @@ const readNdjson = async (res) => {
     ["something like Ted Lasso but darker", { lane: L("Comedy"), refiner: "Dark", goTo: { name: "Ted Lasso" } }, false],
     ["a funny heist movie", { lane: L("Comedy"), refiner: null }, false],
     ["a slow-burn psychological thriller", { lane: L("Thriller"), refiner: "Smart" }, false],
-    ["something light and romantic for date night", { lane: L("Romance"), refiner: "Feel-good" }, false],
+    // S19a: "date night" is a context phrase (Romance + Feel-good holds the rest).
+    ["something light and romantic for date night", { lane: L("Romance"), refiner: "Feel-good" }, true],
     ["a mind-bending sci-fi movie", { lane: L("Sci-Fi"), refiner: "Smart" }, false],
     ["a dark crime show", { lane: L("Crime"), refiner: "Dark" }, true],
     ["an uplifting sports movie", { lane: L("Drama"), refiner: "Feel-good" }, false],

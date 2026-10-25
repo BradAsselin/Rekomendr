@@ -20,6 +20,7 @@ if (typeof window !== "undefined") {
 import { CHIPS_BY_CATEGORY, REFINERS_BY_CATEGORY, SURPRISE_ME } from "./moodChips";
 import { SLOT_LANES } from "./slotRecipe";
 import { PRICE_CHIPS, type PriceChip } from "./wineShelf";
+import type { KeywordConcept } from "./tmdbKeywords";
 
 export type VoiceCategory = "Movies" | "TV Shows" | "Wine";
 export const VOICE_CATEGORIES: VoiceCategory[] = ["Movies", "TV Shows", "Wine"];
@@ -57,11 +58,12 @@ export function buildMoodPrompt(): string {
     "- category: the category the words clearly ask for (a movie, a show/series, a wine). If the words don't say, return null — the app uses the category the person already has selected (given below).",
     "- lane: the ONE lane from that category's list that best fits the mood, spelled exactly as listed. For a feeling with no genre word, choose the lane that feeling most often means (\"goofy\", \"something to laugh at\" = Comedy). null only when nothing fits.",
     "- refiner: at most ONE refiner from that category's list, only when the words call for it (\"light\", \"uplifting\" = Feel-good; \"dark\", \"twisted\" = Dark; \"clever\" = Smart; \"old\", \"classic\" = Classic; \"new\", \"recent\" = New). Otherwise null.",
-    "- go_to: when the person names a specific title or wine as a reference (\"like Lioness but funnier\", \"something like my Bonanza\"), that name as they said it, cleaned up. Otherwise null.",
+    "- keywords: concrete ideas in the words that the lane and refiner don't already say: a subject, setting, plot device or style (heist, sports, time travel, slow burn, coming of age, road trip, small town, courtroom, mockumentary). Up to 3 concepts, each { \"tags\": [...], \"exclude\": boolean }. tags = TMDb keyword names for that ONE idea, lower case, closest first, starting with the person's own word when it is a keyword; at most 4, all meaning the same idea. Never a genre already chosen as the lane, never a feeling the refiner holds. exclude = true when the person wants it left out (\"isn't too gory\" = { \"tags\": [\"gore\"], \"exclude\": true }). When a title is named as a reference, one concept may name what that title is (\"a show like The Office\" = { \"tags\": [\"mockumentary\", \"workplace comedy\"], \"exclude\": false }). Otherwise []. Wine: always [].",
+    "- go_to: when the person names a specific title or wine as a reference (\"like Lioness but funnier\", \"something like my Bonanza\"), that name cleaned up, written as the title's full official name (\"Parks and Rec\" = \"Parks and Recreation\"). Otherwise null.",
     "- price: wine only, when money is mentioned (\"cheap\", \"under twenty\" = under20; \"nice bottle\", \"splurge\" = splurge). Otherwise null.",
     "- mapped: false when the words can't be placed in any category's vocabulary at all; then closest = up to three lanes (from the selected category) a person would most likely tap instead. Otherwise mapped true and closest [].",
     "",
-    'Return JSON only: { "category": "Movies" | "TV Shows" | "Wine" | null, "lane": string | null, "refiner": string | null, "go_to": string | null, "price": string | null, "mapped": boolean, "closest": string[] }'
+    'Return JSON only: { "category": "Movies" | "TV Shows" | "Wine" | null, "lane": string | null, "refiner": string | null, "keywords": { "tags": string[], "exclude": boolean }[], "go_to": string | null, "price": string | null, "mapped": boolean, "closest": string[] }'
   );
   return lines.join("\n");
 }
@@ -110,6 +112,8 @@ export type MoodResult = {
   category: VoiceCategory | "Books";
   lane: { label: string; lane: string } | null;
   refiner: string | null;
+  // S19a — concrete ideas as TMDb keyword names (resolved by the route).
+  keywords: KeywordConcept[];
   goTo: string | null;
   price: PriceChip | null;
   mapped: boolean;
@@ -127,7 +131,7 @@ export function validateMood(raw: any, barCategory: string, fromWords: VoiceCate
   if (category === "Books") {
     // Books is out of v1's scope: the transcript runs as the typed mood
     // search it would have been, nothing mapped.
-    return { category, lane: null, refiner: null, goTo: null, price: null, mapped: false, closest: [] };
+    return { category, lane: null, refiner: null, keywords: [], goTo: null, price: null, mapped: false, closest: [] };
   }
   const lanes = lanesFor(category);
   const lane = lanes.find((l) => eq(raw?.lane, l.label) || eq(raw?.lane, l.lane)) ?? null;
@@ -135,7 +139,8 @@ export function validateMood(raw: any, barCategory: string, fromWords: VoiceCate
   const price = category === "Wine" ? PRICE_CHIPS.find((p) => eq(raw?.price, p.id))?.id ?? null : null;
   const goTo =
     typeof raw?.go_to === "string" && raw.go_to.trim().length >= 2 ? raw.go_to.trim().slice(0, 120) : null;
-  const mapped = raw?.mapped !== false && !!(lane || refiner || price || goTo);
+  const keywords = category === "Wine" ? [] : keywordsOf(raw?.keywords);
+  const mapped = raw?.mapped !== false && !!(lane || refiner || price || goTo || keywords.length);
   const closest = mapped
     ? []
     : (Array.isArray(raw?.closest) ? raw.closest : [])
@@ -143,5 +148,24 @@ export function validateMood(raw: any, barCategory: string, fromWords: VoiceCate
         .filter((c: string | undefined): c is string => !!c)
         .filter((c: string, i: number, all: string[]) => all.indexOf(c) === i)
         .slice(0, 3);
-  return { category, lane, refiner, goTo, price, mapped, closest };
+  return { category, lane, refiner, keywords, goTo, price, mapped, closest };
+}
+
+// S19a — only clean, short keyword names survive; at most 3 concepts of
+// at most 4 tags each.
+const TAG = /^[a-z0-9][a-z0-9 '\-]{1,38}[a-z0-9]$/;
+export function keywordsOf(raw: unknown): KeywordConcept[] {
+  if (!Array.isArray(raw)) return [];
+  const out: KeywordConcept[] = [];
+  for (const c of raw) {
+    const tags = (Array.isArray(c?.tags) ? c.tags : [])
+      .filter((t: unknown): t is string => typeof t === "string")
+      .map((t: string) => t.trim().toLowerCase().replace(/\s+/g, " "))
+      .filter((t: string) => TAG.test(t))
+      .filter((t: string, i: number, all: string[]) => all.indexOf(t) === i)
+      .slice(0, 4);
+    if (tags.length) out.push({ tags, exclude: c?.exclude === true });
+    if (out.length === 3) break;
+  }
+  return out;
 }

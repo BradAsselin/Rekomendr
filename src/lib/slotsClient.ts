@@ -13,6 +13,12 @@ export type SlotRequest = {
   category: "Movies" | "TV Shows";
   lane: string | null;
   refiner: { kind: "tone"; vibe: string } | { kind: "era"; era: "classic" | "new" } | null;
+  // S19a — a typed/spoken mood's TMDb keyword ids (one OR group per
+  // concept) and the title it named: the route builds a mood pool from
+  // them, and answers weak_pool (→ null here, the AI search runs) when
+  // that pool is too thin to answer the words.
+  keywords?: { ids: number[]; exclude: boolean }[];
+  reference?: string | null;
 };
 
 export type SlotAnswer = { reks: Rek[]; steer: string | null; order: string[] };
@@ -82,6 +88,8 @@ export async function fetchSlots(
       category: req.category,
       lane: req.lane,
       refiner: req.refiner,
+      ...(req.keywords?.length ? { keywords: req.keywords } : {}),
+      ...(req.reference ? { reference: req.reference } : {}),
       goTos: [
         ...goTosFor(req.category).map((g) => ({ name: g.name, tmdbKind: g.tmdbKind, tmdbId: g.tmdbId, at: g.at })),
         ...(opts.extraGoTos ?? []),
