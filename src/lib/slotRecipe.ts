@@ -364,11 +364,11 @@ async function discover(spec: PoolSpec): Promise<TmdbCandidate[] | null> {
   if (spec.before) params[`${dateKey}.lte`] = spec.before;
   if (spec.withKeywords) params.with_keywords = spec.withKeywords;
   if (spec.withoutKeywords) params.without_keywords = spec.withoutKeywords;
-  if (spec.kind === "movie") params.with_runtime_gte = "60";
-  // S21 — runtime bounds only when a vibe sets them (Short: 60-100,
-  // Epic: 130+). The old with_runtime_gte above is not a TMDb parameter and
-  // never filtered; existing chips keep that behavior (logged, not fixed).
-  if (spec.kind === "movie" && (spec.runtimeMin || spec.runtimeMax)) {
+  // The 60-minute feature floor on every movie pool (S21b — the old
+  // with_runtime_gte was not a TMDb parameter and never filtered: Night and
+  // Fog, 32 min, on Documentary). A vibe may raise it (Epic: 130+) or cap
+  // it (Short: up to 100).
+  if (spec.kind === "movie") {
     params["with_runtime.gte"] = String(spec.runtimeMin ?? 60);
     if (spec.runtimeMax) params["with_runtime.lte"] = String(spec.runtimeMax);
   }
