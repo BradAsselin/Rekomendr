@@ -31,7 +31,7 @@ import {
   type MediaBundle,
   type MediaKind,
 } from "../../../src/lib/tmdbMedia";
-import { chooseMediaReks, raceTaste } from "../../../src/lib/mediaReks";
+import { chooseMediaReks, guardTaste } from "../../../src/lib/mediaReks";
 import { NEW_TO_ME_NOTICE } from "../../../src/lib/snapTitleGuard";
 import { capGate } from "../../../src/lib/apiUsage";
 import {
@@ -233,7 +233,9 @@ async function reks(body: any): Promise<Response> {
   const lane = typeof body?.lane === "string" ? body.lane.slice(0, 60) : null;
   const [bundle, taste] = await Promise.all([
     loadMediaBundle(kind, id),
-    raceTaste(clientId, kind),
+    // S19c — the drop-set read: a typed title's first five never show
+    // what this person watched or disliked (hang guard, not a race).
+    guardTaste(clientId, kind, "typed"),
   ]);
   if (!bundle) {
     console.warn("[typed-anchor] reks: bundle failed", { kind, id });
