@@ -115,6 +115,27 @@ export function floorFor(lane: string | null | undefined): number {
 const DARK_ANY = { movie: [53, 80, 9648, 27], tv: [80, 9648, 10768] };
 const BRIGHT_OUT = { movie: [27, 53, 10752], tv: [10768] };
 
+// Keywords a tone keeps out, chips and mood pools alike (S19a for moods;
+// S20 for chips, Brad 2026-10-24).
+// Feel-good keeps out what TMDb tags as sad: measured, Million Dollar Baby
+// topped "uplifting sports"; Titanic, Me Before You, The Fault in Our Stars
+// and Hamnet sat in Romance + Feel-good. tragedy, tragic ending, terminal
+// illness, euthanasia, cancer, depressing, death of a loved one, tragic
+// love, tragic romance, grief, tragic, somber, death in family, tear jerker
+// (both spellings), sadness, tears, dementia, dying and death, loss of
+// loved one, death row, holocaust (The Notebook, The Green Mile, Life Is
+// Beautiful in the second pass).
+const FEEL_GOOD_OUT = [
+  10614, 368391, 6564, 206662, 10163, 323809, 241364, 10703, 186956, 9872, 325854, 211659, 146946, 346048,
+  156924, 1647, 14708, 2689, 3737, 697, 2501, 1739,
+];
+// TV has no Horror genre, so horror is kept out by keyword: horror,
+// slasher, supernatural horror, psychological horror, horror anthology
+// (Chucky in Crime + Dark; American Horror Story in Drama + Feel-good).
+const TV_HORROR_OUT = [315058, 12339, 256183, 295907, 250593];
+// Teen drama, teen psychological drama: Riverdale in Crime + Dark.
+const TEEN_OUT = [193400, 369277];
+
 type PoolSpec = {
   kind: MediaKind;
   genres: number[];
@@ -150,11 +171,16 @@ function baseSpec(kind: MediaKind, lane: string | null, refiner: Refiner): PoolS
   // and Family stay out unless the lane is one of them.
   for (const g of [16, 10751, 10762]) if (!genres.includes(g)) without.push(g);
   const tone = refiner?.kind === "tone" ? refiner.vibe.toLowerCase() : "";
+  const withoutK: number[] = [];
   if (/feel-good|comfort/.test(tone)) {
     // Bright: no horror/thriller/war — unless the lane itself is one.
     without.push(...BRIGHT_OUT[kind].filter((g) => !genres.includes(g)));
+    withoutK.push(...FEEL_GOOD_OUT);
+    if (kind === "tv") withoutK.push(...TV_HORROR_OUT);
   } else if (/dark/.test(tone)) {
     anyOf = DARK_ANY[kind];
+    // Dark crime on TV is grown-up crime: no teen drama, no horror.
+    if (kind === "tv" && genres.includes(80)) withoutK.push(...TV_HORROR_OUT, ...TEEN_OUT);
   } else if (/smart/.test(tone)) {
     floor = Math.max(floor, 7.4);
   }
@@ -170,6 +196,7 @@ function baseSpec(kind: MediaKind, lane: string | null, refiner: Refiner): PoolS
     after,
     before,
     pages: 8,
+    ...(withoutK.length ? { withoutKeywords: withoutK.join(",") } : {}),
   };
 }
 
@@ -314,14 +341,8 @@ function poolsFromList(list: TmdbCandidate[]): Pools {
   };
 }
 
-// A feel-good mood ("an uplifting sports movie") keeps out what TMDb tags
-// as sad: measured, Million Dollar Baby (tragedy, euthanasia) and Southpaw
-// (tragedy) topped the sports pool. Mood pools only; the chips are as
-// they were. tragedy, tragic ending, terminal illness, euthanasia,
-// cancer, depressing, death of a loved one.
-const FEEL_GOOD_OUT = [10614, 368391, 6564, 206662, 10163, 323809, 241364];
-
 // Keyword concepts → one discover (AND across concepts, OR inside one).
+// The tone's keyword keep-outs (FEEL_GOOD_OUT, …) come with the base spec.
 export async function loadMoodPools(
   kind: MediaKind,
   lane: string | null,
@@ -329,10 +350,13 @@ export async function loadMoodPools(
   concepts: MoodConcept[]
 ): Promise<Pools | null> {
   const withK = concepts.filter((c) => !c.exclude && c.ids.length).map((c) => c.ids.join("|"));
-  const withoutK = concepts.filter((c) => c.exclude).flatMap((c) => c.ids);
-  const tone = refiner?.kind === "tone" ? refiner.vibe.toLowerCase() : "";
-  if (/feel-good|comfort/.test(tone)) withoutK.push(...FEEL_GOOD_OUT);
   const base = baseSpec(kind, lane, refiner);
+  const withoutK = Array.from(
+    new Set([
+      ...(base.withoutKeywords ? base.withoutKeywords.split(",").map(Number) : []),
+      ...concepts.filter((c) => c.exclude).flatMap((c) => c.ids),
+    ])
+  );
   // A keyword isn't a genre: "coming of age" also tags It (2017). Horror
   // stays out of a movie mood pool unless the lane asked for it.
   const without = kind === "movie" && !base.genres.includes(27) ? Array.from(new Set([...base.without, 27])) : base.without;

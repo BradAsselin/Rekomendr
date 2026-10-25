@@ -164,8 +164,8 @@ for (const level of ["warn", "info", "error"]) console[level] = () => {};
   check("…unless the lane is Horror", sent[0].without_genres.split(",").includes("27"), false);
   sent.length = 0;
   await R.loadMoodPools("movie", "drama", { kind: "tone", vibe: "Feel-Good Crowd Pleaser" }, [{ ids: [6075], exclude: false }]);
-  check("a feel-good mood pool keeps out what TMDb tags as sad (tragedy, euthanasia…)", sent[0].without_keywords, "10614,368391,6564,206662,10163,323809,241364");
-  check("the chips don't (loadPools untouched)", /FEEL_GOOD_OUT/.test(read("src/lib/slotRecipe.ts").slice(read("src/lib/slotRecipe.ts").indexOf("export async function loadPools"), read("src/lib/slotRecipe.ts").indexOf("export async function loadPools") + 1200)), false);
+  check("a feel-good mood pool keeps out what TMDb tags as sad (tragedy, euthanasia…)", sent[0].without_keywords.split(",").slice(0, 7).join(","), "10614,368391,6564,206662,10163,323809,241364");
+  // S20 — the chips keep the same keep-outs now (validate-s20.cjs).
   check("the whole pool, sorted by votes", [pools.all.length, pools.all[0].votes >= pools.all[1].votes], [20, true]);
   check("thirds for the tiers", [pools.tier1.length, pools.tier2.length, pools.tier3.length], [7, 7, 6]);
   check("the strength line is 12", R.MIN_STRONG_POOL, 12);
