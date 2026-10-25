@@ -79,8 +79,8 @@ console.log("\n5. + More like this");
 check("starred anchor shows it collapsed", snap.includes("!(anchorOpen || anchorIsStarred) ? undefined"), true);
 check("starred-anchor taps are counted", snap.includes('if (anchorIsStarred) logGoToEvent("goto_more"'), true);
 const page = read("app/page.tsx");
-// S17 — Movies/TV/Books go-tos left the home screen for the Saved page's Favorites; wine's one go-to stays.
-check("home shows the wine go-to only", page.includes("<GoTosList goTos={[]} wine={wineGoTo}"), true);
+// S21 — no go-tos bar on the home screen in any category (Saved → Favorites holds them).
+check("home shows no go-tos bar (S21)", page.includes("<GoTosList"), false);
 check("Wine you bought rows have it (not counted as a go-to)", page.includes('moreFromGoTo({ category: "wine", name }, { counted: false })'), true);
 check("screens open the go-to as the anchor (TMDb, then the chooser)", page.includes('action: "open"') && page.includes("fetchTypedReks(anchor.media, null)"), true);
 check("books + wine run the typed search on the name", page.includes("void handleSearch(`${bar}||||${t.name}||mode:ai`, bar);"), true);

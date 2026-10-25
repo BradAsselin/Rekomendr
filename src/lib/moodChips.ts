@@ -32,20 +32,26 @@ export type ChipCategory = "Movies" | "TV Shows" | "Books" | "Wine";
 export type Chip = { label: string; lane: string };
 export type Refiner =
   | { label: string; kind: "tone"; vibe: string }
-  | { label: string; kind: "era"; era: "classic" | "new" };
+  | { label: string; kind: "era"; era: "classic" | "new" }
+  | { label: string; kind: "short" };
 
 export const SURPRISE_ME = "Surprise me";
 
 const chip = (label: string, lane = label): Chip => ({ label, lane });
 
 export const CHIPS_BY_CATEGORY: Record<ChipCategory, Chip[]> = {
+  // S21 — one scrolling row each, in Brad's approved order (2026-10-25).
   Movies: [
-    chip("Comedy"), chip("Drama"), chip("Thriller"), chip("Crime"),
-    chip("Action"), chip("Romance"), chip("Sci-Fi"), chip(SURPRISE_ME, ""),
+    chip("Comedy"), chip("Drama"), chip("Thriller"), chip("Action"),
+    chip("Romance"), chip("Crime"), chip("Sci-Fi"), chip("Horror"),
+    chip("Mystery"), chip("Animation"), chip("Family"), chip("Fantasy"),
+    chip("Documentary"), chip("War"), chip("Western"), chip(SURPRISE_ME, ""),
   ],
   "TV Shows": [
-    chip("Comedy"), chip("Drama"), chip("Crime"), chip("Thriller"),
-    chip("Sci-Fi"), chip("Reality"), chip("Documentary"), chip(SURPRISE_ME, ""),
+    chip("Comedy"), chip("Drama"), chip("Crime"), chip("Mystery"),
+    chip("Sci-Fi & Fantasy"), chip("Action & Adventure"), chip("Reality"),
+    chip("Documentary"), chip("Animation"), chip("Family"), chip("Western"),
+    chip(SURPRISE_ME, ""),
   ],
   Books: [
     chip("Mystery"), chip("Thriller"), chip("Romance"), chip("Fantasy"),
@@ -58,6 +64,22 @@ export const CHIPS_BY_CATEGORY: Record<ChipCategory, Chip[]> = {
 };
 
 // Tone refiners map onto vibe keys that already exist in TONE_BY_VIBE.
+// S21 — the ten approved vibes (Brad, 2026-10-25). The new tones borrow
+// existing keys, so the AI fallback gets an already-tuned tone clause:
+// Funny = Goofy / Silly Fun, Cozy = Comfort Watch, Tense = (Suspense /)
+// Edge-of-Seat, Epic = Epic / Immersive. Short is a length, not a tone.
+const screenVibes = (feelGood: string, tense: string): Refiner[] => [
+  { label: "Feel-good", kind: "tone", vibe: feelGood },
+  { label: "Funny", kind: "tone", vibe: "Goofy / Silly Fun" },
+  { label: "Dark", kind: "tone", vibe: "Dark & Twisty" },
+  { label: "Smart", kind: "tone", vibe: "Smart & Witty" },
+  { label: "Cozy", kind: "tone", vibe: "Comfort Watch" },
+  { label: "Tense", kind: "tone", vibe: tense },
+  { label: "Epic", kind: "tone", vibe: "Epic / Immersive" },
+  { label: "Classic", kind: "era", era: "classic" },
+  { label: "New", kind: "era", era: "new" },
+  { label: "Short", kind: "short" },
+];
 const media = (feelGood: string): Refiner[] => [
   { label: "Feel-good", kind: "tone", vibe: feelGood },
   { label: "Dark", kind: "tone", vibe: "Dark & Twisty" },
@@ -67,8 +89,8 @@ const media = (feelGood: string): Refiner[] => [
 ];
 
 export const REFINERS_BY_CATEGORY: Record<ChipCategory, Refiner[]> = {
-  Movies: media("Feel-Good Crowd Pleaser"),
-  "TV Shows": media("Comfort Rewatch"),
+  Movies: screenVibes("Feel-Good Crowd Pleaser", "Suspense / Edge-of-Seat"),
+  "TV Shows": screenVibes("Comfort Rewatch", "Edge-of-Seat"),
   Books: media("Comfort Read"),
   // Wine's row 2 is its own existing styles of drinking, not film tones.
   Wine: [
@@ -95,6 +117,11 @@ export function chipQuery(category: string, c: Chip, refiner: Refiner | null): s
       refiner.era === "classic"
         ? lane ? `Classic ${lane}` : "Classics"
         : lane ? `New ${lane} releases` : "New releases";
+  }
+  // S21 — Short on the AI fallback qualifies the lane, as an era does.
+  if (refiner?.kind === "short") {
+    const what = category === "TV Shows" ? "limited series" : "movies under 100 minutes";
+    lane = lane ? `${lane} ${what}` : what;
   }
   const base = `${category}||${lane}||||mode:ai`;
   return vibe ? `${base}||vibe:${vibe}` : base;

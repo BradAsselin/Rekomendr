@@ -126,7 +126,8 @@ for (const level of ["log", "warn", "info", "error"]) console[level] = () => {};
   check("remove = every save row, every spelling", /item\.rawCategories\.map\(\(category\) => undoSignal\(\{ category, title: item\.title, action: "save", remove: true \}\)\)/.test(sp), true);
   check("un-watch through S16's route", /undoWatched\(\{ category, title: item\.title \}\)/.test(sp), true);
   check("un-star: go-tos by the S12 star, wine by its favorite", /<GoToStar item=/.test(sp) && /setWineFavorite\(null\)/.test(sp), true);
-  check("tap opens the card on the page (not counted as a go-to more)", /onOpenSavedItem\(\(t\) => moreFromGoToRef\.current\(t, \{ counted: false \}\)\)/.test(page), true);
+  // S21 — the event carries `counted`: a title tap isn't, "+ More like this" is.
+  check("tap opens the card on the page (not counted as a go-to more)", /onOpenSavedItem\(\(t, counted\) => moreFromGoToRef\.current\(t, \{ counted \}\)\)/.test(page) && /const openItem = \(t: GoToTarget, counted = false\)/.test(sp), true);
   check("footer: Show posters switch", /role="switch"/.test(sp) && /setPostersHidden\(postersOn\)/.test(sp), true);
   check("a failed write puts the row back (re-read)", (sp.match(/void reload\(\);\s*\}/g) || []).length >= 2, true);
   check("route reads through the guarded dynamic import", /import\("\.\.\/\.\.\/\.\.\/src\/lib\/supabaseServer"\)/.test(read("app/api/saved/route.ts")) && !/^import .*supabaseServer/m.test(read("app/api/saved/route.ts")), true);
