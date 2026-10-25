@@ -2,7 +2,8 @@
 // (docs/s13-opus-voice-plan.md, B2).
 //
 // POST { clientId, transcript, barCategory, goTos: { movies, tv, wine } }
-//   → { ok, moodId, category, lane, refiner, goTo, price, mapped, closest }
+//   → { ok, moodId, category, lane, refiner, keywords, unresolved, goTo,
+//       price, mapped, closest }
 //
 // One model call (step "mood", src/lib/llm.ts) maps the words onto the
 // app's existing vocabulary; validateMood() keeps only what that
@@ -21,6 +22,11 @@
 // same parse (docs/s16-watched-search-plan.md, Part B). It is not stored
 // in voice_moods (the voice readout counts what people SAID), and the
 // log names the source.
+//
+// S19a — `keywords`: the concrete ideas in the words as TMDb keyword ids,
+// one OR group per concept (docs/s19-fast-moods-plan.md, Part A).
+// `unresolved` names the tags TMDb doesn't know by that exact name; the
+// client's gate sends such a mood to the AI search.
 
 import { runEnvCheck } from "../../../src/lib/envCheck";
 import { capGate } from "../../../src/lib/apiUsage";
@@ -30,6 +36,8 @@ import { openAIFailureResponse } from "../../../src/lib/openaiFailure";
 import { mediaConfigured, resolveSnappedTitle } from "../../../src/lib/tmdbMedia";
 import { normalizeTitle } from "../../../src/lib/tmdbVerify";
 import { buildMoodPrompt, buildMoodUser, categoryFromWords, validateMood } from "../../../src/lib/voiceMood";
+import { conceptOf, resolveConcepts, type ResolvedConcept, type ResolvedTags } from "../../../src/lib/tmdbKeywords";
+import { tagEchoes } from "../../../src/lib/typedMoodGate";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -70,7 +78,7 @@ async function handlePost(req: Request): Promise<Response> {
     const r = await llmJson({
       step: "mood",
       temperature: 0,
-      maxTokens: 200,
+      maxTokens: 350,
       system: buildMoodPrompt(),
       user: buildMoodUser({ transcript, barCategory: fromWords ?? barCategory, goTos }),
     });
@@ -87,11 +95,17 @@ async function handlePost(req: Request): Promise<Response> {
   }
   const ms = Date.now() - started;
   const mood = validateMood(parsed, barCategory, fromWords);
+  const screen = mood.category === "Movies" || mood.category === "TV Shows";
+  // S19a — the concepts → TMDb keyword ids, beside the go-to lookup below.
+  const keywordsP: Promise<{ resolved: ResolvedTags[]; unresolved: string[] }> =
+    screen && mood.keywords.length && mediaConfigured()
+      ? resolveConcepts(mood.keywords)
+      : Promise.resolve({ resolved: [], unresolved: mood.keywords.flatMap((c) => c.tags) });
 
   // A named title → a steer for screens. Starred: as is (the client has
   // its TMDb id). Not starred: TMDb, for this request only.
   let goTo: { name: string; starred: boolean; tmdbKind: "movie" | "tv" | null; tmdbId: number | null } | null = null;
-  if (mood.goTo && (mood.category === "Movies" || mood.category === "TV Shows")) {
+  if (mood.goTo && screen) {
     const kind = mood.category === "Movies" ? "movie" : "tv";
     const starred = (kind === "movie" ? goTos.movies : goTos.tv).find(
       (n) => normalizeTitle(n) === normalizeTitle(mood.goTo!)
@@ -108,6 +122,27 @@ async function handlePost(req: Request): Promise<Response> {
     // PR); logged so the readout shows how often people name one.
     goTo = { name: mood.goTo, starred: !!goTos.wine && normalizeTitle(goTos.wine) === normalizeTitle(mood.goTo), tmdbKind: null, tmdbId: null };
   }
+
+  // S19a — which resolved tags may filter the pool: those that echo the
+  // person's own words, never a synonym that widens past them ("caper"
+  // for "heist"). A concept
+  // with no echo is kept only as a named title's signature ("a show like
+  // The Office" → mockumentary), and only when TMDb found the title.
+  const raw = await keywordsP;
+  const titleKnown = !!goTo && (goTo.starred || !!goTo.tmdbId);
+  const unused: string[] = [];
+  const concepts: ResolvedConcept[] = [];
+  for (const c of raw.resolved) {
+    const usable = c.tags;
+    const echo = usable.filter((t) => tagEchoes(t.tag, transcript));
+    // An exclusion that echoes the words keeps every tag the parse gave it:
+    // keeping more out only narrows the pool ("gory" → gore, splatter).
+    if (echo.length) concepts.push(conceptOf(c.exclude ? usable : echo, c.exclude, "words"));
+    else if (titleKnown && !c.exclude && usable.length) concepts.push(conceptOf(usable, false, "title"));
+    const kept = echo.length ? (c.exclude ? usable : echo) : titleKnown && !c.exclude ? usable : [];
+    unused.push(...c.tags.filter((t) => !kept.includes(t)).map((t) => t.tag));
+  }
+  const keywords = { resolved: concepts, unresolved: raw.unresolved, unused };
 
   // The record: the words, what they mapped to. Fail-soft and named.
   let moodId: string | null = null;
@@ -146,6 +181,9 @@ async function handlePost(req: Request): Promise<Response> {
     lane: mood.lane?.label ?? null,
     refiner: mood.refiner,
     goTo: goTo ? (goTo.starred ? "starred" : goTo.tmdbId ? "tmdb" : "named") : null,
+    keywords: keywords.resolved.map((c) => (c.exclude ? "-" : "") + (c.role === "title" ? "title:" : "") + c.tags.join("|")),
+    unresolved: keywords.unresolved,
+    unused: keywords.unused,
     price: mood.price,
     mapped: mood.mapped,
     provider,
@@ -159,6 +197,8 @@ async function handlePost(req: Request): Promise<Response> {
     category: mood.category,
     lane: mood.lane,
     refiner: mood.refiner,
+    keywords: keywords.resolved,
+    unresolved: keywords.unresolved,
     goTo,
     price: mood.price,
     mapped: mood.mapped,

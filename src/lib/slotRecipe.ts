@@ -125,6 +125,10 @@ type PoolSpec = {
   after: string | null;
   before: string | null;
   pages: number;
+  // S19a — TMDb keyword filters: AND of OR groups ("10051,6075|240"), and
+  // ids to keep out.
+  withKeywords?: string;
+  withoutKeywords?: string;
 };
 
 const iso = (d: Date) => d.toISOString().slice(0, 10);
@@ -209,6 +213,8 @@ async function discover(spec: PoolSpec): Promise<TmdbCandidate[] | null> {
   if (spec.without.length) params.without_genres = spec.without.join(",");
   if (spec.after) params[`${dateKey}.gte`] = spec.after;
   if (spec.before) params[`${dateKey}.lte`] = spec.before;
+  if (spec.withKeywords) params.with_keywords = spec.withKeywords;
+  if (spec.withoutKeywords) params.without_keywords = spec.withoutKeywords;
   if (spec.kind === "movie") params.with_runtime_gte = "60";
   const pages = await Promise.all(
     Array.from({ length: spec.pages }, (_, i) =>
@@ -245,6 +251,9 @@ export type Pools = {
   popular: TmdbCandidate[];
   fresh: TmdbCandidate[];
   classic: TmdbCandidate[];
+  // S19a — a mood pool (keywords / a named reference): every title in it,
+  // the last resort of every slot, and the fence neighbors stay inside.
+  all?: TmdbCandidate[];
 };
 
 export async function loadPools(kind: MediaKind, lane: string | null, refiner: Refiner): Promise<Pools | null> {
@@ -270,6 +279,99 @@ export async function loadPools(kind: MediaKind, lane: string | null, refiner: R
     fresh: fresh ?? [],
     classic: classic ?? [],
   };
+}
+
+/* ------------------------------------------------------------------
+   S19a — MOOD POOLS (docs/s19-fast-moods-plan.md, Part A): a typed or
+   spoken mood's concrete ideas as TMDb keywords, or the title it named.
+   The chip rules hold (lane genres, floor, refiner, Animation/Family out
+   unless asked); the vote minimum drops to 200 / 60 because a keyword
+   already narrows to the idea. The whole pool is sorted by votes and cut
+   in thirds for the recipe's tiers; fresh and classic come from the same
+   list. Every slot falls back to the whole pool (`all`), so a small pool
+   fills five instead of shipping short. The route decides whether the
+   pool is strong enough to answer at all (MIN_STRONG_POOL).
+------------------------------------------------------------------- */
+export const MIN_STRONG_POOL = 12;
+
+export type MoodConcept = { ids: number[]; exclude: boolean };
+
+function poolsFromList(list: TmdbCandidate[]): Pools {
+  const sorted = [...list].sort((a, b) => (b.votes ?? 0) - (a.votes ?? 0));
+  const third = Math.ceil(sorted.length / 3);
+  const tier1 = sorted.slice(0, third);
+  const touch = Math.max(3, Math.ceil(tier1.length / 2));
+  const thisYear = new Date().getFullYear();
+  return {
+    tier1,
+    tier2: sorted.slice(third, third * 2),
+    tier3: sorted.slice(third * 2),
+    touchstones: tier1.slice(0, touch),
+    popular: tier1.slice(touch),
+    fresh: sorted.filter((c) => (c.year ?? 0) >= thisYear - 1),
+    classic: sorted.filter((c) => c.year != null && c.year <= 1999),
+    all: sorted,
+  };
+}
+
+// A feel-good mood ("an uplifting sports movie") keeps out what TMDb tags
+// as sad: measured, Million Dollar Baby (tragedy, euthanasia) and Southpaw
+// (tragedy) topped the sports pool. Mood pools only; the chips are as
+// they were. tragedy, tragic ending, terminal illness, euthanasia,
+// cancer, depressing, death of a loved one.
+const FEEL_GOOD_OUT = [10614, 368391, 6564, 206662, 10163, 323809, 241364];
+
+// Keyword concepts → one discover (AND across concepts, OR inside one).
+export async function loadMoodPools(
+  kind: MediaKind,
+  lane: string | null,
+  refiner: Refiner,
+  concepts: MoodConcept[]
+): Promise<Pools | null> {
+  const withK = concepts.filter((c) => !c.exclude && c.ids.length).map((c) => c.ids.join("|"));
+  const withoutK = concepts.filter((c) => c.exclude).flatMap((c) => c.ids);
+  const tone = refiner?.kind === "tone" ? refiner.vibe.toLowerCase() : "";
+  if (/feel-good|comfort/.test(tone)) withoutK.push(...FEEL_GOOD_OUT);
+  const base = baseSpec(kind, lane, refiner);
+  // A keyword isn't a genre: "coming of age" also tags It (2017). Horror
+  // stays out of a movie mood pool unless the lane asked for it.
+  const without = kind === "movie" && !base.genres.includes(27) ? Array.from(new Set([...base.without, 27])) : base.without;
+  const spec: PoolSpec = {
+    ...base,
+    without,
+    minVotes: kind === "movie" ? 200 : 60,
+    pages: 3,
+    ...(withK.length ? { withKeywords: withK.join(",") } : {}),
+    ...(withoutK.length ? { withoutKeywords: withoutK.join(",") } : {}),
+  };
+  const list = await discover(spec);
+  return list ? poolsFromList(list) : null;
+}
+
+// A named reference with no keyword concept: its own web (recommendations,
+// then similar), held to the same rules as a discover pool.
+export function webPools(
+  kind: MediaKind,
+  lane: string | null,
+  refiner: Refiner,
+  bundle: MediaBundle | null
+): Pools | null {
+  if (!bundle) return null;
+  const spec = baseSpec(kind, lane, refiner);
+  const minVotes = kind === "movie" ? 100 : 40;
+  const afterY = spec.after ? Number(spec.after.slice(0, 4)) : null;
+  const beforeY = spec.before ? Number(spec.before.slice(0, 4)) : null;
+  const list = bundle.candidates.filter((c) => {
+    const g = c.genreIds ?? [];
+    if ((c.votes ?? 0) < minVotes || (c.rating ?? 0) < spec.floor) return false;
+    if (spec.genres.length && !g.some((x) => spec.genres.includes(x))) return false;
+    if (g.some((x) => spec.without.includes(x))) return false;
+    if (spec.anyOf && !g.some((x) => spec.anyOf!.includes(x))) return false;
+    if (afterY != null && (c.year ?? 0) < afterY) return false;
+    if (beforeY != null && (c.year ?? 9999) > beforeY) return false;
+    return true;
+  });
+  return poolsFromList(list);
 }
 
 /* ------------------------------------------------------------------
@@ -361,6 +463,23 @@ export function neighborPool(
   pools?: Pools | null
 ): TmdbCandidate[] {
   const web = (goTo?.bundle?.candidates ?? []).filter((c) => (c.rating ?? 0) >= floor || (c.votes ?? 0) < 50);
+  // S19a — a mood pool is a promise about the idea ("a funny heist
+  // movie"): neighbors stay inside it — the go-to's web where it meets the
+  // pool, then the pool's titles closest in genre to the go-to.
+  if (pools?.all) {
+    const ids = new Set(pools.all.map((c) => c.id));
+    const inPool = (goTo?.bundle?.candidates ?? []).filter((c) => ids.has(c.id));
+    if (inPool.length >= 6) return inPool;
+    const have = new Set(inPool.map((c) => c.id));
+    const genres = goTo?.bundle?.genreIds ?? [];
+    const fill = pools.all
+      .filter((c) => !have.has(c.id))
+      .map((c) => ({ c, s: jaccard(genres, c.genreIds ?? []) }))
+      .sort((a, b) => b.s - a.s || (b.c.votes ?? 0) - (a.c.votes ?? 0))
+      .slice(0, 24)
+      .map((x) => x.c);
+    return [...inPool, ...fill];
+  }
   if (!lane.length) return web;
   const inLane = web.filter((c) => (c.genreIds ?? []).some((g) => lane.includes(g)));
   if (inLane.length >= 6 || !pools) return inLane;
@@ -407,6 +526,9 @@ export function assemble(args: {
     new: [pools.fresh, pools.tier2],
     classic: [pools.classic, pools.tier2],
   };
+
+  // S19a — a mood pool: every slot's last resort is the whole pool.
+  if (pools.all) for (const k of Object.keys(chains) as SlotKind[]) chains[k].push(pools.all);
 
   const slots = args.only ? [args.only] : slotsFor(args.recipe);
   const out: SlotPick[] = [];
