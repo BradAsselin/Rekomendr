@@ -60,13 +60,19 @@ export async function recordLike(params: {
   const clientId = getAnonymousClientId();
   if (!clientId) return;
 
-  await supabase.from('user_likes').insert({
+  const { error } = await supabase.from('user_likes').insert({
     client_id: clientId,
     category: params.category,
     title: params.title,
     year: params.year ?? null,
     action: params.action,
   });
+  // S22 — this browser (anon) write was unchecked, so a revoked grant
+  // would have dropped every like without a trace.
+  if (error) {
+    console.error('[user-likes] write failed', { action: params.action, code: error.code ?? null, message: error.message });
+    return;
+  }
   if (params.action === 'save' || params.action === 'dislike') notifySavedChange();
 }
 
@@ -132,6 +138,7 @@ export async function loadPrefsForCategory(
     });
     if (!res.ok) return EMPTY_PREFS;
     const data = await res.json();
+    if (data?.ok === false) console.warn('[prefs] read failed', { reason: data.reason ?? null });
     return {
       likedTitles: asStringArray(data?.likedTitles),
       dislikedTitles: asStringArray(data?.dislikedTitles),

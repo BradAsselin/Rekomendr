@@ -26,6 +26,7 @@ import {
   cleanSnapshotId,
   getSnapshotStore,
   loadPublicSnapshot,
+  reasonForDbError,
 } from "./anchorSnapshots";
 
 export const CARD_EVENT_KINDS = [
@@ -74,7 +75,7 @@ export async function recordCardEvent(
     .select("id", { count: "exact", head: true })
     .eq("client_id", clientId)
     .gte("created_at", dayAgo);
-  if (recent.error) return notRecorded(kind, "db_error", { code: recent.error.code });
+  if (recent.error) return notRecorded(kind, reasonForDbError(recent.error), { code: recent.error.code });
   if ((recent.count ?? 0) >= EVENT_CAP_PER_DAY) return notRecorded(kind, "cap", { cap: EVENT_CAP_PER_DAY });
 
   const row: Record<string, unknown> = { card_id: cardId, client_id: clientId, kind };
@@ -93,7 +94,7 @@ export async function recordCardEvent(
         .eq("client_id", clientId)
         .eq("kind", "sent")
         .limit(1);
-      if (prior.error) return notRecorded(kind, "db_error", { code: prior.error.code });
+      if (prior.error) return notRecorded(kind, reasonForDbError(prior.error), { code: prior.error.code });
       if ((prior.data ?? []).length === 0) {
         const entry = await store
           .from("card_events")
@@ -103,7 +104,7 @@ export async function recordCardEvent(
           .eq("is_sender", false)
           .order("created_at", { ascending: true })
           .limit(1);
-        if (entry.error) return notRecorded(kind, "db_error", { code: entry.error.code });
+        if (entry.error) return notRecorded(kind, reasonForDbError(entry.error), { code: entry.error.code });
         const via = (entry.data ?? [])[0]?.card_id ?? null;
         if (via) row.via_card = via;
       }
@@ -118,7 +119,7 @@ export async function recordCardEvent(
         .eq("card_id", cardId)
         .eq("kind", "open")
         .limit(1);
-      if (seen.error) return notRecorded(kind, "db_error", { code: seen.error.code });
+      if (seen.error) return notRecorded(kind, reasonForDbError(seen.error), { code: seen.error.code });
       const sharedAt = card.shared_at ? Date.parse(card.shared_at) : NaN;
       row.is_sender = isSender;
       row.first_open = (seen.data ?? []).length === 0;
@@ -129,7 +130,7 @@ export async function recordCardEvent(
   }
 
   const ins = await store.from("card_events").insert(row);
-  if (ins.error) return notRecorded(kind, "db_error", { code: ins.error.code });
+  if (ins.error) return notRecorded(kind, reasonForDbError(ins.error), { code: ins.error.code });
 
   const detail: Record<string, unknown> = { card: cardId };
   if (kind === "open") Object.assign(detail, { isSender: row.is_sender, firstOpen: row.first_open, sinceSendS: row.since_send_s });

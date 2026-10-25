@@ -19,6 +19,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { runEnvCheck } from "../../../src/lib/envCheck";
+import { logDbError } from "../../../src/lib/dbError";
 
 export const runtime = "nodejs";
 
@@ -131,9 +132,11 @@ export async function POST(req: Request): Promise<Response> {
     .order("created_at", { ascending: false })
     .limit(READ_LIMIT);
 
+  // S22 — a failed read is not "no prefs": the same empty shape (the client
+  // stays fail-soft), but ok:false + reason, and logged by name.
   if (error || !data) {
-    if (error) console.warn("[prefs] read failed:", error.message);
-    return Response.json(EMPTY_PREFS, { status: 200 });
+    const reason = error ? logDbError("prefs read", error) : "db_error";
+    return Response.json({ ...EMPTY_PREFS, ok: false, reason }, { status: 200 });
   }
 
   const rows = data as PrefsRow[];

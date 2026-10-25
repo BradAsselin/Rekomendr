@@ -13,6 +13,7 @@ if (typeof window !== "undefined") {
 }
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { isHealthMedical } from "./categoryGates";
+import { dbErrorReason, type DbErrorReason } from "./dbError";
 
 export const SNAPSHOT_MODES = ["similar", "uses", "alternatives"] as const;
 export type SnapshotMode = (typeof SNAPSHOT_MODES)[number];
@@ -101,23 +102,23 @@ export const getSnapshotStore = (): Promise<SupabaseClient | null> => {
   return storePromise;
 };
 
-// The table-missing signature, from Postgres (42P01) or PostgREST's schema
-// cache (PGRST205). Until Brad runs the migration, THIS is what every
-// snapshot call hits — so it gets its own name in the log, the same way
-// S1's watched route names `migration_pending`.
+// The table-missing signature (42P01 / PGRST205) gets its own name in the
+// log, the same way S1's watched route names `migration_pending`. S22 — a
+// missing GRANT is `permission_denied` (src/lib/dbError.ts). Every caller
+// already logs the reason it gets back, as a warning; a permission failure
+// also logs here, as an error, because it means a migration shipped
+// without its GRANTs.
 export const reasonForDbError = (
   error: { code?: string; message?: string } | null | undefined
-): "migration_pending" | "db_error" => {
-  const code = error?.code ?? "";
-  const msg = error?.message ?? "";
-  if (
-    code === "42P01" ||
-    code === "PGRST205" ||
-    /anchor_snapshots/.test(msg) && /(does not exist|schema cache)/.test(msg)
-  ) {
-    return "migration_pending";
+): DbErrorReason => {
+  const reason = dbErrorReason(error);
+  if (reason === "permission_denied") {
+    console.error("[db] PERMISSION DENIED: check this table's GRANTs", {
+      code: error?.code ?? null,
+      message: error?.message ?? null,
+    });
   }
-  return "db_error";
+  return reason;
 };
 
 // ONE public read: exact id, shared, not revoked, not health. Used by the

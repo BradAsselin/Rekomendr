@@ -22,6 +22,7 @@
 
 import { runEnvCheck } from "../../../src/lib/envCheck";
 import { cleanClientId, getSnapshotStore } from "../../../src/lib/anchorSnapshots";
+import { logDbError } from "../../../src/lib/dbError";
 import {
   loadMediaBundle,
   mediaConfigured,
@@ -42,19 +43,11 @@ const text = (v: unknown, max: number): string | null =>
 const yearOf = (v: unknown): number | null =>
   typeof v === "number" && Number.isInteger(v) && v >= 1870 && v <= 2100 ? v : null;
 
+// S22 — "permission denied for table go_tos" names the table too, so the
+// old name-in-message test called a missing GRANT migration_pending.
 const failure = (where: string, error: { code?: string; message?: string }) => {
-  const missing =
-    error.code === "42P01" ||
-    error.code === "PGRST205" ||
-    /go_tos|goto_events/.test(error.message ?? "");
-  console.warn(`[go-tos] ${where} failed`, {
-    reason: missing ? "migration_pending" : "db_error",
-    code: error.code ?? null,
-  });
-  return Response.json(
-    { ok: false, reason: missing ? "migration_pending" : "db_error" },
-    { status: 200 }
-  );
+  const reason = logDbError(`go-tos ${where}`, error);
+  return Response.json({ ok: false, reason }, { status: 200 });
 };
 
 type Row = {

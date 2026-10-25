@@ -15,6 +15,7 @@ if (typeof window !== "undefined") {
   throw new Error("apiUsage.ts was imported in a browser bundle.");
 }
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { dbErrorReason } from "./dbError";
 
 // Generous, sized so no real user ever sees them (build plan S3.6). The
 // keys are also the CHECK-constrained values of api_usage.route.
@@ -52,13 +53,12 @@ const getStore = (): Promise<SupabaseClient | null> => {
   return storePromise;
 };
 
-const failureReason = (error: { code?: string; message?: string }): string =>
-  error.code === "42P01" ||
-  error.code === "PGRST205" ||
-  (/api_usage/.test(error.message ?? "") &&
-    /(does not exist|schema cache)/.test(error.message ?? ""))
-    ? "migration_pending"
-    : "db_error";
+// S22 — the shared classifier; a missing GRANT is named permission_denied
+// and logged as an error (it means a migration shipped without GRANTs).
+const capLog = (line: string, error: { code?: string; message?: string }, route: string) => {
+  const reason = dbErrorReason(error);
+  (reason === "permission_denied" ? console.error : console.warn)(line, { route, reason, code: error.code });
+};
 
 // True when this request may proceed (and is now counted). ANY
 // infrastructure failure answers true with a named tripwire: a broken
@@ -91,21 +91,13 @@ async function countAndRecord(clientId: string, route: CappedRoute): Promise<boo
     .eq("route", route)
     .gt("created_at", since);
   if (counted.error) {
-    console.warn("[api-cap] uncapped — count failed", {
-      route,
-      reason: failureReason(counted.error),
-      code: counted.error.code,
-    });
+    capLog("[api-cap] uncapped — count failed", counted.error, route);
     return true;
   }
   if ((counted.count ?? 0) >= CAPS_PER_DAY[route]) return false;
   const inserted = await store.from("api_usage").insert({ client_id: clientId, route });
   if (inserted.error) {
-    console.warn("[api-cap] request not counted — insert failed", {
-      route,
-      reason: failureReason(inserted.error),
-      code: inserted.error.code,
-    });
+    capLog("[api-cap] request not counted — insert failed", inserted.error, route);
   }
   return true;
 }
