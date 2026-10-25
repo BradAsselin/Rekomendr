@@ -3042,3 +3042,29 @@ Rows for `anon_agent_s23_ui_*` in user_likes, reksnap_signals, go_tos, wine_mark
   - grants: re-grant from the baseline doc, or restore the backup.
 
 **§0 check: consistent.** No user-facing change. Every save and signal now passes the same server gates, and nothing a person marks can be forged, erased or truncated by someone holding the public key.
+
+## Session 23b — Block 5, the held INSERT revoke — 2026-10-25 — branch auto/s23b-block5 (local agent mode, §11)
+
+Brad: production is promoted and Ready; run Block 5 the same way.
+
+- **Preconditions verified:**
+  - `origin/release/v2` (399e59f) contains 17f62fa;
+  - www.rekomendr.ai answers `/api/signals` (400 "Missing client id" with no body);
+  - 10 production JS chunks scanned: 0 direct `user_likes`/`reksnap_signals` writes, 2 use `/api/signals`.
+- **§11.2:**
+  - backup `backups/2026-10-25-1554-s23-block5.sql` (902 KB);
+  - discovery: 4 rows, INSERT only (matched EXPECTED);
+  - `revoke insert on table public.user_likes, public.reksnap_signals from anon, authenticated;` → COMMIT;
+  - readback: 0 table privileges and 0 sequence privileges for anon/authenticated, RLS on everywhere, service_role intact;
+  - adversarial: positive control t, 6 of 6 refusals (anon and authenticated INSERT on both tables, anon SELECT, anon DELETE), then ROLLBACK.
+- **The public door:** the anon key through PostgREST gets 42501 on both inserts.
+- **Production acceptance** (www.rekomendr.ai, client `anon_agent_s23_ui_1792958121720`): 26 of 26.
+  - Likes, Save, Watched, Not for me, go-to star and more-like-this all saved and read back.
+  - The Saved page tabs show them.
+  - Wine bought and favorite saved and read back.
+  - A real poster snap plus a thumbs-down landed in reksnap_signals, and a wine snap signal reads back.
+  - The cap is counted; refusals hold; no console errors.
+- **Real traffic:** no non-agent writes in the 20 minutes after the revoke, so the agent run is the evidence. Watch the first real likes in the logs (`[signals] ok`).
+- **Revert:** `grant insert on table public.user_likes, public.reksnap_signals to anon, authenticated;` That's only useful if an old bundle has to write directly again; the S3.1 build-skew reload makes that unlikely.
+
+**§0 check: consistent.** There's no change people will see. Every save now passes the server's gates, and nobody holding the public key can write, read or erase anyone's marks.
