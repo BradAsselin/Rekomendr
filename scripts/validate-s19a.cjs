@@ -106,7 +106,7 @@ for (const level of ["warn", "info", "error"]) console[level] = () => {};
     ["something like Ted Lasso but darker", { lane: L("Comedy"), refiner: "Dark", keywords: [kw(["sports", "coach"], false, "title")], goTo: { name: "Ted Lasso", starred: false, tmdbId: 97546 } }, true],
     ["a funny heist movie", { lane: L("Comedy"), refiner: null, keywords: [kw(["heist"])] }, true],
     ["a slow-burn psychological thriller", { lane: L("Thriller"), refiner: null, keywords: [kw(["slow burn"]), kw(["psychological thriller", "psychological"])] }, true],
-    ["something light and romantic for date night", { lane: L("Romance"), refiner: "Feel-good", keywords: [] }, true],
+    ["something light and romantic for date night", { lane: L("Romance"), refiner: "Feel-good", keywords: [] }, false],
     ["a mind-bending sci-fi movie", { lane: L("Sci-Fi"), refiner: null, keywords: [kw(["mind bending"])] }, true],
     ["a scary movie that isn't too gory", { lane: L("Horror"), refiner: null, keywords: [kw(["gore"], true)] }, true],
     ["a show like The Office", { lane: L("Comedy"), refiner: null, keywords: [kw(["mockumentary", "workplace comedy"], false, "title")], goTo: { name: "The Office", starred: false, tmdbId: 2316 } }, true],
@@ -121,12 +121,11 @@ for (const level of ["warn", "info", "error"]) console[level] = () => {};
   check("a title's signature tags never cover the words", G.typedMoodGate("a mockumentary", { lane: L("Comedy"), keywords: [kw(["mockumentary"], false, "title")] }).fast, false);
   check("a word nothing covers stays residual", G.typedMoodGate("a funny heist movie with dinosaurs", runs[2][1]).residual, ["dinosaurs"]);
   check("spoken fillers are covered", G.typedMoodGate("um maybe something funny", { lane: L("Comedy") }).fast, true);
-  check("date night is context", [G.CONTEXT_TAGS.has("date night"), G.typedMoodGate("a romance for date night", { lane: L("Romance") }).fast], [true, true]);
+  check("date night is not context (measured: the Romance pool alone served tear-jerkers)", G.typedMoodGate("a romance for date night", { lane: L("Romance") }).residual, ["date", "night"]);
 
   console.log("\n4. The mood route: which tags may filter");
   const mood = read("app/api/mood/route.ts");
   check("tags must echo the words", /const echo = usable\.filter\(\(t\) => tagEchoes\(t\.tag, transcript\)\);/.test(mood), true);
-  check("a context phrase never filters", /const usable = c\.tags\.filter\(\(t\) => !CONTEXT_TAGS\.has\(t\.tag\)\);/.test(mood), true);
   check("no echo → a title's signature, only when TMDb found the title", /else if \(titleKnown && !c\.exclude && usable\.length\) concepts\.push\(conceptOf\(usable, false, "title"\)\);/.test(mood) && /const titleKnown = !!goTo && \(goTo\.starred \|\| !!goTo\.tmdbId\);/.test(mood), true);
   check("resolution runs beside the go-to lookup", mood.indexOf("const keywordsP") < mood.indexOf("if (mood.goTo && screen)") && mood.indexOf("await keywordsP") > mood.indexOf("if (mood.goTo && screen)"), true);
   check("the answer carries keywords + unresolved", /keywords: keywords\.resolved,\s*unresolved: keywords\.unresolved,/.test(mood), true);

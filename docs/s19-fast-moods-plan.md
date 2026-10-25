@@ -46,8 +46,9 @@ The Office's own recommendations web is weak (Less than Perfect, Archie Bunker's
    - a category, lane or refiner word;
    - **a word of a resolved tag** (stem match: "gory"~"gore", "sports"~"sport"; the tag has to echo the person's own word, so a broad tag can't swallow a word it doesn't mean);
    - **a word of the named reference** when TMDb resolved it (or it's a starred go-to);
-   - a negator ("not", "isn't", "too", "without") when an exclusion concept resolved;
-   - the context phrase "date night".
+   - a negator ("not", "isn't", "too", "without") when an exclusion concept resolved.
+
+   *Amended after the preview run:* a "date night" context phrase was tried and taken out. Romance + Feel-good alone served *The Fault in Our Stars* and *Brokeback Mountain* for "something light and romantic for date night", so that mood keeps the AI search.
 
    Anything left over → AI search, logged with its residual words, as today.
 4. **The pool** (`src/lib/slotRecipe.ts` `loadMoodPools`, `/api/slots`). Discover with the lane genre(s), `with_keywords` (AND of the OR groups), `without_keywords`, and the refiner exactly as the chips do: the same lane floor, Animation/Family out unless asked, ≥200 / ≥60 votes, ≤3 pages, cached an hour like the chip pools. The list (sorted by votes) splits into thirds for touchstone/popular/tier 2/tier 3, plus fresh (last 18 months) and classic (pre-2000) cut from the same list. Every slot's fallback chain ends in the whole pool, so a small pool fills five instead of shipping short.

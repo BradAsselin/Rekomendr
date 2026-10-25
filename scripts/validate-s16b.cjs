@@ -207,8 +207,7 @@ const readNdjson = async (res) => {
     ["something like Ted Lasso but darker", { lane: L("Comedy"), refiner: "Dark", goTo: { name: "Ted Lasso" } }, false],
     ["a funny heist movie", { lane: L("Comedy"), refiner: null }, false],
     ["a slow-burn psychological thriller", { lane: L("Thriller"), refiner: "Smart" }, false],
-    // S19a: "date night" is a context phrase (Romance + Feel-good holds the rest).
-    ["something light and romantic for date night", { lane: L("Romance"), refiner: "Feel-good" }, true],
+    ["something light and romantic for date night", { lane: L("Romance"), refiner: "Feel-good" }, false],
     ["a mind-bending sci-fi movie", { lane: L("Sci-Fi"), refiner: "Smart" }, false],
     ["a dark crime show", { lane: L("Crime"), refiner: "Dark" }, true],
     ["an uplifting sports movie", { lane: L("Drama"), refiner: "Feel-good" }, false],

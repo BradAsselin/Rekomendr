@@ -37,7 +37,7 @@ import { mediaConfigured, resolveSnappedTitle } from "../../../src/lib/tmdbMedia
 import { normalizeTitle } from "../../../src/lib/tmdbVerify";
 import { buildMoodPrompt, buildMoodUser, categoryFromWords, validateMood } from "../../../src/lib/voiceMood";
 import { conceptOf, resolveConcepts, type ResolvedConcept, type ResolvedTags } from "../../../src/lib/tmdbKeywords";
-import { CONTEXT_TAGS, tagEchoes } from "../../../src/lib/typedMoodGate";
+import { tagEchoes } from "../../../src/lib/typedMoodGate";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -125,7 +125,7 @@ async function handlePost(req: Request): Promise<Response> {
 
   // S19a — which resolved tags may filter the pool: those that echo the
   // person's own words, never a synonym that widens past them ("caper"
-  // for "heist"); a context phrase ("date night") never filters. A concept
+  // for "heist"). A concept
   // with no echo is kept only as a named title's signature ("a show like
   // The Office" → mockumentary), and only when TMDb found the title.
   const raw = await keywordsP;
@@ -133,7 +133,7 @@ async function handlePost(req: Request): Promise<Response> {
   const unused: string[] = [];
   const concepts: ResolvedConcept[] = [];
   for (const c of raw.resolved) {
-    const usable = c.tags.filter((t) => !CONTEXT_TAGS.has(t.tag));
+    const usable = c.tags;
     const echo = usable.filter((t) => tagEchoes(t.tag, transcript));
     if (echo.length) concepts.push(conceptOf(echo, c.exclude, "words"));
     else if (titleKnown && !c.exclude && usable.length) concepts.push(conceptOf(usable, false, "title"));

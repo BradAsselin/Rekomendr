@@ -23,8 +23,10 @@
 //     tag has to echo the person's own word, so a broad tag can't swallow
 //     a word it doesn't mean;
 //   - the named title, when TMDb found it (or it is a starred go-to);
-//   - a negator ("isn't too gory"), when an exclusion tag resolved;
-//   - the context phrase "date night".
+//   - a negator ("isn't too gory"), when an exclusion tag resolved.
+// ("for date night" stays residual on purpose: measured on the preview,
+// Romance + Feel-good alone served The Fault in Our Stars and Brokeback
+// Mountain for "something light and romantic for date night".)
 // Such a mood is `strict`: the route builds a mood pool and is the second
 // half of the gate (too thin a pool → the AI search).
 
@@ -110,10 +112,6 @@ export function tagEchoes(tag: string, text: string): boolean {
   return need.length > 0 && need.every((t) => said.some((w) => stemMatch(w, t)));
 }
 
-// Words that set the scene, not the pick ("for date night"): never a
-// filter, never residual.
-export const CONTEXT_TAGS = new Set(["date night"]);
-
 export type MoodGate =
   | { fast: true; strict: boolean }
   | { fast: false; reason: "named_title" | "specific"; residual: string[] };
@@ -153,7 +151,7 @@ export function typedMoodGate(
   }
   const refiner = mood.refiner?.toLowerCase();
   if (refiner) for (const w of REFINER_WORDS[refiner] ?? []) covered.add(w);
-  const words = wordsOf(text.replace(/\bdate[\s-]+night\b/gi, " "));
+  const words = wordsOf(text);
   const has = (w: string) =>
     covered.has(w) || tagWords.some((t) => stemMatch(w, t)) || nameWords.some((t) => t.startsWith(w) || stemMatch(w, t));
   const residual = words.filter((w) => {
