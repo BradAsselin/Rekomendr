@@ -25,6 +25,9 @@ export const CAPS_PER_DAY = {
   "reksnap-text": 300,
   openai: 300,
   recipe: 60,
+  // S23 — like + snap-signal writes (/api/signals). Cheap rows, sized far
+  // above any real session: a bot filter, not a quota.
+  signals: 2000,
 } as const;
 export type CappedRoute = keyof typeof CAPS_PER_DAY;
 

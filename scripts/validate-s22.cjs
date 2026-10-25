@@ -69,7 +69,7 @@ check("no `if (error || !Array.isArray(data)) return` left in reksnap", /if \(er
 check("save: the long-tier enrich update is checked", /if \(enriched\.error\) logDbError/.test(read("app/api/save/route.ts")), true);
 check("prefs: a failed read answers ok:false + reason", /\{ \.\.\.EMPTY_PREFS, ok: false, reason \}/.test(read("app/api/prefs/route.ts")), true);
 const up = read("src/lib/userPrefs.ts");
-check("browser user_likes insert checks its error", /const \{ error \} = await supabase\.from\('user_likes'\)\.insert/.test(up) && /\[user-likes\] write failed/.test(up), true);
+check("like write checks its result (S23: via /api/signals)", /fetch\('\/api\/signals'/.test(up) && /\[user-likes\] write failed/.test(up), true);
 check("prefs client logs ok:false", /data\?\.ok === false\) console\.warn\('\[prefs\] read failed'/.test(up), true);
 check("profile + cardEvents name the reason (no hard-coded db_error)",
   !/refuse\("db_error"/.test(read("app/api/profile/route.ts")) && !/notRecorded\(kind, "db_error"/.test(read("src/lib/cardEvents.ts")), true);
