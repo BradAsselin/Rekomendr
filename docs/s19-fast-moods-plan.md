@@ -48,7 +48,13 @@ The Office's own recommendations web is weak (Less than Perfect, Archie Bunker's
    - **a word of the named reference** when TMDb resolved it (or it's a starred go-to);
    - a negator ("not", "isn't", "too", "without") when an exclusion concept resolved.
 
-   *Amended after the preview run:* a "date night" context phrase was tried and taken out. Romance + Feel-good alone served *The Fault in Our Stars* and *Brokeback Mountain* for "something light and romantic for date night", so that mood keeps the AI search.
+   *Amended after the preview runs:*
+   - **Tags filter only when they echo the person's words.** A synonym that widens past them is dropped (the parse's "caper" for "heist" brought in *Ferris Bueller's Day Off*). A concept that doesn't echo is kept only as a named title's signature ("mockumentary" for The Office).
+   - **Exclusions are the one place a tag widens:** every TMDb keyword containing the word, plus the parse's synonyms. *Saw* carries "blood and gore" / "splatter horror" / "torture", never "gore"; *The Substance* got through with only "gore".
+   - **A feel-good mood pool keeps out what TMDb tags as sad:** tragedy, tragic ending, terminal illness, euthanasia, cancer, depressing, death of a loved one. *Million Dollar Baby* topped "an uplifting sports movie". Chip taps are unchanged.
+   - **Horror stays out of a non-horror movie mood pool:** *It* (2017) carries "coming of age".
+   - **A named title is asked for by its full official name**, so "Parks and Rec" resolved to a Paley Center special before this.
+   - A "date night" context phrase was tried and taken out. Romance + Feel-good alone served *The Fault in Our Stars* and *Brokeback Mountain* for "something light and romantic for date night", so that mood keeps the AI search.
 
    Anything left over → AI search, logged with its residual words, as today.
 4. **The pool** (`src/lib/slotRecipe.ts` `loadMoodPools`, `/api/slots`). Discover with the lane genre(s), `with_keywords` (AND of the OR groups), `without_keywords`, and the refiner exactly as the chips do: the same lane floor, Animation/Family out unless asked, ≥200 / ≥60 votes, ≤3 pages, cached an hour like the chip pools. The list (sorted by votes) splits into thirds for touchstone/popular/tier 2/tier 3, plus fresh (last 18 months) and classic (pre-2000) cut from the same list. Every slot's fallback chain ends in the whole pool, so a small pool fills five instead of shipping short.
