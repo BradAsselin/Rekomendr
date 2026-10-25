@@ -2731,3 +2731,56 @@ Brad's decisions:
 - **Revert:** `git revert -m 1 <#77 merge sha>`.
 
 **§0 check: consistent.** Chips now answer the tone they name, a shorter path to a happy choice. "your" is said only for the person's own favorite, so it's honest about whose taste is speaking. It's wording Brad approved; nothing nags; nothing paid.
+
+## Session 20b — chip tones (Brad's approved follow-ups) — 2026-10-24 — branch auto/s20b-chip-tones — PR #78 (local agent mode, §11)
+
+Brad approved three follow-ups:
+1. Teen drama and horror out of TV Drama + Dark and TV Mystery + Dark.
+2. Romance + Feel-good requires Comedy.
+3. Procedurals out of TV Dark, and teen drama out of TV Drama + Feel-good.
+
+### SHIPPED (#78)
+- **Every TV Dark chip** (all lanes) keeps out `TEEN_OUT`, `TV_HORROR_OUT` and `PROCEDURAL_OUT`.
+- **TV Drama + Feel-good** keeps out `TEEN_OUT`. TV Comedy + Feel-good keeps its teen comedies.
+- **`PoolSpec.allOf`:** Romance + Feel-good (or comfort) asks discover for `with_genres=10749,35`. `webPools` honors `allOf` too, so a named title's web stays romcom.
+- **`TEEN_OUT` widened:** high school, high school student, based on YA novel, teenage romance.
+
+### Calls I made
+- **"police procedural" is NOT used.** I measured 16 procedurals against 20 dark serials. The tag hit 6 of the procedurals, but also 5 of the dark serials: MINDHUNTER, Sherlock, Dexter, The Night Of and Line of Duty. Brad's words were "leave out the procedural tags"; I kept the intent (NCIS and Blue Bloods out) without losing those five.
+  - Used instead, tags found on procedurals and on none of the dark set: procedural, medical procedural, criminal investigation, homicide detective, interrogation, special agent, criminal consultant.
+  - Plus "inspirational", which catches Blue Bloods.
+- **"spin off" is NOT used** (it tags Better Call Saul and Berlin).
+- **"teenager" is NOT used** (it tags Unbelievable).
+- **The new suite is `validate-s20b.cjs`.** I first wrote it as `validate-s21.cjs` by mistake, over the existing S10 file of that name; the original was restored from git before commit.
+
+### MEASURED (local; 20 titles per chip; same judge both sides: TMDb tags plus named lists of procedurals, teen shows, tear-jerkers and dark serials that must not count)
+
+| Chip | Before | After | Preview |
+|---|---|---|---|
+| Movies Romance + Feel-good | 9/20 (not romcom; 2 tear-jerkers) | 0/20 | 0/20 |
+| TV Drama + Feel-good | 1/20 | 0/20 | 0/20 |
+| TV Crime + Dark | 4/20 | 4/20 | 2/20 |
+| TV Drama + Dark | 4/20 | 0/20 | 1/20 |
+| TV Mystery + Dark | 9/20 | 1/20 | 0/20 |
+| TV Thriller + Dark | 5/20 | 1/20 | 2/20 |
+
+### FOUND, NOT FIXED
+- **Untagged procedurals still reach TV Dark:** CSI: Miami, Bones, Boston Blue, Chicago P.D., Scorpion, Lucifer, Elementary and Brooklyn Nine-Nine. Brooklyn Nine-Nine is a comedy; a lever is leaving Comedy out of TV Dark, at the cost of dark comedies (Barry, Fargo's tone).
+- **Wednesday** carries no teen tag.
+- **TV Feel-good has no tone filter beyond War & Politics**, so TV Drama + Feel-good still serves Dexter: Resurrection, The Blacklist, Hawaii Five-0 and Succession. A lever: keep Crime out of TV Feel-good unless the lane is Crime.
+
+### TEST RESIDUE
+`anon_agent_s21_chips_*` rows (the harness label predates the rename). `/api/stats` excludes `anon_agent*`.
+
+### VALIDATION
+New `validate-s20b` 20/20; `validate-s20` updated for the designed change; all 40 suites green; tsc and lint clean.
+
+### Promotion
+- **Ships with S19/S20:** `main → release/v2`. No env, no migrations.
+- **Phone check:**
+  - Romance + Feel-good: all romcoms;
+  - TV Drama + Dark: no Riverdale or AHS;
+  - TV Crime + Dark: no NCIS or Blue Bloods.
+- **Revert:** `git revert -m 1 <#78 merge sha>`.
+
+**§0 check: consistent.** Chips answer the tone they name; precision was bought without dropping the dark serials people mean by "dark" (measured). No wording, nothing nags, nothing paid.
