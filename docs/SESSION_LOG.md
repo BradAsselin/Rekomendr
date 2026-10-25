@@ -2818,3 +2818,227 @@ Brad: "Keep Crime out of TV Feel-good chips unless the lane is Crime." This clos
 - **Revert:** `git revert -m 1 <#79 merge sha>`.
 
 **§0 check: consistent.** A feel-good tap no longer serves serial killers. No wording, nothing nags, nothing paid.
+
+## Session 21 — chip rows — 2026-10-25 — branch auto/s21-chip-rows — PR #81 (local agent mode, §11)
+
+Brad's brief: genres in one scrolling row; vibes in a second row that appears once a genre is picked; ten approved vibes; "Your go-tos" off the home screen, "+ More like this" on every Favorites tile. Plan: `docs/s21-chip-rows-plan.md`.
+
+### SHIPPED (#81)
+- **Genre row** (`SearchBar.tsx`): one sideways-scrolling row, no scrollbar, bleeding to the screen edge (`-mx-4 px-4`). Chips are `shrink-0`, with 14px side padding so the 5th chip is visibly cut. Measured hidden share of the cut chip: 375px 46%, 390 28%, 393 24%; at 430, 5 full chips plus 86% hidden.
+- **Vibe row:** mounts only when a genre is picked, with a 220ms fade-and-slide and none under reduced motion. Tapping the picked genre clears the genre and vibe and runs no search.
+- **Chips** (`moodChips.ts`): Movies has 16, TV 12, in the approved order. Wine and Books are unchanged.
+- **Vibes:** the ten approved. Funny, Cozy, Tense and Epic ride existing `TONE_BY_VIBE` keys ("Goofy / Silly Fun", "Comfort Watch", "Suspense / Edge-of-Seat" / "Edge-of-Seat", "Epic / Immersive"), so no prompt text changed. Short is a new refiner kind `short`; on the AI fallback it qualifies the lane text.
+- **Pools** (`slotRecipe.ts`):
+  - New lanes: Movies Horror, War (10752), Western (37); TV Sci-Fi & Fantasy (10765), Action & Adventure (10759), Western (37). Old keys stay as aliases.
+  - Tone matching is an exact key table now (`toneOf`); "Comfort Watch" must not read as Feel-good.
+  - The Animation and Family lanes no longer shut each other out (Pixar). Kids' animation stays out of Comedy.
+  - Mappings are listed in the PR. Length vibes check each title's own runtime/seasons (`withinLength`): up to 160 detail reads per pool, in chunks of 40, cached per process. Unread titles are dropped and logged as `[slots] length: detail reads failed`.
+- **Go-tos:** `GoTosList` is gone from home in every category. WineFollowup and "Wine you bought" stay. Favorites rows have `MoreLikeThisButton`, counted as `goto_more`; the open event now carries `counted`.
+- **The route** accepts `{kind:"short"}` and logs it. The typed-mood gate and voice parser know the new vibe words.
+
+### Calls I made (measured)
+- **Cozy tags not used:**
+  - "friendship" and "small town" (One Flew Over the Cuckoo's Nest, Deathly Hallows, Corpus Christi);
+  - "hopeful" (The Passion of the Christ, Transamerica, Crazy Heart).
+- **Cozy fill:** the tagged pool was tiny (Drama + Cozy ≈ 8 titles, first tap shipped 4), so light Comedy/Romance titles under the same keep-outs fill behind it. Tagged + filled vibes use the mood pools' vote minimum (200/60, the S19a precedent).
+- **TV Tense** drops Action & Adventure (Agents of S.H.I.E.L.D.).
+- **TV Epic** needs a scale tag (WandaVision and Hawkeye passed on genre alone).
+- **Runtime:** TMDb's discover runtime filter matches alternate cuts (Léon 111 min passed 130+), so each title's own runtime decides. Short allows 2 minutes of slack ("~100").
+
+### MEASURED (live TMDb, 10 titles per chip; local and preview)
+- **Genres:** every title carries the genre (TV Western 8/8, a small pool).
+- **Funny:**
+  - Movies Drama 8/10 feel funny (10/10 Comedy);
+  - TV Drama 9/10.
+- **Cozy:**
+  - Movies Comedy 8/10;
+  - Movies Drama 7/10 (8/10 on preview);
+  - TV Comedy 9/10;
+  - Movies Surprise me 7/10.
+- **Tense:**
+  - Movies Drama 8/8;
+  - Movies Comedy 6/6;
+  - TV Drama 7/10.
+- **Epic:**
+  - Movies Action and Drama 10/10 at 130+ min (8/10 feel epic);
+  - TV Drama 10/10.
+- **Short:**
+  - Movies 30/30 at ≤102 min;
+  - TV 17/17 at ≤2 seasons.
+- **On the preview:** zero length misses across every Short/Epic set.
+
+### FOUND, NOT FIXED
+- `discover()` still sends `with_runtime_gte`, which is not a TMDb parameter, so the 60-minute feature floor never applied to plain chips (Night and Fog, 32 min, on Documentary). It's kept so existing chips don't change silently; the fix is one line (`with_runtime.gte`) if Brad wants it.
+- Books keeps its old chips and five vibes.
+- Second-call short sets on small pools: Comedy + Tense 6, TV Western 8, TV Drama + Short 8.
+
+### TEST RESIDUE
+`api_usage` / signal rows for `anon_agent_s21_chips_*`. `/api/stats` excludes `anon_agent*`.
+
+### VALIDATION
+- **Suites:** new `validate-s21-chip-rows` 59/59. `validate-s5`, `s12a`, `s17b` and `s17c` updated for the designed changes; all 41 suites green with the Windows shell shim; tsc and lint clean.
+- **Playwright (iPhone 13), local and preview:**
+  - 4 full chips plus Romance cut off;
+  - no vibe row and no go-tos bar on home;
+  - no page side-scroll;
+  - a swipe reveals Romance to Horror;
+  - Comedy shows the ten vibes, and a second tap hides them;
+  - reduced motion: animation "none";
+  - Wine shows its 5 chips;
+  - a seeded Favorites list shows "+ More like this" on the movie and the wine, and tapping it opens the card.
+
+### Promotion
+- `main → release/v2` (ships with S19/S20). No env, no migrations.
+- **Phone check:**
+  - home shows one genre row with the 5th chip cut off, and no vibes or go-tos;
+  - swipe left: War and Western are at the end;
+  - tap Comedy and the vibes slide in; tap again and they hide;
+  - Comedy + Cozy reads warm; Drama + Epic is long and big; Comedy + Short is all under ~100 min;
+  - TV Drama + Epic shows Game of Thrones / Shōgun territory;
+  - Saved → Favorites: each tile has "+ More like this".
+- **Revert:** `git revert -m 1 <#81 merge sha>`.
+
+**§0 check: consistent.**
+- **Less to learn:** one row to scan and a second only after a first choice (progressive disclosure), so the first screen is lighter.
+- **More moods answered:** Short, Cozy, Tense, Epic and Funny are moods people actually name.
+- **Honest picks:** every pick comes from TMDb's public data under the same floor and keep-outs. A vibe that can't fill ships short rather than padded. Nothing pays to move a pick.
+- **No new wording:** only Brad's approved labels.
+- **No pressure:** nothing nags. Removing the go-tos bar removes nothing the person relied on: Favorites still steer and live one tap away under Saved.
+
+## Session 21b — S21 calls — 2026-10-25 — branch auto/s21b-floor-books — PR #82, merged d7172a0 (local agent mode, §11)
+
+Brad's S21 calls: (1) fix the 60-minute movie floor; (2) Books gets the same layout, keeping its chips; (3) short sets stay as they are.
+
+### SHIPPED
+- **(1) 60-minute floor** (`slotRecipe.ts` `discover()`): every movie pool now sends `with_runtime.gte=60` (a vibe still raises it to 130 for Epic, or caps it at 100 for Short). The dead `with_runtime_gte` param is gone. TV is unchanged.
+- **(2) Books layout: already live, no code change.** `SearchBar` renders one genre row and one vibe row for every category, so Books got the S21 layout in #81. The S21 entry's "Books keeps its old chips" was about the chip labels, not the layout. Suite checks now lock it in.
+- **(3) Short sets:** untouched.
+
+### MEASURED
+- **TMDb discover**, Documentary, vote_count ≥ 300:
+  - with the old param: 176 results, Night and Fog (32 min) on page 1;
+  - with the fix: 170 results, Night and Fog gone.
+- **Local `/api/slots`**, 3 calls each, runtimes read from TMDb:
+  - Documentary 13 titles, Animation 15, Family 15, Comedy 15;
+  - 0 titles under 60 minutes (shortest: Man with a Movie Camera, 68 min).
+- **Playwright Books** (iPhone 13 at 375/390/430):
+  - one line, scrolls, no page side-scroll;
+  - 4 full chips with Sci-Fi cut off (57% / 32% hidden); at 430, 5 full chips with Non-Fiction 87% hidden;
+  - no vibe row on home;
+  - Mystery shows Feel-good · Dark · Smart · Classic · New, and a second tap hides them.
+
+### VALIDATION
+`validate-s21-chip-rows` 64/64 (+5: the floor, no dead param, TV has no floor, Books chips and vibes, one layout for every category). All suites green, tsc and lint clean.
+
+### TEST RESIDUE
+`api_usage` rows for `anon_agent_s21b_floor_*` (excluded by `/api/stats`).
+
+### Promotion
+- Ships with S21 (`main → release/v2`). No env, no migrations.
+- **Phone check:** Movies → Documentary shows nothing under an hour; Books shows one scrolling row, and its vibes appear only after a genre tap.
+
+**§0 check: consistent.** Plain chips now honor the feature-length floor they always claimed to have, so the picks are more honest. The layout doesn't change and no wording is new.
+
+**Revert:** `git revert -m 1 d7172a0`.
+
+## Session 22 — grants audit + loud DB failures — 2026-10-25 — branch auto/s22-grants-audit (local agent mode, §11)
+
+Brad's brief: Supabase's Oct 30 change (new `public` tables get no default grants). Add the standing rule to the charter, run a read-only grants/RLS audit on production, save it as a baseline, and make server Supabase failures loud. **No database change**: tightening is a separate step Brad approves.
+
+### SHIPPED
+- **Charter §11.2a** (Brad-authorized amendment) holds the full rule. No CLAUDE.md exists, so the charter is its only home.
+- **Audit**, read-only (`default_transaction_read_only = on`), project `zbkwlilrjdbnmgavcdmp`:
+  - the queries are in `docs/sql/grants-audit.sql`, so they can be rerun;
+  - the results are in `docs/sql/grants-snapshot-2026-10.md`, with the flags and a tightening draft marked NOT RUN.
+- **Loud failures** (`src/lib/dbError.ts`): one classifier names every server failure `permission_denied`, `migration_pending` or `db_error`, checking permission first and logging it as an error. The bug it fixes:
+  - **go-tos, wine, mood and voice** decided `migration_pending` by finding the table's name in the error message. "permission denied for table wine_marks" contains the name too, so after Oct 30 a missing GRANT would have been logged as a missing migration. Measured on production: anon reads of wine_marks, go_tos, api_usage and anchor_snapshots all return 42501 with the table in the message.
+  - **`reasonForDbError`** (snapshots, share, card-save, completion, cardEvents) and **apiUsage** now go through the classifier. A permission failure also logs `console.error`.
+  - **Silent swallows fixed:**
+    - reksnap prior-dislikes read and wine-dislikes read (returned null or [] with no log);
+    - the `/api/save` long-tier enrich update (never checked);
+    - `/api/prefs` (now `ok:false` + reason, same empty shape so the client stays fail-soft);
+    - the browser `recordLike` insert (never checked; now logs and skips the saved-change notify);
+    - profile and cardEvents (hard-coded `db_error`, now the named reason).
+
+### FLAGS (from the audit)
+- **Anon can write, 3 tables:** `account_devices`, `reksnap_signals` and `user_likes` hold anon/authenticated INSERT, UPDATE, DELETE and TRUNCATE.
+  - Real anon reach through the Data API is INSERT on reksnap_signals and user_likes, both by design (S2a). Everything else is blocked by RLS. TRUNCATE sits outside RLS but isn't exposed by PostgREST.
+  - `user_likes`' anon insert policy checks nothing (`with_check true`).
+- **RLS off while grants are held:** none. All 12 tables have RLS on; the 9 server-only tables hold no public grants.
+- **Sequences:** anon/authenticated hold USAGE, SELECT and UPDATE on all 5 identity sequences, which none of them needs.
+- **RLS denial is silent:** an anon SELECT on user_likes returns 0 rows and no error. Server routes are service_role (BYPASSRLS), so they're unaffected.
+
+### FOUND, NOT FIXED
+- `src/lib/tokenManager.ts` reads and writes a `tokens` table that doesn't exist. Nothing imports it (dead code), so it's left as is.
+- Warn-only sites that already log the code and return `ok:false` were left as they were (merge, undo, watched, saved, share sender name, card providers, stats). A 42501 shows in their logs by code.
+
+### VALIDATION
+- New `validate-s22` 27/27: classifier units on real production error shapes, no table-name classifiers left, swallow sites log, the snapshot has no secrets, the charter rule is present.
+- All suites green (s36 api-cap log lines unchanged). tsc and lint clean.
+- Local smoke through the server path: prefs, wine state, go-tos state and saved all answer normally.
+
+### Promotion
+- `main → release/v2`. No env, no migrations.
+- The tightening SQL in the snapshot doc waits for Brad's approval and then runs under §11.2.
+
+**§0 check: consistent.** No user-facing change. This keeps saved things and signals from silently vanishing when the grants change, so what a person saves stays saved.
+
+## Session 23 — grants tightening + server-side signal writes — 2026-10-25 — branch auto/s23-grants-tighten (local agent mode, §11)
+
+Brad approved the grants tightening (from S22) and asked for:
+1. the browser's like and signal writes moved to server routes (rate cap + client-ID checks), then anon write privileges revoked;
+2. unneeded sequence privileges revoked;
+3. authenticated left with only what signed-in users truly do.
+
+### SHIPPED
+- **`/api/signals`** (new) carries every like and snap-signal write:
+  - `capGate(clientId, "signals")`, with a new cap key at 2000/day, a bot filter rather than a quota;
+  - allow-lists that mirror the tables' CHECK constraints;
+  - `source` is fixed server-side, and action-owned columns are NULLed otherwise;
+  - failures go through `logDbError`.
+- `recordLike` and `recordSnapSignal` post to it (`keepalive`). A failed write is logged as an error, and Saved is notified only after a confirmed write. `watched` keeps its own route.
+- **No browser table access is left.** The browser Supabase client is used only for sign-in (`supabase.auth`). `tokenManager.ts` was deleted: it was dead code with a browser write to a nonexistent `tokens` table.
+- **Migration** `docs/sql/s23-grants-tighten.sql`, run under §11.2:
+  - backup `backups/2026-10-25-1534-s23.sql` (894 KB);
+  - discovery matched the baseline;
+  - Block 2 COMMIT;
+  - readbacks matched EXPECTED;
+  - adversarial suite: 2 positive controls and 17 of 17 refusals, then ROLLBACK.
+- **Before → after** (full tables in `docs/sql/grants-snapshot-2026-10.md`):
+  - account_devices: ALL → none (anon and authenticated);
+  - user_likes, reksnap_signals: ALL → INSERT (anon and authenticated);
+  - all 5 identity sequences: USAGE, SELECT, UPDATE → none;
+  - `api_usage.route` CHECK + `'signals'`.
+- **authenticated:** signed-in users do nothing on these tables through the Data API (every read is `/api/prefs` or `/api/saved`; devices are written by `/api/auth/merge`). So authenticated holds nothing, apart from the staged INSERT. The two authenticated SELECT policies stay, dormant.
+
+### STAGED (not run): Block 5, the INSERT revoke
+Preview and production share one database, and production (release/v2) still writes likes and snap signals from the browser. Revoking INSERT now would drop every production like and snap signal until promotion. I confirmed production's exact path still works after Block 2: a supabase-js anon insert into both tables landed, and the test rows were removed. **Run Block 5 right after promotion.** After that, the public roles hold nothing on any table.
+
+### MEASURED: preview acceptance (iPhone 13, fresh anon client), 26/26
+- **Movies → Comedy:** Save, Watched, Not for me, go-to star and "+ More like this" each write ok.
+  - Read back through `/api/saved`, `/api/prefs` and `/api/gotos`.
+  - The Saved page's Saved, Watched and Favorites tabs each show the mark.
+- **Wine:** bought + favorite both ok, and `state` reads both back.
+- **Snap:** a real poster photo through the camera input, then a thumbs-down on a rek, writes through `/api/signals` (ok) and reads back from `reksnap_signals`. A wine snap signal reads back with `source='reksnap'`.
+- **Cap:** the signals are counted under the `signals` route.
+- **Refusals:** `watched` via `/api/signals` → 400; a missing client id → 400.
+- **Console:** no write-failed or PERMISSION errors.
+
+### VALIDATION
+- New `validate-s23-grants` 22/22.
+- `validate-s22` and `validate-s36` updated for the designed change (the like write path; the new cap key).
+- All suites green; tsc and lint clean.
+- NOTE: I briefly overwrote the existing `validate-s23.cjs` (S2.3, the health route) and restored it from git before committing. It passes 35/35.
+
+### TEST RESIDUE
+Rows for `anon_agent_s23_ui_*` in user_likes, reksnap_signals, go_tos, wine_marks and api_usage. `/api/stats` excludes `anon_agent*`.
+
+### Promotion
+1. Promote `main → release/v2`. No env changes. Migration Block 2 is already live, and it doesn't break the current production bundle.
+2. **Then Block 5** (one statement; I can run it under §11.2 on your word): `revoke insert on table public.user_likes, public.reksnap_signals from anon, authenticated;` Readback: 24 of 24 (none).
+- **Phone check after promotion:** like, save, Watched and star a card, then open Saved; snap something and thumb a rek down; mark a wine bought.
+- **Revert:**
+  - code: `git revert -m 1 <merge sha>`;
+  - grants: re-grant from the baseline doc, or restore the backup.
+
+**§0 check: consistent.** No user-facing change. Every save and signal now passes the same server gates, and nothing a person marks can be forged, erased or truncated by someone holding the public key.

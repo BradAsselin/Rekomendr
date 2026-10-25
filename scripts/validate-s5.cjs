@@ -59,10 +59,11 @@ const ref = (cat, label) => chips.refinersFor(cat).find((r) => r.label === label
 
 (async () => {
   console.log("\n1. Row 1 — the lanes, category-aware");
-  check("Movies", chips.chipsFor("Movies").map((c) => c.label), ["Comedy", "Drama", "Thriller", "Crime", "Action", "Romance", "Sci-Fi", "Surprise me"]);
-  check("TV gets its own set", chips.chipsFor("TV Shows").map((c) => c.label), ["Comedy", "Drama", "Crime", "Thriller", "Sci-Fi", "Reality", "Documentary", "Surprise me"]);
+  // S21 — Brad's approved rows (2026-10-25); validate-s21-chip-rows.cjs holds the full order.
+  check("Movies", chips.chipsFor("Movies").map((c) => c.label).slice(0, 4), ["Comedy", "Drama", "Thriller", "Action"]);
+  check("TV gets its own set", chips.chipsFor("TV Shows").map((c) => c.label).includes("Sci-Fi & Fantasy"), true);
   check("Wine gets styles", chips.chipsFor("Wine").map((c) => c.label), ["Bold Red", "Crisp White", "Bubbles", "Rosé", "Surprise me"]);
-  check("Row 2 refiners (media)", chips.refinersFor("Movies").map((r) => r.label), ["Feel-good", "Dark", "Smart", "Classic", "New"]);
+  check("Row 2 refiners (media)", chips.refinersFor("Movies").map((r) => r.label), ["Feel-good", "Funny", "Dark", "Smart", "Cozy", "Tense", "Epic", "Classic", "New", "Short"]);
 
   console.log("\n2. One tap on Comedy = five comedy reks, AI, no other step");
   const q = chips.chipQuery("Movies", find("Movies", "Comedy"), null);
@@ -109,9 +110,9 @@ const ref = (cat, label) => chips.refinersFor(cat).find((r) => r.label === label
   check("no 'Lane:' line", /Lane:\s*</.test(code), false);
   check("no + dropdown (Plus icon / 'Pick a lane' / 'Clear lane')", [code.includes("Plus"), code.includes('title="Pick a lane"'), code.includes("Clear lane")], [false, false, false]);
   check("no Play button in the bar", code.includes("<Play"), false);
-  // S17 — both rows (genre, vibe) always show, wrapping.
-  check("row 1 and row 2 both render unconditionally", [/\{chips\.map\(/.test(code), /\{activeChip && \(/.test(code)], [true, false]);
-  check("a chip tap searches at once (no GO)", /const tapChip[\s\S]{0,300}startSearch\(chipQuery\(/.test(code), true);
+  // S21 — row 1 always; row 2 (vibes) only once a genre is picked.
+  check("row 1 always, row 2 once a genre is picked", [/\{chips\.map\(/.test(code), /\{activeChip && \(/.test(code)], [true, true]);
+  check("a chip tap searches at once (no GO)", /const tapChip[\s\S]{0,600}startSearch\(chipQuery\(/.test(code), true);
   check("category switch never searches (3eaa04b holds)", /const handleSelectCategory[\s\S]{0,260}startSearch/.test(code), false);
   check("typed text keeps its path: cat||||text||mode:ai", code.includes("startSearch(`${categoryRef.current}||||${trimmed}||mode:ai`"), true);
   check("camera still opens RekSnap", code.includes("onClick={() => onSnap?.()}"), true);

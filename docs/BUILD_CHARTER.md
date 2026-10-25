@@ -267,6 +267,16 @@ Then: the ops dashboard session (SMTP, Supabase tripwire verification, usage ale
 
 11.2 Migrations. In local mode the agent may execute migrations (superseding §2.9 for local mode only) when ALL of these hold: (a) before any DDL, a full `pg_dump` of the database is written to `backups/YYYY-MM-DD-HHMM-<session>.sql`, its size is verified to be non-zero, and its filename is logged; (b) the migration runs block by block, with a readback after each block, compared against the expected output written in the SQL file; (c) the adversarial suite, including its positive control, passes; (d) the run is recorded in SESSION_LOG.md with the backup filename. If any block fails, stop. Rely only on transaction rollback, attempt no repair, and write BLOCKED: with the restore command for Brad.
 
+11.2a Grants on new tables (Brad-authorized amendment, Oct 25, 2026). From Oct 30, 2026, Supabase gives new tables in `public` NO default grants for `anon`, `authenticated` or `service_role`. Every SQL file that creates a table in `public` must, in the same file:
+(a) enable RLS;
+(b) add the policies the table needs, or say "server-only, no policies" in a comment so the choice is visible;
+(c) grant each role only what it needs:
+  - `service_role`: select, insert, update and delete when any server route touches the table;
+  - `authenticated`: only what signed-in users do;
+  - `anon`: only if logged-out users must reach it (default: none);
+(d) grant `usage, select` on any serial or identity sequence to each role that inserts.
+Never use `alter default privileges` to bring back blanket grants. After running the file, read the grants back, then write a test row through the app's own server path to prove access ("prove the grant, not just the denial"). The baseline is `docs/sql/grants-snapshot-2026-10.md`. Server code names a grants failure `permission_denied` and logs it as an error (`src/lib/dbError.ts`), never as an empty result.
+
 11.3 Environment variables. The agent may add or update Preview and Development variables via the Vercel CLI. Production variables are Brad's and are listed as a paste-block in the promotion checklist (§11.8). Secret values are never echoed into logs, PRs, commits, or chat. Generated values are written only to `.env.local` and Vercel.
 
 11.4 Merges. The agent may merge PRs into `main` under the §10.3 conditions. This includes PRs that required a migration, once §11.2 is satisfied for it.

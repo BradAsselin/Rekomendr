@@ -76,6 +76,12 @@ const REFINER_WORDS: Record<string, string[]> = {
   smart: ["smart", "clever", "intelligent", "witty", "thoughtful", "thought-provoking", "cerebral"],
   classic: ["classic", "classics", "old", "older", "oldie"],
   new: ["new", "newer", "recent", "latest"],
+  // S21 — the new vibes.
+  funny: ["funny", "funnier", "hilarious", "goofy", "silly", "laugh", "laughs", "comedic"],
+  cozy: ["cozy", "cosy", "comfy", "comforting", "comfort", "gentle", "warm"],
+  tense: ["tense", "suspense", "suspenseful", "gripping", "thrilling", "nail-biting", "edge-of-your-seat"],
+  epic: ["epic", "sweeping", "grand"],
+  short: ["short", "quick", "brief"],
 };
 
 const NEGATORS = new Set(

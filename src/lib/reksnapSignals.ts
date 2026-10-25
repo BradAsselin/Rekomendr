@@ -4,7 +4,6 @@
 // (wine, vodka, beer, food, ...) can never surface in the movie/TV/book
 // taste profile loaded by loadPrefsForCategory.
 
-import { supabase } from './supabaseClient';
 import { getAnonymousClientId } from './userPrefs';
 
 // 'detail_expand' = first "Show details" tap on the anchor card per snap.
@@ -46,20 +45,18 @@ export async function recordSnapSignal(params: {
   const clientId = getAnonymousClientId();
   if (!clientId) return;
 
-  const { error } = await supabase.from('reksnap_signals').insert({
-    client_id: clientId,
-    item_name: params.itemName,
-    item_category: params.itemCategory,
-    source: 'reksnap',
-    action: params.action,
-    // Nullable columns — NULL except for the action that owns each.
-    flip_to_mode: params.flipToMode ?? null,
-    chain_depth: params.chainDepth ?? null,
-    chain_origin: params.chainOrigin ?? null,
-  });
-  // TODO: remove this log once Supabase writes are confirmed working
-  if (error) {
-    console.warn('[reksnapSignals] write failed:', error.message, error.details, { clientId, ...params });
+  // S23 — through /api/signals (service role): anon and authenticated hold
+  // no privileges on reksnap_signals. The route sets source and NULLs the
+  // columns an action does not own.
+  const res = await fetch('/api/signals', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    keepalive: true,
+    body: JSON.stringify({ clientId, kind: 'snap', ...params }),
+  }).catch(() => null);
+  const data = res ? await res.json().catch(() => null) : null;
+  if (!res?.ok || !data?.ok) {
+    console.error('[reksnapSignals] write failed', { action: params.action, status: res?.status ?? null, reason: data?.reason ?? data?.error ?? null });
   } else {
     console.log(
       '[reksnapSignals] OK:',

@@ -40,7 +40,7 @@ import {
 } from "../src/lib/wineVisit";
 import WineBought from "../src/components/WineBought";
 import WineFollowup from "../src/components/WineFollowup";
-import GoTosList, { type GoToTarget } from "../src/components/GoTosList";
+import type { GoToTarget } from "../src/components/GoTosList";
 import { onOpenSavedItem } from "../src/components/SavedPage";
 import { goTosFor, logGoToEvent, syncGoTos } from "../src/lib/goTos";
 import { BAR_CATEGORY } from "../src/lib/goToCategory";
@@ -50,7 +50,13 @@ type TransientGoTo = { name: string; tmdbKind: "movie" | "tv"; tmdbId: number; a
 
 // S12b — a chip's refiner, as the slot route reads it.
 const slotRefiner = (r: Refiner | null): SlotRequest["refiner"] =>
-  !r ? null : r.kind === "tone" ? { kind: "tone", vibe: r.vibe } : { kind: "era", era: r.era };
+  !r
+    ? null
+    : r.kind === "tone"
+      ? { kind: "tone", vibe: r.vibe }
+      : r.kind === "era"
+        ? { kind: "era", era: r.era }
+        : { kind: "short" };
 
 // S13c/S16 — a parsed mood (/api/mood) as a slot-recipe run: the lane
 // chip, the refiner, and a named title as the steer (a starred go-to by
@@ -125,7 +131,6 @@ async function parseTypedMood(text: string, bar: string): Promise<any | null> {
     return null;
   }
 }
-import { onWineFavoriteChange } from "../src/lib/wineVisit";
 
 // S8b — what every wine call carries: the visit's shown/rejected names and
 // the starred go-to (the server holds the no-repeat guarantee with it).
@@ -585,19 +590,12 @@ export default function Page() {
     if (withFollowup) setFollowup(st.followup ?? null);
   };
 
-  // S12 — wine's one go-to, for the home list (S17: movie, show and book
-  // go-tos left the home screen; they still steer every recipe, read from
-  // the goTos mirror). Mirror first, then the server's copy wins.
-  const [wineGoTo, setWineGoTo] = useState<{ name: string } | null>(null);
+  // S21 — no go-tos on the home screen in any category (wine's left last):
+  // they live under Saved → Favorites and still steer every recipe.
   useEffect(() => {
-    setWineGoTo(getWineFavorite());
-    const offB = onWineFavoriteChange(() => setWineGoTo(getWineFavorite()));
     void syncGoTos();
     // S12b — the engine's seen set starts from this visit's shown titles.
     seedEngineFromVisit();
-    return () => {
-      offB();
-    };
   }, []);
 
   // S12b — the set on screen came from the slot recipe (its request and
@@ -881,7 +879,8 @@ export default function Page() {
   // same path as a go-to (not counted as a go-to "more").
   const moreFromGoToRef = useRef(moreFromGoTo);
   moreFromGoToRef.current = moreFromGoTo;
-  useEffect(() => onOpenSavedItem((t) => moreFromGoToRef.current(t, { counted: false })), []);
+  // S21 — a Favorites "+ More like this" is counted, as the home bar's was.
+  useEffect(() => onOpenSavedItem((t, counted) => moreFromGoToRef.current(t, { counted })), []);
 
   const openSnapPicker = () => {
     if (ENFORCE_SNAP_LIMIT && getSnapCount() >= SNAP_LIMIT) {
@@ -1505,14 +1504,12 @@ export default function Page() {
             <>
             {/* S8c — the one follow-up question on this open, and the
                 Bought list. Home screen only: never over a result. */}
-            {/* S17 — movie, show and book go-tos left the home screen (they
-                live under Saved → Favorites, and still steer every recipe);
-                wine's go-to and its Bought list stay, as wine keeps its
-                layout. */}
-            {(followup || bought.length > 0 || wineGoTo) && (
+            {/* S21 — no go-tos bar here in any category (Saved →
+                Favorites holds them, each with "+ More like this"); wine's
+                follow-up and Bought list stay. */}
+            {(followup || bought.length > 0) && (
               <div className="mb-6 space-y-3">
                 {followup && <WineFollowup item={followup} />}
-                <GoTosList goTos={[]} wine={wineGoTo} onMore={(t) => moreFromGoTo(t)} />
                 <WineBought
                   items={bought}
                   onMore={(name) => moreFromGoTo({ category: "wine", name }, { counted: false })}

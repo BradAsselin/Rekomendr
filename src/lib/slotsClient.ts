@@ -12,7 +12,11 @@ import { readServiceFailure } from "./aiServiceError";
 export type SlotRequest = {
   category: "Movies" | "TV Shows";
   lane: string | null;
-  refiner: { kind: "tone"; vibe: string } | { kind: "era"; era: "classic" | "new" } | null;
+  refiner:
+    | { kind: "tone"; vibe: string }
+    | { kind: "era"; era: "classic" | "new" }
+    | { kind: "short" }
+    | null;
   // S19a — a typed/spoken mood's TMDb keyword ids (one OR group per
   // concept) and the title it named: the route builds a mood pool from
   // them, and answers weak_pool (→ null here, the AI search runs) when

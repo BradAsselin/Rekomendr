@@ -15,6 +15,7 @@ import {
   cleanClientId,
   cleanSenderName,
   getSnapshotStore,
+  reasonForDbError,
 } from "../../../src/lib/anchorSnapshots";
 
 export const runtime = "nodejs";
@@ -53,7 +54,7 @@ export async function POST(req: Request): Promise<Response> {
   const { error } = await store
     .from("client_profiles")
     .upsert({ client_id: clientId, display_name: name, updated_at: new Date().toISOString() });
-  if (error) return refuse("db_error", { code: error.code });
+  if (error) return refuse(reasonForDbError(error), { code: error.code });
 
   console.info("[profile] name set", { chars: name.length });
   return Response.json({ ok: true, name });
