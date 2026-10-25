@@ -228,9 +228,30 @@ const toResolved = (r: Row, kind: MediaKind): ResolvedTitle => ({
      Lioness have five votes between them.
 
    Anything else returns null and the search behaves exactly as today.
+
+   S19b — SUBTITLES (docs/s19-fast-moods-plan.md, Part B). People type
+   the part of a title before its colon or dash ("Glass Onion" for Glass
+   Onion: A Knives Out Mystery). A HEAD MATCH is a title whose text before
+   any colon or spaced dash equals the typed text, held to the same vote
+   floor, year rule and lane weight. When there are head matches, the best
+   exact match and every head match compete by score and the winner must
+   lead the runner-up by HEAD_LEAD (1.25×); otherwise it is not one title
+   and the search runs ("Spider-Man": Homecoming 24,130 vs the 2002 film
+   21,654). With no head matches, nothing changes.
 ------------------------------------------------------------------- */
 const MIN_TYPED_VOTES = 25;
 const LANE_KIND_WEIGHT = 3;
+const HEAD_LEAD = 1.25;
+
+// Every head of a title: the text before each colon or spaced dash
+// ("Mission: Impossible - Fallout" → "Mission", "Mission: Impossible").
+export function titleHeads(title: string): string[] {
+  const out: string[] = [];
+  const re = /\s*:\s+|\s+[-–—]\s+/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(title))) if (m.index > 0) out.push(title.slice(0, m.index));
+  return out;
+}
 
 // The app's own lanes and vibes (SearchBar) plus TMDb's genre names and
 // the everyday mood words people type. Matched against the WHOLE
@@ -296,23 +317,45 @@ export async function resolveTypedTitleChecked(
     kinds.map((k) => search(k, title, (reason) => failures.push(`${k}:${reason}`)))
   );
 
-  let best: { row: Row; kind: MediaKind; score: number } | null = null;
+  type Scored = { row: Row; kind: MediaKind; score: number };
+  let best: Scored | null = null;
+  const heads: Scored[] = [];
   kinds.forEach((kind, i) => {
     for (const row of results[i] ?? []) {
       if (row.adult) continue;
       const a = normalizeTitle(rowTitle(row, kind));
       const b = normalizeTitle(rowOriginal(row, kind));
-      if (a !== wanted && b !== wanted) continue;
+      const exact = a === wanted || b === wanted;
+      const head =
+        !exact &&
+        [...titleHeads(rowTitle(row, kind)), ...titleHeads(rowOriginal(row, kind))].some(
+          (h) => normalizeTitle(h) === wanted
+        );
+      if (!exact && !head) continue;
       const votes = row.vote_count ?? 0;
       if (votes < MIN_TYPED_VOTES) continue;
       const ry = rowYear(row, kind);
       if (year != null && ry != null && Math.abs(ry - year) > 1) continue;
       const score = votes * (kind === laneKind ? LANE_KIND_WEIGHT : 1);
-      if (!best || score > best.score) best = { row, kind, score };
+      if (head) heads.push({ row, kind, score });
+      else if (!best || score > best.score) best = { row, kind, score };
     }
   });
+  if (heads.length > 0) {
+    const field = [...(best ? [best as Scored] : []), ...heads].sort((x, y) => y.score - x.score);
+    const [top, next] = field;
+    if (next && top.score < next.score * HEAD_LEAD) {
+      console.info("[typed-anchor] ambiguous title — search", {
+        typed: title,
+        top: rowTitle(top.row, top.kind),
+        next: rowTitle(next.row, next.kind),
+      });
+      return { hit: null, lookupError: null };
+    }
+    return { hit: toResolved(top.row, top.kind), lookupError: null };
+  }
   if (!best) return { hit: null, lookupError: failures.length > 0 ? failures.join(",") : null };
-  const hit = best as { row: Row; kind: MediaKind };
+  const hit = best as Scored;
   return { hit: toResolved(hit.row, hit.kind), lookupError: null };
 }
 
