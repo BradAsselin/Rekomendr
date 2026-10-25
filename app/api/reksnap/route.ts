@@ -35,7 +35,8 @@ import {
   mediaConfigured,
   resolveSnappedTitle,
 } from "../../../src/lib/tmdbMedia";
-import { chooseMediaReks, raceTaste } from "../../../src/lib/mediaReks";
+import { chooseMediaReks, guardTaste } from "../../../src/lib/mediaReks";
+import { normalizeTitle } from "../../../src/lib/tmdbVerify";
 import { withRekTokens } from "../../../src/lib/rekTokens";
 import {
   bandFor,
@@ -1155,7 +1156,9 @@ async function tryMediaSnap(
   if (isHealthMedical(cat) || healthLabelFromName(name)) return null;
 
   const started = Date.now();
-  const tasteEarly = kind === "any" ? null : raceTaste(clientId, kind);
+  // S19c — the drop-set read (watched/disliked never in the first five):
+  // started here, beside the TMDb lookups, waited for with a hang guard.
+  const tasteEarly = kind === "any" ? null : guardTaste(clientId, kind, "snap");
   const hit = await resolveSnappedTitle(name, kind);
   if (!hit) {
     console.info("[media-snap] not on TMDb — vision path", { name, category: cat });
@@ -1171,7 +1174,7 @@ async function tryMediaSnap(
   stopVision();
 
   const taste =
-    tasteEarly && kind === bundle.kind ? await tasteEarly : await raceTaste(clientId, bundle.kind);
+    tasteEarly && kind === bundle.kind ? await tasteEarly : await guardTaste(clientId, bundle.kind, "snap");
   const similar = await chooseMediaReks({
     anchor: { title: bundle.title, year: bundle.year, kind: bundle.kind, overview: bundle.overview },
     candidates: bundle.candidates,
@@ -1996,11 +1999,37 @@ ${priorBlock}` : "");
       });
     }
 
+    // S19c — a movie/TV anchor the TMDb path couldn't place still never
+    // shows what this person watched or disliked: dropped here, at the
+    // response site (the two-tier guarantee; §2.12). Media reks only.
+    const anchorKind = mediaKindFor(anchorCategory);
+    const tasteDrop =
+      !anchorIsHealthMedical && clientId && (anchorKind === "movie" || anchorKind === "tv")
+        ? await guardTaste(clientId, anchorKind, "vision")
+        : null;
+    const dropSet = new Set(
+      tasteDrop ? [...tasteDrop.watched, ...tasteDrop.disliked].map(normalizeTitle).filter(Boolean) : []
+    );
+    let tasteDropped = 0;
+    const keep = (list: SnapRekOut[]): SnapRekOut[] =>
+      dropSet.size === 0
+        ? list
+        : list.filter((r) => {
+            const out = !!mediaKindFor(r.category) && dropSet.has(normalizeTitle(r.name));
+            if (out) tasteDropped++;
+            return !out;
+          });
     const cleaned: Record<"similar" | "uses" | "alternatives", SnapRekOut[]> = {
-      similar: anchorIsHealthMedical ? [] : reRank(similar),
-      uses: anchorIsHealthMedical ? [] : reRank(uses),
-      alternatives: anchorIsHealthMedical ? [] : reRank(alternatives),
+      similar: anchorIsHealthMedical ? [] : reRank(keep(similar)),
+      uses: anchorIsHealthMedical ? [] : reRank(keep(uses)),
+      alternatives: anchorIsHealthMedical ? [] : reRank(keep(alternatives)),
     };
+    if (tasteDropped > 0) {
+      console.info("[snap-watched] dropped watched/disliked from the vision lists", {
+        anchor: detected.name,
+        dropped: tasteDropped,
+      });
+    }
 
     // S8b — a wine anchor's Similar is the wine shelf engine's. If the
     // engine failed, the vision read's own Similar ships — through the same

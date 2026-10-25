@@ -416,6 +416,51 @@ async function readTaste(clientId: string, kind: MediaKind): Promise<Taste> {
   return { liked: uniq(liked), disliked: uniq(disliked), watched: uniq(watched) };
 }
 
+/* ------------------------------------------------------------------
+   S19c — THE DROP-SET READ (docs/s19-fast-moods-plan.md, Part C). The
+   snap lane's first five must never show a title this person watched or
+   disliked — a guarantee, not pressure. raceTaste gives up at 400 ms from
+   when it STARTED and answers empty, so a slow database silently emptied
+   the guarantee. guardTaste is the same read with a hang guard instead:
+   measured 66–317 ms (20 fresh connections, 2026-10-24), guard 2.5 s
+   (charter §2.11: above the p99, never a latency SLA). Callers start it
+   early, beside the TMDb lookups, so a normal read adds nothing. Past the
+   guard, or on a failed read, the set ships and the log names it.
+------------------------------------------------------------------- */
+const TASTE_GUARD_MS = 2500;
+
+export function guardTaste(clientId: string | null, kind: MediaKind, path: string): Promise<Taste> {
+  if (!clientId) return Promise.resolve(EMPTY_TASTE);
+  return new Promise<Taste>((resolve) => {
+    let done = false;
+    const timer = setTimeout(() => {
+      if (done) return;
+      done = true;
+      console.warn("[snap-watched] taste read unavailable — watched/disliked not excluded", { path, kind, guardMs: TASTE_GUARD_MS });
+      resolve(EMPTY_TASTE);
+    }, TASTE_GUARD_MS);
+    readTaste(clientId, kind).then(
+      (t) => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        resolve(t);
+      },
+      (err) => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        console.warn("[snap-watched] taste read failed — watched/disliked not excluded", {
+          path,
+          kind,
+          error: err instanceof Error ? err.message.slice(0, 120) : String(err),
+        });
+        resolve(EMPTY_TASTE);
+      }
+    );
+  });
+}
+
 export function raceTaste(clientId: string | null, kind: MediaKind): Promise<Taste> {
   if (!clientId) return Promise.resolve(EMPTY_TASTE);
   return Promise.race([
