@@ -133,8 +133,20 @@ const FEEL_GOOD_OUT = [
 // slasher, supernatural horror, psychological horror, horror anthology
 // (Chucky in Crime + Dark; American Horror Story in Drama + Feel-good).
 const TV_HORROR_OUT = [315058, 12339, 256183, 295907, 250593];
-// Teen drama, teen psychological drama: Riverdale in Crime + Dark.
-const TEEN_OUT = [193400, 369277];
+// Teen TV: teen drama, teen psychological drama, high school, high school
+// student, based on young adult novel, teenage romance (Riverdale, Elite,
+// Euphoria, Gossip Girl, Sex Education). Not "teenager": it also tags
+// Unbelievable, a true-crime show about a teen victim.
+const TEEN_OUT = [193400, 369277, 6270, 33910, 246466, 188237];
+// S20b — procedurals out of Dark on TV (Brad 2026-10-24: NCIS, Blue Bloods).
+// Measured on 16 procedurals vs 20 dark serials: "police procedural" tags
+// 6 procedurals but also MINDHUNTER, Sherlock, Dexter, The Night Of and
+// Line of Duty, so it is NOT used. These tag procedurals and none of the
+// dark set: procedural, medical procedural, criminal investigation,
+// homicide detective, interrogation, special agent, criminal
+// consultant — plus inspirational (Blue Bloods), a tone Dark never wants.
+// Not "spin off": it tags Better Call Saul and Berlin.
+const PROCEDURAL_OUT = [207694, 298849, 157241, 180668, 15271, 206958, 212513, 281585];
 
 type PoolSpec = {
   kind: MediaKind;
@@ -146,6 +158,8 @@ type PoolSpec = {
   after: string | null;
   before: string | null;
   pages: number;
+  // S20b — genres the title must ALSO carry (Romance + Feel-good → Comedy).
+  allOf?: number[];
   // S19a — TMDb keyword filters: AND of OR groups ("10051,6075|240"), and
   // ids to keep out.
   withKeywords?: string;
@@ -172,15 +186,22 @@ function baseSpec(kind: MediaKind, lane: string | null, refiner: Refiner): PoolS
   for (const g of [16, 10751, 10762]) if (!genres.includes(g)) without.push(g);
   const tone = refiner?.kind === "tone" ? refiner.vibe.toLowerCase() : "";
   const withoutK: number[] = [];
+  let allOf: number[] = [];
   if (/feel-good|comfort/.test(tone)) {
     // Bright: no horror/thriller/war — unless the lane itself is one.
     without.push(...BRIGHT_OUT[kind].filter((g) => !genres.includes(g)));
     withoutK.push(...FEEL_GOOD_OUT);
     if (kind === "tv") withoutK.push(...TV_HORROR_OUT);
+    // S20b — feel-good TV drama is no teen drama (Riverdale, Euphoria).
+    if (kind === "tv" && genres.includes(18)) withoutK.push(...TEEN_OUT);
+    // S20b — feel-good romance is romcom: Comedy too. Catches the
+    // tear-jerkers no tag names (A Star Is Born, Brokeback Mountain).
+    if (genres.includes(10749) && !genres.includes(35)) allOf = [35];
   } else if (/dark/.test(tone)) {
     anyOf = DARK_ANY[kind];
-    // Dark crime on TV is grown-up crime: no teen drama, no horror.
-    if (kind === "tv" && genres.includes(80)) withoutK.push(...TV_HORROR_OUT, ...TEEN_OUT);
+    // Dark on TV is grown-up and serialized: no teen drama, no horror, no
+    // procedurals (S20 crime lanes; S20b every TV lane).
+    if (kind === "tv") withoutK.push(...TV_HORROR_OUT, ...TEEN_OUT, ...PROCEDURAL_OUT);
   } else if (/smart/.test(tone)) {
     floor = Math.max(floor, 7.4);
   }
@@ -196,6 +217,7 @@ function baseSpec(kind: MediaKind, lane: string | null, refiner: Refiner): PoolS
     after,
     before,
     pages: 8,
+    ...(allOf.length ? { allOf } : {}),
     ...(withoutK.length ? { withoutKeywords: withoutK.join(",") } : {}),
   };
 }
@@ -236,7 +258,9 @@ async function discover(spec: PoolSpec): Promise<TmdbCandidate[] | null> {
     "vote_average.gte": String(spec.floor),
     "vote_count.gte": String(spec.minVotes),
   };
-  if (spec.genres.length) params.with_genres = spec.genres.join("|");
+  // OR inside the lane, AND with allOf ("10749,35" = Romance and Comedy).
+  const withG = [spec.genres.join("|"), ...(spec.allOf ?? []).map(String)].filter(Boolean);
+  if (withG.length) params.with_genres = withG.join(",");
   if (spec.without.length) params.without_genres = spec.without.join(",");
   if (spec.after) params[`${dateKey}.gte`] = spec.after;
   if (spec.before) params[`${dateKey}.lte`] = spec.before;
@@ -391,6 +415,7 @@ export function webPools(
     if (spec.genres.length && !g.some((x) => spec.genres.includes(x))) return false;
     if (g.some((x) => spec.without.includes(x))) return false;
     if (spec.anyOf && !g.some((x) => spec.anyOf!.includes(x))) return false;
+    if (spec.allOf && !spec.allOf.every((x) => g.includes(x))) return false;
     if (afterY != null && (c.year ?? 0) < afterY) return false;
     if (beforeY != null && (c.year ?? 9999) > beforeY) return false;
     return true;
