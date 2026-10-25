@@ -156,3 +156,24 @@ The tightening ran under §11.2:
 - RLS is still on for all 12 tables.
 
 **Staged (Block 5):** revoke INSERT on user_likes and reksnap_signals from anon and authenticated. Production (release/v2) still writes those from the browser until S23 is promoted, and preview and production share this database. Run Block 5 right after promotion. After that, the public roles hold nothing on any table.
+
+## AFTER BLOCK 5 — 2026-10-25 (backup `backups/2026-10-25-1554-s23-block5.sql`)
+
+This ran after production was promoted. Before revoking, I confirmed that:
+- release/v2 (399e59f) contains 17f62fa;
+- www.rekomendr.ai serves `/api/signals`;
+- none of the 10 production JS chunks writes a table directly.
+
+The revoke: `revoke insert on table public.user_likes, public.reksnap_signals from anon, authenticated;`
+
+| check | result |
+|---|---|
+| anon/authenticated privileges, all 12 tables | **none** (0 rows) |
+| anon/authenticated privileges, all 5 sequences | **none** |
+| RLS off | 0 tables |
+| service_role on user_likes and reksnap_signals | SELECT, INSERT, UPDATE, DELETE (intact) |
+| adversarial | positive control t; 6 of 6 refusals; ROLLBACK |
+| anon key through PostgREST | 42501 on both inserts |
+| production acceptance (www.rekomendr.ai) | 26 of 26: likes, Save, Watched, Not for me, star, more-like-this, Saved page, wine, a real snap + thumbs-down, all saved and read back |
+
+The public roles now hold nothing on any table in `public`.
