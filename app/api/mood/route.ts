@@ -135,9 +135,12 @@ async function handlePost(req: Request): Promise<Response> {
   for (const c of raw.resolved) {
     const usable = c.tags;
     const echo = usable.filter((t) => tagEchoes(t.tag, transcript));
-    if (echo.length) concepts.push(conceptOf(echo, c.exclude, "words"));
+    // An exclusion that echoes the words keeps every tag the parse gave it:
+    // keeping more out only narrows the pool ("gory" → gore, splatter).
+    if (echo.length) concepts.push(conceptOf(c.exclude ? usable : echo, c.exclude, "words"));
     else if (titleKnown && !c.exclude && usable.length) concepts.push(conceptOf(usable, false, "title"));
-    unused.push(...c.tags.filter((t) => !(echo.length ? echo : titleKnown ? usable : []).includes(t)).map((t) => t.tag));
+    const kept = echo.length ? (c.exclude ? usable : echo) : titleKnown && !c.exclude ? usable : [];
+    unused.push(...c.tags.filter((t) => !kept.includes(t)).map((t) => t.tag));
   }
   const keywords = { resolved: concepts, unresolved: raw.unresolved, unused };
 

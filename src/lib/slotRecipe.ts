@@ -314,6 +314,13 @@ function poolsFromList(list: TmdbCandidate[]): Pools {
   };
 }
 
+// A feel-good mood ("an uplifting sports movie") keeps out what TMDb tags
+// as sad: measured, Million Dollar Baby (tragedy, euthanasia) and Southpaw
+// (tragedy) topped the sports pool. Mood pools only; the chips are as
+// they were. tragedy, tragic ending, terminal illness, euthanasia,
+// cancer, depressing, death of a loved one.
+const FEEL_GOOD_OUT = [10614, 368391, 6564, 206662, 10163, 323809, 241364];
+
 // Keyword concepts → one discover (AND across concepts, OR inside one).
 export async function loadMoodPools(
   kind: MediaKind,
@@ -323,6 +330,8 @@ export async function loadMoodPools(
 ): Promise<Pools | null> {
   const withK = concepts.filter((c) => !c.exclude && c.ids.length).map((c) => c.ids.join("|"));
   const withoutK = concepts.filter((c) => c.exclude).flatMap((c) => c.ids);
+  const tone = refiner?.kind === "tone" ? refiner.vibe.toLowerCase() : "";
+  if (/feel-good|comfort/.test(tone)) withoutK.push(...FEEL_GOOD_OUT);
   const base = baseSpec(kind, lane, refiner);
   // A keyword isn't a genre: "coming of age" also tags It (2017). Horror
   // stays out of a movie mood pool unless the lane asked for it.

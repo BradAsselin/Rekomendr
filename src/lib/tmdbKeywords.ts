@@ -9,6 +9,11 @@
 // with no exact hit is unresolved: never a near miss ("cozy mystery" is
 // not "cozy").
 //
+// An EXCLUSION ("isn't too gory") is the one place a tag widens: every
+// keyword containing its words is kept out too, because keeping more out
+// only narrows the pool. Measured: Saw carries "blood and gore", "splatter
+// horror" and "torture", never "gore".
+//
 // Cached per process for a day, misses included. A TMDb failure is named
 // and the tag counts as unresolved, so the mood takes the AI search.
 
@@ -20,13 +25,16 @@ import { tmdbGet } from "./tmdbMedia";
 
 const TTL_MS = 24 * 60 * 60 * 1000;
 const CACHE_MAX = 500;
-const cache = new Map<string, { at: number; ids: number[] }>();
+type TagIds = { exact: number[]; wide: number[] };
+const cache = new Map<string, { at: number; ids: TagIds }>();
 
 export const keywordKey = (s: string): string => s.toLowerCase().replace(/[^a-z0-9]+/g, "");
 
-async function resolveTag(tag: string): Promise<number[] | null> {
+const wordsOf = (s: string) => s.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+
+async function resolveTag(tag: string): Promise<TagIds | null> {
   const key = keywordKey(tag);
-  if (!key) return [];
+  if (!key) return { exact: [], wide: [] };
   const hit = cache.get(key);
   if (hit && Date.now() - hit.at < TTL_MS) return hit.ids;
   let failed: string | null = null;
@@ -35,9 +43,19 @@ async function resolveTag(tag: string): Promise<number[] | null> {
     console.warn("[mood-keywords] lookup failed — tag unresolved", { tag, reason: failed });
     return null;
   }
-  const ids = (Array.isArray(data.results) ? data.results : [])
-    .filter((r: any) => typeof r?.id === "number" && typeof r?.name === "string" && keywordKey(r.name) === key)
-    .map((r: any) => r.id as number);
+  const rows = (Array.isArray(data.results) ? data.results : []).filter(
+    (r: any) => typeof r?.id === "number" && typeof r?.name === "string"
+  );
+  const want = wordsOf(tag);
+  const ids: TagIds = {
+    exact: rows.filter((r: any) => keywordKey(r.name) === key).map((r: any) => r.id as number),
+    wide: rows
+      .filter((r: any) => {
+        const have = wordsOf(r.name);
+        return keywordKey(r.name) === key || want.every((w) => have.includes(w));
+      })
+      .map((r: any) => r.id as number),
+  };
   if (cache.size >= CACHE_MAX) {
     const oldest = cache.keys().next().value;
     if (oldest !== undefined) cache.delete(oldest);
@@ -67,8 +85,8 @@ export async function resolveConcepts(
       const hits = await Promise.all(c.tags.map((t) => resolveTag(t)));
       const tags: { tag: string; ids: number[] }[] = [];
       c.tags.forEach((t, i) => {
-        const found = hits[i];
-        if (found && found.length) tags.push({ tag: t, ids: found });
+        const found = hits[i] ? (c.exclude ? hits[i]!.wide : hits[i]!.exact) : [];
+        if (found.length) tags.push({ tag: t, ids: found });
         else unresolved.push(t);
       });
       return { tags, exclude: c.exclude };

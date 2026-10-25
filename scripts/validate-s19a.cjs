@@ -42,6 +42,7 @@ for (const level of ["warn", "info", "error"]) console[level] = () => {};
     heist: [{ id: 10051, name: "heist" }, { id: 191845, name: "bank heist" }],
     "feel good": [{ id: 383896, name: "feel good" }, { id: 275276, name: "feelgood" }],
     "cozy mystery": [{ id: 326774, name: "cozy" }],
+    gore: [{ id: 10292, name: "gore" }, { id: 384156, name: "blood and gore" }, { id: 367142, name: "gore fest" }, { id: 1, name: "gory" }],
   };
   const K = load("src/lib/tmdbKeywords.ts", {
     "./tmdbMedia": {
@@ -61,6 +62,9 @@ for (const level of ["warn", "info", "error"]) console[level] = () => {};
   check("every exact duplicate kept (feel good = feelgood)", r.resolved[1].tags[0].ids, [383896, 275276]);
   check("no exact hit = unresolved, never a near miss", r.unresolved, ["caper", "cozy mystery"]);
   check("a concept with no hit drops", r.resolved.length, 2);
+  r = await K.resolveConcepts([{ tags: ["gore"], exclude: true }, { tags: ["gore"], exclude: false }]);
+  check("an exclusion widens to every keyword containing its words (Saw: blood and gore)", r.resolved[0].tags[0].ids, [10292, 384156, 367142]);
+  check("an inclusion stays exact", r.resolved[1].tags[0].ids, [10292]);
   const before = calls.length;
   await K.resolveConcepts([{ tags: ["heist"], exclude: false }]);
   check("cached (misses too)", calls.length, before);
@@ -127,6 +131,7 @@ for (const level of ["warn", "info", "error"]) console[level] = () => {};
   const mood = read("app/api/mood/route.ts");
   check("tags must echo the words", /const echo = usable\.filter\(\(t\) => tagEchoes\(t\.tag, transcript\)\);/.test(mood), true);
   check("no echo → a title's signature, only when TMDb found the title", /else if \(titleKnown && !c\.exclude && usable\.length\) concepts\.push\(conceptOf\(usable, false, "title"\)\);/.test(mood) && /const titleKnown = !!goTo && \(goTo\.starred \|\| !!goTo\.tmdbId\);/.test(mood), true);
+  check("an echoing exclusion keeps all its tags (synonyms only narrow)", /concepts\.push\(conceptOf\(c\.exclude \? usable : echo, c\.exclude, "words"\)\)/.test(mood), true);
   check("resolution runs beside the go-to lookup", mood.indexOf("const keywordsP") < mood.indexOf("if (mood.goTo && screen)") && mood.indexOf("await keywordsP") > mood.indexOf("if (mood.goTo && screen)"), true);
   check("the answer carries keywords + unresolved", /keywords: keywords\.resolved,\s*unresolved: keywords\.unresolved,/.test(mood), true);
 
@@ -157,6 +162,10 @@ for (const level of ["warn", "info", "error"]) console[level] = () => {};
   sent.length = 0;
   await R.loadMoodPools("movie", "horror", null, [{ ids: [10292], exclude: true }]);
   check("…unless the lane is Horror", sent[0].without_genres.split(",").includes("27"), false);
+  sent.length = 0;
+  await R.loadMoodPools("movie", "drama", { kind: "tone", vibe: "Feel-Good Crowd Pleaser" }, [{ ids: [6075], exclude: false }]);
+  check("a feel-good mood pool keeps out what TMDb tags as sad (tragedy, euthanasia…)", sent[0].without_keywords, "10614,368391,6564,206662,10163,323809,241364");
+  check("the chips don't (loadPools untouched)", /FEEL_GOOD_OUT/.test(read("src/lib/slotRecipe.ts").slice(read("src/lib/slotRecipe.ts").indexOf("export async function loadPools"), read("src/lib/slotRecipe.ts").indexOf("export async function loadPools") + 1200)), false);
   check("the whole pool, sorted by votes", [pools.all.length, pools.all[0].votes >= pools.all[1].votes], [20, true]);
   check("thirds for the tiers", [pools.tier1.length, pools.tier2.length, pools.tier3.length], [7, 7, 6]);
   check("the strength line is 12", R.MIN_STRONG_POOL, 12);
