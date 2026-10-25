@@ -2507,3 +2507,172 @@ Each reverts with `git revert -m 1 <sha>`, newest first.
 - What you've watched stays out of the way.
 - Marks you've made open as you left them, so nothing asks twice.
 - No new wording beyond Brad's approved lines; nothing pays to move a pick; nothing nags.
+
+## Session 19 — fast moods, subtitle titles, snap first five (S19a + S19b + S19c) — 2026-10-24 — branches auto/s19a-mood-keywords, auto/s19b-subtitle-titles, auto/s19c-snap-first-five — PRs #73, #74, #75 (local agent mode, §11)
+
+Brad's brief had three parts, merging when green:
+- **Part A:** TMDb keyword tags (and a named reference title) for typed and spoken Movies/TV moods, behind a relevance gate.
+- **Part B:** typed titles match the part before a colon or dash.
+- **Part C:** a fresh snap's first five exclude Watched and disliked titles.
+
+No new wording. Plan: `docs/s19-fast-moods-plan.md` (amended after measuring).
+
+**Merges** (green, checked on their own previews and on the main preview):
+
+| PR | Part | merge SHA |
+|---|---|---|
+| #74 | S19b | `ad4f7a4` |
+| #75 | S19c | `51a98aa` |
+| #73 | S19a | `3f30aee` |
+
+Each one reverts with `git revert -m 1 <sha>`, newest first.
+
+### Calls I made (each reversible)
+1. **The parse prompt changed (tags only).** It now names keyword tags and asks for a named title's full official name. The prompt writes no text a person reads, so it wasn't held for VOICE (S13c precedent, and the brief asked for it).
+2. **A tag filters only when it echoes the person's own words.** The parse's synonyms widened past what was asked: "caper" for "heist" brought in Ferris Bueller's Day Off. A tag that doesn't echo is kept only as a named title's signature (for example, "mockumentary" for The Office).
+3. **Exclusions widen; inclusions never do.**
+   - "Isn't too gory" keeps out every keyword containing "gore", plus the parse's synonyms.
+   - Why: Saw is tagged "blood and gore", never "gore".
+4. **Two keep-outs, on mood pools only (not chips):**
+   - A feel-good mood keeps out TMDb's sad tags (tragedy, euthanasia, terminal illness, cancer, depressing and others). Million Dollar Baby had topped "uplifting sports".
+   - A non-horror movie mood keeps Horror out. It (2017) carries "coming of age".
+5. **The pool-strength line is 12 titles** left after this visit's exclusions. Below it, the route answers `weak_pool` and the AI search runs on the words.
+6. **Spoken moods now pass the same gate as typed** (a behavior change).
+   - A specific spoken mood such as "a slow-burn psychological thriller" used to go fast, ungated and off-mood. It now takes the AI search, like typed.
+   - Chip-only spoken moods stay fast.
+   - Spoken fillers ("um", "maybe") are covered.
+7. **"Date night" as a context phrase was tried and taken out.** Romance + Feel-good alone served The Fault in Our Stars and Brokeback Mountain.
+8. **Typed titles:**
+   - Rule: when head matches exist, the winner must lead by 1.25×, or the search runs.
+   - Now search: "Star Wars" (the 1977 film and The Force Awakens are close, 23,070 vs 21,061 votes) and "Mission Impossible".
+   - Before, "Star Wars" opened the 1977 film.
+9. **Part C's real leak was the 400 ms race.**
+   - The snap's TMDb path already dropped watched titles, but `raceTaste` answered empty when the taste read was slow.
+   - Fix: the drop-set read is now `guardTaste`, a hang guard at 2.5 s against a measured 66–317 ms.
+   - The vision path also drops watched and disliked media reks at the response site.
+
+### SHIPPED
+- **S19a (#73), fast moods:**
+  - **Parse:** concrete ideas come back as TMDb keyword tags. `src/lib/tmdbKeywords.ts` resolves them by exact name, cached for a day; failures log `[mood-keywords]`.
+  - **Gate (`typedMoodGate.ts`):** covers a mood's words with echoed tags, the named title, negators and fillers.
+  - **Pool (`/api/slots`):** builds a mood pool (`loadMoodPools` / `webPools`), then runs the slot recipe and go-to steering as today, with neighbors fenced inside the pool. A weak pool sends the mood to the AI search.
+  - **Voice:** spoken moods run the typed branch, with the parse already in hand.
+- **S19b (#74), subtitle titles:**
+  - "Glass Onion" → *Glass Onion: A Knives Out Mystery*
+  - "Dune" → the 2021 film
+  - "Spider-Man" → search
+  - "Lioness" → unchanged
+- **S19c (#75), snap first five:** no watched or disliked title appears in a fresh poster snap, a typed-title anchor's reks, or a vision-path media snap.
+
+### MEASURED (S19a preview, 390×844, a fresh visit per mood, no go-tos; the full 20-row table is in #73)
+- **The real ten (S16's): 5/10 fast. Target was ≥7: missed.**
+  - Fast: funny heist 1.1 s; dark crime show 1.0 s (S16 chip path); uplifting sports 1.4 s; scary-not-gory 1.4 s; like The Office 1.2 s first card, 4.8 s complete.
+  - AI search (20–29 s, all on-mood): cozy mystery; like Ted Lasso but darker; slow-burn psychological thriller; light romantic date night; mind-bending sci-fi.
+  - Why these went to AI: TMDb's tags for them are too thin (0–3 titles), or the fast pool was off-mood.
+- **The new ten: 10/10 fast**, first card 1.0–2.6 s: time travel; coming of age; road trip comedy; courtroom drama; small-town mystery show; feel-good underdog; like Succession; mockumentary sitcom; heist thriller; like Parks and Rec.
+- **First card on fast moods: met (target ≤3 s).**
+  - Typed: 1.0–2.6 s. Spoken: 1.6–2.9 s.
+  - A named title completes at about 5–6 s, when its "vs." lines land.
+- **Relevance: about 8.5/10. Target was ≥9: missed.**
+  - 15 sets fit, 4 partly fit, 1 doesn't.
+  - Partly fit: like Ted Lasso but darker (AI; warm, not darker); uplifting sports (I, Tonya); underdog (Edward Scissorhands); like Succession (families, not power).
+  - Doesn't fit: dark crime show (Riverdale, Lucifer, Scorpion), from the S16 chip pool, which S19 didn't touch.
+- **With two go-tos per category:** the same paths; fast moods complete in 4.7–5.6 s.
+- **Spoken (stubbed speech):** the same paths as typed.
+
+### FOUND, NOT FIXED
+- **Chip pools are the fast path's weak spot.**
+  - TV Crime + Dark serves Riverdale, Chucky and Lucifer.
+  - Romance + Feel-good serves tear-jerkers.
+  - Levers: apply S19's sad-tag keep-out to Feel-good chips; drop Comedy and Sci-Fi & Fantasy from Dark on TV.
+  - Brad's call, because either change alters chip taps.
+- **TMDb keyword noise:** Edward Scissorhands (underdog), I, Tonya (sports), Good Will Hunting (courtroom). The cure would be a per-mood minimum keyword overlap, which needs a per-title keyword read (more TMDb calls).
+- **A named title steers as "vs. your Office: …"** This is S13c's wording for a title someone names, and it now shows on typed moods too. If "your" reads wrong for a title that isn't a go-to, that's a wording PR.
+- **The AI search occasionally ends in the failure notice:** 1 of about 45 AI runs today, and the retry was fine. Pre-existing; also seen in S17.
+- **The S15 screen snap still shows watched titles** that were on the screen. That's a design call: it shows what was there.
+- **The scratch harnesses aren't in the repo yet:** `moods-ui.cjs`, `moods-api.cjs`, `snap-watched.cjs` and `npx-shim.cjs` live in the session scratchpad. They're worth committing under `scripts/` next time.
+
+### TEST RESIDUE
+- `user_likes` watched rows for `anon_agent_s19c_snap_*` (Glass Onion, See How They Run, The Thursday Murder Club).
+- `api_usage` rows for `anon_agent_s19a_*` and `anon_agent_s19b_*`.
+- The go-to mirrors were local only (Playwright contexts).
+- `/api/stats` excludes `anon_agent*`.
+
+### BRAD MUST
+1. Run the phone checklist below on the main preview, then promote.
+2. Decide: tighten the chip pools (the sad-tag keep-out for Feel-good chips; Dark on TV), or keep them as they are.
+3. Decide: keep "vs. your <title>" on a title you only named, or open a wording PR.
+
+### NEXT SESSION SHOULD KNOW
+- **Two gates decide whether a typed or spoken mood goes fast:**
+  - `typedMoodGate.ts`: every word must be covered.
+  - `/api/slots` `MIN_STRONG_POOL`: at least 12 titles after exclusions.
+- **Tags reach the pool only through the mood route's echo filter** (`app/api/mood/route.ts`). Concepts with `role: "title"` are a named title's signature.
+- **`guardTaste` is the drop-set read.** `raceTaste` stays for pressure-only uses (slots lines, screen).
+- **Head matching** lives in `resolveTypedTitleChecked` (`titleHeads`, `HEAD_LEAD` 1.25).
+
+### VALIDATION
+- **Suites:** new validate-s19a 68/68, s19b 17/17, s19c 17/17. s16b and s13c were updated for the designed changes. All 38 suites are green on main; tsc and lint are clean.
+- **Main preview checks:**
+  - funny heist: fast, 1.2 s
+  - like The Office: fast, 1.3 s first card, 6.1 s complete
+  - cozy mystery: AI search, 21.7 s, on-mood
+  - "Glass Onion" → its card
+  - "Spider-Man" → search
+  - Knives Out poster with 3 titles marked Watched: 0 leaks over 2 snaps
+
+### Brad's twenty minutes — phone checklist (iPhone home-screen app: the main preview first, then production after promotion)
+**Five typed moods** (Movies or TV Shows bar, keyboard Search key):
+1. "a funny heist movie" → cards in about 1–2 s, all heists (Ocean's Eight, Logan Lucky, Tower Heist and so on).
+2. "a show like The Office" (TV Shows) → workplace comedies in about 1–2 s. If you have a TV go-to starred, its "vs. your …" lines arrive a few seconds later on the same cards.
+3. "a scary movie that isn't too gory" → no Saw, no The Substance.
+4. "a courtroom drama" → fast, in 12 Angry Men / Primal Fear territory.
+5. "a cozy mystery" → the slower AI search (about 20 s), with real cozy mysteries. This is the gate keeping relevance.
+
+**Three spoken moods** (tap the mic):
+1. "a time travel movie" → fast, all time travel.
+2. "an uplifting sports movie" → fast, with no Million Dollar Baby.
+3. "a slow-burn psychological thriller" → the AI search (about 20 s), on-mood.
+
+**Typed titles:**
+1. "Glass Onion" → the Glass Onion card on top, reks below.
+2. "Spider-Man" → the search runs; there's no single Spider-Man card.
+
+**Snap after Watched:**
+1. Mark a title Watched (for example, Glass Onion on a Knives Out search).
+2. Snap the Knives Out poster.
+3. Glass Onion should not be in the five.
+
+**What it should feel like:**
+- [ ] Specific moods are often instant now.
+- [ ] Fast answers fit the words.
+- [ ] Moods the app can't answer fast still come back right, just slower.
+- [ ] Subtitled titles just work.
+- [ ] What you've watched stays gone from snaps.
+
+**Screenshot it if something is wrong:**
+- a fast set that doesn't fit the words (include the words);
+- a watched title among a snap's five;
+- a title that opened as the wrong film.
+
+**Log lines to look for:**
+- `[typed-mood] → slots { source, keywords, reference }`
+- `[typed-mood] → AI search { reason, residual }`
+- `[slots] weak pool — the AI search runs`
+- `[mood-keywords] lookup failed`
+- `[typed-anchor] ambiguous title — search`
+- `[snap-watched] …`
+
+### Production promotion steps (§11.8)
+1. Brad opens `main → release/v2` after the checklist passes on the main preview.
+2. Environment: nothing new (TMDB_API_KEY is already set). Production's OpenAI parse uses the same prompt, so the keyword tags arrive there too. After promoting, check one typed mood's `[mood] parsed` log for `keywords`.
+3. Migrations: none.
+4. Revert SHAs: #73 `3f30aee`, #75 `51a98aa`, #74 `ad4f7a4`, each with `git revert -m 1 <sha>`.
+
+**§0 check: consistent.**
+- **Shorter path to a happy choice:** more moods reach a fitting answer in a second or two instead of twenty.
+- **Correctness over speed:** the relevance gate exists for §0. A mood the app can't answer fast and right still gets the slower right answer, never a thin set dressed as one. So the speed target was missed rather than bought.
+- **Honest picks:** they come from TMDb's public data and the person's own words and go-tos, named. Nothing pays to move a pick.
+- **No pressure:** no new wording, and nothing nags.
+- **Nothing asks twice:** watched titles stay out of snaps.
+- **Flag:** the wider fast path shows some TMDb-tag noise: about 1 card in 5, on 3 of the 15 fast sets. Brad's phone check is the judge.
