@@ -2982,3 +2982,63 @@ Brad's brief: Supabase's Oct 30 change (new `public` tables get no default grant
 - The tightening SQL in the snapshot doc waits for Brad's approval and then runs under §11.2.
 
 **§0 check: consistent.** No user-facing change. This keeps saved things and signals from silently vanishing when the grants change, so what a person saves stays saved.
+
+## Session 23 — grants tightening + server-side signal writes — 2026-10-25 — branch auto/s23-grants-tighten (local agent mode, §11)
+
+Brad approved the grants tightening (from S22) and asked for:
+1. the browser's like and signal writes moved to server routes (rate cap + client-ID checks), then anon write privileges revoked;
+2. unneeded sequence privileges revoked;
+3. authenticated left with only what signed-in users truly do.
+
+### SHIPPED
+- **`/api/signals`** (new) carries every like and snap-signal write:
+  - `capGate(clientId, "signals")`, with a new cap key at 2000/day, a bot filter rather than a quota;
+  - allow-lists that mirror the tables' CHECK constraints;
+  - `source` is fixed server-side, and action-owned columns are NULLed otherwise;
+  - failures go through `logDbError`.
+- `recordLike` and `recordSnapSignal` post to it (`keepalive`). A failed write is logged as an error, and Saved is notified only after a confirmed write. `watched` keeps its own route.
+- **No browser table access is left.** The browser Supabase client is used only for sign-in (`supabase.auth`). `tokenManager.ts` was deleted: it was dead code with a browser write to a nonexistent `tokens` table.
+- **Migration** `docs/sql/s23-grants-tighten.sql`, run under §11.2:
+  - backup `backups/2026-10-25-1534-s23.sql` (894 KB);
+  - discovery matched the baseline;
+  - Block 2 COMMIT;
+  - readbacks matched EXPECTED;
+  - adversarial suite: 2 positive controls and 17 of 17 refusals, then ROLLBACK.
+- **Before → after** (full tables in `docs/sql/grants-snapshot-2026-10.md`):
+  - account_devices: ALL → none (anon and authenticated);
+  - user_likes, reksnap_signals: ALL → INSERT (anon and authenticated);
+  - all 5 identity sequences: USAGE, SELECT, UPDATE → none;
+  - `api_usage.route` CHECK + `'signals'`.
+- **authenticated:** signed-in users do nothing on these tables through the Data API (every read is `/api/prefs` or `/api/saved`; devices are written by `/api/auth/merge`). So authenticated holds nothing, apart from the staged INSERT. The two authenticated SELECT policies stay, dormant.
+
+### STAGED (not run): Block 5, the INSERT revoke
+Preview and production share one database, and production (release/v2) still writes likes and snap signals from the browser. Revoking INSERT now would drop every production like and snap signal until promotion. I confirmed production's exact path still works after Block 2: a supabase-js anon insert into both tables landed, and the test rows were removed. **Run Block 5 right after promotion.** After that, the public roles hold nothing on any table.
+
+### MEASURED: preview acceptance (iPhone 13, fresh anon client), 26/26
+- **Movies → Comedy:** Save, Watched, Not for me, go-to star and "+ More like this" each write ok.
+  - Read back through `/api/saved`, `/api/prefs` and `/api/gotos`.
+  - The Saved page's Saved, Watched and Favorites tabs each show the mark.
+- **Wine:** bought + favorite both ok, and `state` reads both back.
+- **Snap:** a real poster photo through the camera input, then a thumbs-down on a rek, writes through `/api/signals` (ok) and reads back from `reksnap_signals`. A wine snap signal reads back with `source='reksnap'`.
+- **Cap:** the signals are counted under the `signals` route.
+- **Refusals:** `watched` via `/api/signals` → 400; a missing client id → 400.
+- **Console:** no write-failed or PERMISSION errors.
+
+### VALIDATION
+- New `validate-s23-grants` 22/22.
+- `validate-s22` and `validate-s36` updated for the designed change (the like write path; the new cap key).
+- All suites green; tsc and lint clean.
+- NOTE: I briefly overwrote the existing `validate-s23.cjs` (S2.3, the health route) and restored it from git before committing. It passes 35/35.
+
+### TEST RESIDUE
+Rows for `anon_agent_s23_ui_*` in user_likes, reksnap_signals, go_tos, wine_marks and api_usage. `/api/stats` excludes `anon_agent*`.
+
+### Promotion
+1. Promote `main → release/v2`. No env changes. Migration Block 2 is already live, and it doesn't break the current production bundle.
+2. **Then Block 5** (one statement; I can run it under §11.2 on your word): `revoke insert on table public.user_likes, public.reksnap_signals from anon, authenticated;` Readback: 24 of 24 (none).
+- **Phone check after promotion:** like, save, Watched and star a card, then open Saved; snap something and thumb a rek down; mark a wine bought.
+- **Revert:**
+  - code: `git revert -m 1 <merge sha>`;
+  - grants: re-grant from the baseline doc, or restore the backup.
+
+**§0 check: consistent.** No user-facing change. Every save and signal now passes the same server gates, and nothing a person marks can be forged, erased or truncated by someone holding the public key.
