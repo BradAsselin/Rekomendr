@@ -66,12 +66,14 @@ for (const level of ["warn", "info", "error"]) console[level] = () => {};
   /* ---------------- pools ---------------- */
   const sent = [];
   let rows = [];
+  let taggedRows = null; // when set, a with_keywords pull answers these
   const details = {};
   const media = {
     tmdbGet: async (p, params) => {
-      if (/^tv\/\d+$/.test(p)) return details[p] ?? null;
+      if (/^(tv|movie)\/\d+$/.test(p)) return details[p] ?? null;
       sent.push({ p, ...params });
-      return { results: params.page === "1" ? rows : [] };
+      const list = taggedRows && params.with_keywords ? taggedRows : rows;
+      return { results: params.page === "1" ? list : [] };
     },
     rowTitle: (r) => r.title ?? r.name ?? "",
     rowYear: () => 2010,
@@ -123,8 +125,21 @@ for (const level of ["warn", "info", "error"]) console[level] = () => {};
 
   r = await first("movie", "Drama", tone("Comfort Watch"));
   check("Cozy: warmth tags (OR)", (r.q.with_keywords ?? "").split("|").map(Number).includes(319357) && !(r.q.with_keywords ?? "").includes(","), true);
+  check("Cozy: not friendship / small town (measured too loose)", [6054, 1415].some((k) => (r.q.with_keywords ?? "").split("|").map(Number).includes(k)), false);
   check("Cozy: horror, thriller, war, crime, action out", [27, 53, 10752, 80, 28].every((g) => without(r.q).includes(g)), true);
   check("Cozy: Feel-good's sad tags out", withoutK(r.q).has(10614), true);
+  taggedRows = [{ id: 32, title: "Tagged Warm", overview: "x", genre_ids: [18], vote_count: 300, vote_average: 7 }];
+  rows = [
+    { id: 31, title: "Big Romcom", overview: "x", genre_ids: [18, 35], vote_count: 9000, vote_average: 7 },
+    { id: 33, title: "Heavy Drama", overview: "x", genre_ids: [18], vote_count: 8000, vote_average: 8 },
+  ];
+  sent.length = 0;
+  const cozyPools = await fresh().loadPools("movie", "Drama", tone("Comfort Watch"));
+  const mainCalls = sent.filter((q) => q.page === "1" && !q["primary_release_date.gte"] && !q["primary_release_date.lte"]);
+  check("Cozy: a tagged pull and an untagged fill", mainCalls.map((q) => !!q.with_keywords).sort(), [false, true]);
+  check("Cozy: tagged titles lead; the fill is Comedy/Romance only", cozyPools.tier1.map((c) => c.title), ["Tagged Warm", "Big Romcom"]);
+  taggedRows = null;
+  rows = [];
   r = await first("tv", "Crime", tone("Comfort Watch"));
   check("Cozy on TV Crime keeps Crime", without(r.q).includes(80), false);
   r = await first("tv", "Drama", tone("Comfort Rewatch"));
@@ -140,17 +155,46 @@ for (const level of ["warn", "info", "error"]) console[level] = () => {};
   check("Tense (movies): only Thriller/Mystery titles", r.pools.tier1.map((c) => c.title), ["Grip", "Whodunit"]);
   r = await first("tv", "Drama", tone("Edge-of-Seat"));
   check("Tense (TV): procedurals out", withoutK(r.q).has(207694), true);
+  rows = [
+    { id: 21, name: "Heroes Inc", overview: "x", genre_ids: [10759, 18], vote_count: 900, vote_average: 8 },
+    { id: 22, name: "Cold Case", overview: "x", genre_ids: [80, 18], vote_count: 800, vote_average: 8 },
+  ];
+  r = await first("tv", "Drama", tone("Edge-of-Seat"));
+  check("Tense (TV): Mystery/Crime only, not Action & Adventure", r.pools.tier1.map((c) => c.title), ["Cold Case"]);
 
   rows = [
     { id: 4, title: "Saga", overview: "x", genre_ids: [12, 18], vote_count: 900, vote_average: 8 },
     { id: 5, title: "Chamber", overview: "x", genre_ids: [18], vote_count: 800, vote_average: 8 },
   ];
+  details["movie/4"] = { runtime: 160 };
+  details["movie/5"] = { runtime: 170 };
   r = await first("movie", "Drama", tone("Epic / Immersive"));
   check("Epic (movies): 130+ minutes", r.q["with_runtime.gte"], "130");
   check("Epic (movies): scale genres only", r.pools.tier1.map((c) => c.title), ["Saga"]);
+  rows = [
+    { id: 6, title: "Long Cut", overview: "x", genre_ids: [12], vote_count: 900, vote_average: 8 },
+    { id: 7, title: "True Epic", overview: "x", genre_ids: [12], vote_count: 800, vote_average: 8 },
+  ];
+  details["movie/6"] = { runtime: 111 }; // discover matched an alternate cut
+  details["movie/7"] = { runtime: 150 };
+  r = await first("movie", "Action", tone("Epic / Immersive"));
+  check("Epic (movies): the title's own runtime decides", r.pools.tier1.map((c) => c.title), ["True Epic"]);
+  r = await first("tv", "Drama", tone("Epic / Immersive"));
+  check("Epic (TV): needs a scale tag (epic, kingdom, battle…)", (r.q.with_keywords ?? "").split("|").map(Number).includes(377433), true);
 
+  rows = [
+    { id: 8, title: "Quick One", overview: "x", genre_ids: [35], vote_count: 900, vote_average: 8 },
+    { id: 9, title: "Just Over", overview: "x", genre_ids: [35], vote_count: 800, vote_average: 8 },
+    { id: 10, title: "Too Long", overview: "x", genre_ids: [35], vote_count: 700, vote_average: 8 },
+    { id: 15, title: "No Runtime", overview: "x", genre_ids: [35], vote_count: 600, vote_average: 8 },
+  ];
+  details["movie/8"] = { runtime: 88 };
+  details["movie/9"] = { runtime: 102 };
+  details["movie/10"] = { runtime: 109 };
+  details["movie/15"] = { runtime: 0 };
   r = await first("movie", "Comedy", { kind: "short" });
   check("Short (movies): 60-100 minutes", [r.q["with_runtime.gte"], r.q["with_runtime.lte"]], ["60", "100"]);
+  check("Short (movies): own runtime ≤ ~100; unknown dropped", r.pools.tier1.map((c) => c.title), ["Quick One", "Just Over"]);
 
   rows = [
     { id: 11, name: "Long Runner", overview: "x", genre_ids: [18], vote_count: 900, vote_average: 8 },
@@ -175,7 +219,7 @@ for (const level of ["warn", "info", "error"]) console[level] = () => {};
   /* ---------------- the bar ---------------- */
   const bar = read("src/components/SearchBar.tsx");
   check("genre row scrolls, no scrollbar, bleeds to the edge", /data-testid="genre-row"/.test(bar) && /overflow-x-auto/.test(bar) && /\[scrollbar-width:none\]/.test(bar) && /\[&::-webkit-scrollbar\]:hidden/.test(bar) && /-mx-4/.test(bar), true);
-  check("chips don't shrink or wrap", /shrink-0 whitespace-nowrap rounded-full/.test(bar), true);
+  check("chips don't shrink or wrap", /shrink-0 whitespace-nowrap rounded-full border px-3\.5/.test(bar), true);
   check("vibe row only once a genre is picked", /\{activeChip && \(\s*<div\s+className="vibe-row/.test(bar), true);
   check("second tap on the genre clears it and its vibe, no search", /if \(chipRef\.current\?\.label === c\.label\) \{\s*chipRef\.current = null;\s*setActiveChip\(null\);\s*setRefiner\(null\);\s*return;/.test(bar), true);
   check("vibe row fades/slides in; none under reduced motion", /@keyframes vibeIn/.test(bar) && /prefers-reduced-motion: reduce\) \{\s*\.vibe-row \{\s*animation: none;/.test(bar), true);

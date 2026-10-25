@@ -183,14 +183,23 @@ const TEEN_OUT = [193400, 369277, 6270, 33910, 246466, 188237];
 const PROCEDURAL_OUT = [207694, 298849, 157241, 180668, 15271, 206958, 212513, 281585];
 // S21 — Cozy: warm, low-stakes. Feel-good's keep-outs, Crime and Action
 // out unless the lane carries them, and one of these tags: cozy, cosy,
-// heartwarming, heart warming, feel good, feelgood, wholesome, small town,
-// found family, friendship.
-const COZY_ANY = [326774, 326004, 319357, 194088, 383896, 275276, 335803, 1415, 248927, 6054];
+// heartwarming, heart warming, feel good, feelgood, wholesome, found
+// family, light-hearted, lighthearted, uplifting, charming, sweet.
+// Measured, NOT used: "friendship" and "small town" (One Flew Over the
+// Cuckoo's Nest, Deathly Hallows, Corpus Christi); "hopeful" (The Passion
+// of the Christ, Transamerica, Crazy Heart).
+const COZY_ANY = [326774, 326004, 319357, 194088, 383896, 275276, 335803, 248927, 279521, 288816, 334465, 295282, 209972];
 const COZY_OUT = { movie: [80, 28], tv: [80, 10759] };
-// S21 — Tense: suspense genres (TV has no Thriller genre).
-const TENSE_ANY = { movie: [53, 9648], tv: [9648, 80, 10759] };
-// S21 — Epic: scale genres; movies also run long (EPIC_MIN_RUNTIME).
+// S21 — Tense: suspense genres (TV has no Thriller genre). Not TV Action &
+// Adventure: measured, it let in Agents of S.H.I.E.L.D. and Umbrella Academy.
+const TENSE_ANY = { movie: [53, 9648], tv: [9648, 80] };
+// S21 — Epic: scale genres; movies also run long (EPIC_MIN_RUNTIME). TV
+// has no runtime to lean on, so it also needs a scale tag: epic, kingdom,
+// historical fiction, battle, medieval, empire, fantasy world, space
+// opera, war, period drama, historical drama (genres alone let in
+// WandaVision, Hawkeye, Ghost Whisperer).
 const EPIC_ANY = { movie: [12, 14, 878, 10752, 36, 37, 28], tv: [10759, 10765, 10768] };
+const TV_EPIC_TAGS = [377433, 4152, 12995, 14643, 161257, 11195, 170362, 161176, 273967, 15060, 192772];
 const EPIC_MIN_RUNTIME = 130;
 // S21 — Short: a movie under ~100 minutes; a show that is a miniseries or
 // has at most two seasons (read from each show's details, below).
@@ -282,6 +291,7 @@ function baseSpec(kind: MediaKind, lane: string | null, refiner: Refiner): PoolS
   } else if (tone === "epic") {
     anyOf = EPIC_ANY[kind];
     if (kind === "movie") runtimeMin = EPIC_MIN_RUNTIME;
+    else withK = TV_EPIC_TAGS;
   }
   if (refiner?.kind === "era" && refiner.era === "classic") before = "1999-12-31";
   if (refiner?.kind === "era" && refiner.era === "new") after = monthsAgo(24);
@@ -293,7 +303,9 @@ function baseSpec(kind: MediaKind, lane: string | null, refiner: Refiner): PoolS
     kind,
     genres,
     floor,
-    minVotes: kind === "movie" ? 500 : 150,
+    // S21 — a tag-narrowed vibe (Cozy, TV Epic) drops to the mood pools'
+    // minimum (S19a: a keyword already narrows to the idea).
+    minVotes: withK.length ? (kind === "movie" ? 200 : 60) : kind === "movie" ? 500 : 150,
     without,
     anyOf,
     after,
@@ -379,8 +391,8 @@ async function discover(spec: PoolSpec): Promise<TmdbCandidate[] | null> {
     }
   }
   list.sort((a, b) => (b.votes ?? 0) - (a.votes ?? 0));
-  if (spec.maxSeasons) {
-    const kept = await withinSeasons(list, spec.maxSeasons);
+  if (spec.maxSeasons || spec.runtimeMin || spec.runtimeMax) {
+    const kept = await withinLength(spec, list);
     list.length = 0;
     list.push(...kept);
   }
@@ -392,34 +404,56 @@ async function discover(spec: PoolSpec): Promise<TmdbCandidate[] | null> {
   return list;
 }
 
-// S21 — TV Short: discover can't filter by season count, so each show's
-// details are read (the most-voted SEASONS_READ_MAX of a pool; cached per
-// process). A miniseries or <= max seasons passes; an unread show is
-// dropped (honest-short beats a long show under "Short").
-const SEASONS_READ_MAX = 80;
-const SEASONS_CACHE_MAX = 4000;
-const seasonsCache = new Map<number, { seasons: number; mini: boolean }>();
+// S21 — length checks from each title's own details. TV Short: discover
+// can't filter by season count. Movie Short / Epic: discover's runtime
+// filter matches alternate cuts (Léon passed 130+ on its 133-minute
+// version; 105-111 minute films passed "under 100"), so each runtime is
+// read too. The most-voted DETAILS_READ_MAX of a pool are read, in chunks
+// that stay under TMDb's rate limit, cached per process. A title that
+// can't be read is dropped (honest-short beats a long one under "Short"),
+// and the drop is named in the log.
+const DETAILS_READ_MAX = 160;
+const DETAILS_CHUNK = 40;
+const DETAILS_CACHE_MAX = 4000;
+// "Under ~100": a 101-102 minute film still reads as short.
+const SHORT_RUNTIME_SLACK = 2;
+type LengthFacts = { runtime: number | null; seasons: number | null; mini: boolean };
+const detailsCache = new Map<string, LengthFacts>();
 
-async function withinSeasons(list: TmdbCandidate[], max: number): Promise<TmdbCandidate[]> {
-  const head = list.slice(0, SEASONS_READ_MAX);
-  const facts = await Promise.all(
-    head.map(async (c) => {
-      const hit = seasonsCache.get(c.id);
-      if (hit) return hit;
-      const d = await tmdbGet(`tv/${c.id}`, { language: "en-US" });
-      if (!d || typeof d.number_of_seasons !== "number") return null;
-      const f = { seasons: d.number_of_seasons, mini: d.type === "Miniseries" };
-      if (seasonsCache.size >= SEASONS_CACHE_MAX) seasonsCache.clear();
-      seasonsCache.set(c.id, f);
-      return f;
-    })
-  );
+async function lengthFacts(kind: MediaKind, id: number): Promise<LengthFacts | null> {
+  const key = `${kind}/${id}`;
+  const hit = detailsCache.get(key);
+  if (hit) return hit;
+  const d = await tmdbGet(key, { language: "en-US" });
+  if (!d) return null;
+  const f: LengthFacts = {
+    runtime: typeof d.runtime === "number" && d.runtime > 0 ? d.runtime : null,
+    seasons: typeof d.number_of_seasons === "number" ? d.number_of_seasons : null,
+    mini: d.type === "Miniseries",
+  };
+  if (detailsCache.size >= DETAILS_CACHE_MAX) detailsCache.clear();
+  detailsCache.set(key, f);
+  return f;
+}
+
+function fitsLength(spec: PoolSpec, f: LengthFacts | null): boolean {
+  if (!f) return false;
+  if (spec.maxSeasons) return f.mini || (f.seasons != null && f.seasons <= spec.maxSeasons);
+  if (f.runtime == null) return false;
+  if (spec.runtimeMin && f.runtime < spec.runtimeMin) return false;
+  if (spec.runtimeMax && f.runtime > spec.runtimeMax + SHORT_RUNTIME_SLACK) return false;
+  return true;
+}
+
+async function withinLength(spec: PoolSpec, list: TmdbCandidate[]): Promise<TmdbCandidate[]> {
+  const head = list.slice(0, DETAILS_READ_MAX);
+  const facts: (LengthFacts | null)[] = [];
+  for (let i = 0; i < head.length; i += DETAILS_CHUNK) {
+    facts.push(...(await Promise.all(head.slice(i, i + DETAILS_CHUNK).map((c) => lengthFacts(spec.kind, c.id)))));
+  }
   const unread = facts.filter((f) => !f).length;
-  if (unread) console.warn("[slots] short: season reads failed", { unread, of: head.length });
-  return head.filter((_, i) => {
-    const f = facts[i];
-    return !!f && (f.mini || f.seasons <= max);
-  });
+  if (unread) console.warn("[slots] length: detail reads failed", { kind: spec.kind, unread, of: head.length });
+  return head.filter((_, i) => fitsLength(spec, facts[i]));
 }
 
 export type Pools = {
@@ -435,17 +469,30 @@ export type Pools = {
   all?: TmdbCandidate[];
 };
 
+// S21 — Cozy's warmth tags are sparse on TMDb (Drama + Cozy measured ~8
+// titles), so the tagged titles lead and light ones — Comedy or Romance,
+// under the same keep-outs — fill behind them.
+const COZY_FILL_ANY = [35, 10749];
+async function cozyDiscover(spec: PoolSpec): Promise<TmdbCandidate[] | null> {
+  const { withKeywords: _tags, ...rest } = spec;
+  const [tagged, light] = await Promise.all([discover(spec), discover({ ...rest, anyOf: COZY_FILL_ANY })]);
+  if (!tagged && !light) return null;
+  const have = new Set((tagged ?? []).map((c) => c.id));
+  return [...(tagged ?? []), ...(light ?? []).filter((c) => !have.has(c.id))];
+}
+
 export async function loadPools(kind: MediaKind, lane: string | null, refiner: Refiner): Promise<Pools | null> {
   const spec = baseSpec(kind, lane, refiner);
   const era = refiner?.kind === "era" ? refiner.era : null;
+  const pull = refiner?.kind === "tone" && toneOf(refiner.vibe) === "cozy" ? cozyDiscover : discover;
   const [main, fresh, classic] = await Promise.all([
-    discover(spec),
+    pull(spec),
     era === "classic"
       ? Promise.resolve([] as TmdbCandidate[])
-      : discover({ ...spec, after: monthsAgo(18), before: null, minVotes: kind === "movie" ? 200 : 60, pages: 3 }),
+      : pull({ ...spec, after: monthsAgo(18), before: null, minVotes: kind === "movie" ? 200 : 60, pages: 3 }),
     era === "new"
       ? Promise.resolve([] as TmdbCandidate[])
-      : discover({ ...spec, after: null, before: "1999-12-31", pages: 3 }),
+      : pull({ ...spec, after: null, before: "1999-12-31", pages: 3 }),
   ]);
   if (!main) return null;
   const tier1 = main.slice(0, 50);

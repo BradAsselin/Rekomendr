@@ -83,7 +83,7 @@ const CATEGORIES = ["Movies", "TV Shows", "Books", "Wine"];
 // Selected: filled brighter blue, white bold text.
 const bubble = (active: boolean) =>
   [
-    "shrink-0 whitespace-nowrap rounded-full border px-3 py-1.5 text-[13px] transition-colors",
+    "shrink-0 whitespace-nowrap rounded-full border px-3.5 py-1.5 text-[13px] transition-colors",
     active
       ? "border-[#3B6BD4] bg-[#3B6BD4] font-semibold text-white"
       : "border-white/25 bg-transparent text-white/80 hover:border-white/50 sm:border-gray-300 sm:text-gray-700 sm:hover:border-gray-400",
