@@ -132,3 +132,27 @@ Before running it, check that:
 - the `user_likes` select policy's subquery on `account_devices` still works for `authenticated` (it keeps SELECT there).
 
 After running it, prove each grant through the app's own paths: a snap thumbs-down, a like, the Saved page, a sign-in merge. Then run the adversarial suite.
+
+---
+
+## AFTER S23 — 2026-10-25 (migration `docs/sql/s23-grants-tighten.sql`, backup `backups/2026-10-25-1534-s23.sql`)
+
+The tightening ran under §11.2:
+- discovery matched this baseline;
+- Block 2 committed;
+- every readback matched EXPECTED;
+- the adversarial suite passed, with 2 positive controls and 17 of 17 refusals, then ROLLBACK.
+
+| table | anon | authenticated | service_role |
+|---|---|---|---|
+| account_devices | none | none | ALL |
+| reksnap_signals | INSERT (staged to go; see below) | INSERT (staged) | ALL |
+| user_likes | INSERT (staged) | INSERT (staged) | ALL |
+| the other 9 tables | none | none | ALL |
+| 5 identity sequences | none | none | unchanged |
+
+- `api_usage.route` CHECK widened with `'signals'` (the `/api/signals` cap key).
+- The policies are unchanged. The "authenticated select own rows" policy on user_likes and the "authenticated read own devices" policy on account_devices are now dormant (no grant behind them).
+- RLS is still on for all 12 tables.
+
+**Staged (Block 5):** revoke INSERT on user_likes and reksnap_signals from anon and authenticated. Production (release/v2) still writes those from the browser until S23 is promoted, and preview and production share this database. Run Block 5 right after promotion. After that, the public roles hold nothing on any table.

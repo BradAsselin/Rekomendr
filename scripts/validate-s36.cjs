@@ -178,7 +178,7 @@ const HOUR = 3600 * 1000;
   process.env.SUPABASE_URL = "https://stub.supabase.co";
   process.env.SUPABASE_SERVICE_ROLE_KEY = "stub";
   const U = () => fresh("src/lib/apiUsage.js");
-  check("caps are the decided numbers", U().CAPS_PER_DAY, { "reksnap-vision": 60, "reksnap-text": 300, openai: 300, recipe: 60 });
+  check("caps are the decided numbers", U().CAPS_PER_DAY, { "reksnap-vision": 60, "reksnap-text": 300, openai: 300, recipe: 60, signals: 2000 }); // S23: + signals
   for (const bad of [undefined, "", "short", 42, "x".repeat(65)]) {
     reset();
     const r = await U().capGate(bad, "openai");

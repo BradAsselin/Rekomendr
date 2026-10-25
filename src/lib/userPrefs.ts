@@ -1,10 +1,9 @@
 // src/lib/userPrefs.ts
 // Anonymous persistent preference storage.
 // No auth required — uses a stable UUID in localStorage as the client identity.
-// Writes go straight to Supabase; reads go through /api/prefs (service-role)
-// so anon SELECT on user_likes can be dropped (S2b Block B).
-
-import { supabase } from './supabaseClient';
+// Writes go through /api/signals and reads through /api/prefs (both
+// service-role), so anon and authenticated hold no privileges on
+// user_likes (S2b Block B, S23).
 
 import { getAnonymousClientId } from './clientId';
 import type { SavedItem } from './savedLists';
@@ -60,17 +59,25 @@ export async function recordLike(params: {
   const clientId = getAnonymousClientId();
   if (!clientId) return;
 
-  const { error } = await supabase.from('user_likes').insert({
-    client_id: clientId,
-    category: params.category,
-    title: params.title,
-    year: params.year ?? null,
-    action: params.action,
-  });
-  // S22 — this browser (anon) write was unchecked, so a revoked grant
-  // would have dropped every like without a trace.
-  if (error) {
-    console.error('[user-likes] write failed', { action: params.action, code: error.code ?? null, message: error.message });
+  // S23 — through /api/signals (service role): anon and authenticated hold
+  // no privileges on user_likes. keepalive: a swipe can be the last act
+  // before the tab closes.
+  const res = await fetch('/api/signals', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    keepalive: true,
+    body: JSON.stringify({
+      clientId,
+      kind: 'like',
+      category: params.category,
+      title: params.title,
+      year: params.year ?? null,
+      action: params.action,
+    }),
+  }).catch(() => null);
+  const data = res ? await res.json().catch(() => null) : null;
+  if (!res?.ok || !data?.ok) {
+    console.error('[user-likes] write failed', { action: params.action, status: res?.status ?? null, reason: data?.reason ?? data?.error ?? null });
     return;
   }
   if (params.action === 'save' || params.action === 'dislike') notifySavedChange();
