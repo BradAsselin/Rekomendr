@@ -79,8 +79,7 @@ for (const level of ["warn", "info", "error"]) console[level] = () => {};
 
   console.log("\n3. The other chips are as they were");
   for (const [kind, lane, refiner, label] of [
-    ["tv", "mystery", tone("Dark"), "TV Mystery + Dark"],
-    ["tv", "drama", tone("Dark"), "TV Drama + Dark"],
+    // S21 — every TV Dark chip now keeps out teen/horror/procedurals (validate-s20b).
     ["movie", "crime", tone("Dark"), "Movies Crime + Dark"],
     ["movie", "comedy", null, "Movies Comedy (no refiner)"],
     ["tv", "comedy", tone("Smart"), "TV Comedy + Smart"],
