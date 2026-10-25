@@ -9,7 +9,7 @@ import RekCard from "./RekCard";
 import ShareRow from "./ShareRow";
 import GoToStar from "./GoToStar";
 import { addToVoiceSet, noteVoiceAction } from "../lib/voiceSignals";
-import { logGoToEvent } from "../lib/goTos";
+import { isGoTo, logGoToEvent } from "../lib/goTos";
 import { goToCategoryFor } from "../lib/goToCategory";
 import { noteSetShown } from "../lib/screenVisit";
 import { goToShortName } from "../lib/slotsClient";
@@ -817,7 +817,14 @@ const ResultsV4: React.FC<ResultsProps> = ({
   }, [reks, category, d2]);
 
   // S12b — "vs. your Lioness: …" leads a card steered by a go-to.
-  const vsLead = (rek: Rek) => (rek.vsGoTo ? `vs. your ${goToShortName(rek.vsGoTo)}:` : undefined);
+  // S20 — "your" only for a starred favorite; a title someone named reads
+  // "vs. The Office: …" (Brad's approved wording, 2026-10-24).
+  const vsLead = (rek: Rek) =>
+    rek.vsGoTo
+      ? isGoTo(category, rek.vsGoTo)
+        ? `vs. your ${goToShortName(rek.vsGoTo)}:`
+        : `vs. ${rek.vsGoTo}:`
+      : undefined;
 
   // S16 — "Watched" on every Movies/TV/Books card (bottom-left, always
   // visible; replaces S1's expanded-only "Watched it"). Wine has its own

@@ -69,8 +69,19 @@ function slotPlanFromMood(data: any): SlotPlan | null {
   const lane = data.lane as { label: string; lane: string } | null;
   const chip: Chip = lane ? { label: lane.label, lane: lane.lane } : { label: SURPRISE_ME, lane: "" };
   const refiner = refinersFor(cat).find((r) => r.label === data.refiner) ?? null;
-  const req: SlotRequest = { category: cat, lane: chip.lane || null, refiner: slotRefiner(refiner) };
   const goTo = data.goTo as { name: string; starred: boolean; tmdbKind: "movie" | "tv" | null; tmdbId: number | null } | null;
+  // S19a — the words' TMDb keywords and the title they named build a mood
+  // pool (the route's relevance gate decides whether it can answer).
+  const keywords = (Array.isArray(data.keywords) ? data.keywords : [])
+    .filter((c: any) => Array.isArray(c?.ids) && c.ids.length > 0)
+    .map((c: any) => ({ ids: c.ids as number[], exclude: c.exclude === true }));
+  const req: SlotRequest = {
+    category: cat,
+    lane: chip.lane || null,
+    refiner: slotRefiner(refiner),
+    ...(keywords.length ? { keywords } : {}),
+    ...(goTo ? { reference: goTo.name } : {}),
+  };
   const steerOpts = goTo
     ? {
         req,
@@ -1027,7 +1038,11 @@ export default function Page() {
     // S13c — this search answers a spoken mood: its five become the voice
     // set whose taps, plays, shares, saves and stars are counted.
     // S17 — `said`: the words, for the results header.
-    voice?: { moodId: string | null; said?: string }
+    voice?: { moodId: string | null; said?: string },
+    // S19a — a spoken Movies/TV mood arrives already parsed (/api/mood):
+    // it runs as the typed mood would, with no second parse and no title
+    // check (a spoken title steers, as before).
+    parsedMood?: any
   ) => {
     const searchId = ++searchIdRef.current;
     if (!voice) clearVoiceSet();
@@ -1085,8 +1100,12 @@ export default function Page() {
         !slotReq && !!typedText && (nextCategory === "Movies" || nextCategory === "TV Shows");
       const [prefs, typedAnchor, mood] = await Promise.all([
         loadPrefsForCategory(nextCategory),
-        typedText ? resolveTypedAnchor(typedText, nextCategory) : Promise.resolve(null),
-        typedMood ? parseTypedMood(typedText, nextCategory) : Promise.resolve(null),
+        typedText && !parsedMood ? resolveTypedAnchor(typedText, nextCategory) : Promise.resolve(null),
+        parsedMood
+          ? Promise.resolve(parsedMood)
+          : typedMood
+            ? parseTypedMood(typedText, nextCategory)
+            : Promise.resolve(null),
       ]);
       if (searchId !== searchIdRef.current) return;
 
@@ -1132,8 +1151,10 @@ export default function Page() {
       let runCat: Category = nextCategory;
       if (typedMood) {
         const plan = slotPlanFromMood(mood);
-        // Only a mood the chip vocabulary holds whole takes the fast path;
-        // anything more specific keeps the AI search (typedMoodGate.ts).
+        // Only a mood the vocabulary holds whole takes the fast path (S19a:
+        // chips, resolved TMDb keywords, a named title TMDb found); anything
+        // else keeps the AI search (typedMoodGate.ts). A strict mood's pool
+        // is the second half of the gate (the route's weak_pool).
         const gate = plan ? typedMoodGate(typedText, mood) : null;
         if (plan && gate && !gate.fast) {
           console.info("[typed-mood] → AI search", { reason: gate.reason, residual: gate.residual });
@@ -1142,9 +1163,12 @@ export default function Page() {
           runSteer = plan.steerOpts;
           runCat = plan.cat;
           console.info("[typed-mood] → slots", {
+            source: voice ? "voice" : "typed",
             category: plan.cat,
             lane: plan.chip.label,
             refiner: plan.refiner?.label ?? null,
+            keywords: plan.req.keywords?.length ?? 0,
+            reference: !!plan.req.reference,
             steer: plan.steerOpts ? (plan.steerOpts.extraGoTo ? "named" : "go-to") : null,
           });
           if (plan.cat !== nextCategory) {
@@ -1306,8 +1330,10 @@ export default function Page() {
       const laneText = [chip.lane, band ? bandText(band) : ""].filter(Boolean).join(" ");
       await handleSearch(chipQuery("Wine", { label: chip.label, lane: laneText }, refiner), "Wine", undefined, undefined, voice);
     } else {
-      const plan = slotPlanFromMood(data)!;
-      await handleSearch(chipQuery(cat, plan.chip, plan.refiner), cat, { chip: plan.chip, refiner: plan.refiner }, plan.steerOpts, voice);
+      // S19a — a spoken screen mood runs exactly as the typed one: the same
+      // gate, the keyword/reference mood pool, and the AI search on the
+      // words when the vocabulary or the pool can't answer them.
+      await handleSearch(`${cat}||||${transcript}||mode:ai`, cat, undefined, undefined, voice, data);
     }
     console.info("[voice] mood → picks", { ms: Date.now() - started, category: cat, lane: chip.label, refiner: refiner?.label ?? null, steer: !!data.goTo });
     return { mapped: true, category: cat, laneLabel: chip.label, refinerLabel: refiner?.label ?? null, closest: [] };

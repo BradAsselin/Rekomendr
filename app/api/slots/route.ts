@@ -23,6 +23,15 @@
 // and their bundles exist, then { type:"lines" } when the writer answers
 // (docs/s16-watched-search-plan.md, Part B). The one-card backfill stays
 // plain JSON.
+//
+// S19a — a typed or spoken mood's `keywords` (TMDb keyword ids, one OR
+// group per concept) and/or a named `reference` build a MOOD POOL instead
+// of the lane's (src/lib/slotRecipe.ts loadMoodPools / webPools). The
+// relevance gate: a five-card mood pool with fewer than MIN_STRONG_POOL
+// titles left after this visit's exclusions answers { ok:false,
+// reason:"weak_pool" } and the client runs the AI search on the words
+// (docs/s19-fast-moods-plan.md, Part A). Never a thin set dressed as an
+// answer.
 
 import { runEnvCheck } from "../../../src/lib/envCheck";
 import { withLlmContext } from "../../../src/lib/llm";
@@ -38,8 +47,12 @@ import {
   genreLine,
   leadLine,
   loadGoTos,
+  loadMoodPools,
   loadPools,
+  MIN_STRONG_POOL,
   neighborPool,
+  webPools,
+  type MoodConcept,
   rankGoTos,
   recipeFor,
   shortSynopsis,
@@ -95,6 +108,18 @@ function goTosOf(raw: unknown): GoToIn[] {
     }));
 }
 
+function conceptsOf(raw: unknown): MoodConcept[] {
+  return (Array.isArray(raw) ? raw : [])
+    .slice(0, 3)
+    .map((c: any) => ({
+      ids: (Array.isArray(c?.ids) ? c.ids : [])
+        .filter((n: unknown): n is number => Number.isInteger(n) && (n as number) > 0)
+        .slice(0, 16),
+      exclude: c?.exclude === true,
+    }))
+    .filter((c) => c.ids.length > 0);
+}
+
 async function handlePost(req: Request): Promise<Response> {
   const started = Date.now();
   let body: any = null;
@@ -130,11 +155,39 @@ async function handlePost(req: Request): Promise<Response> {
       .filter((t: unknown): t is string => typeof t === "string")
       .slice(-SEEN_MAX);
 
-    const [pools, loaded, taste] = await Promise.all([
-      loadPools(kind, lane, refiner),
+    // S19a — a mood pool when the words carried keywords or a reference.
+    const concepts = conceptsOf(body?.keywords);
+    const reference =
+      typeof body?.reference === "string" && body.reference.trim()
+        ? normalizeTitle(body.reference.slice(0, 200))
+        : null;
+    const mood = concepts.length > 0 || !!reference;
+    const [lanePools, loaded, taste] = await Promise.all([
+      concepts.length
+        ? loadMoodPools(kind, lane, refiner, concepts)
+        : mood
+          ? Promise.resolve(null)
+          : loadPools(kind, lane, refiner),
       loadGoTos(kind, goTos),
       raceTaste(clientId, kind),
     ]);
+    const referenceGoTo = reference
+      ? (loaded.find((g) => normalizeTitle(g.name) === reference) ?? null)
+      : null;
+    const pools =
+      mood && !concepts.length
+        ? webPools(kind, lane, refiner, referenceGoTo?.bundle ?? null)
+        : lanePools;
+    if (!pools && mood) {
+      console.warn("[slots] weak pool — the AI search runs", {
+        kind,
+        lane,
+        concepts: concepts.length,
+        reference: !!reference,
+        why: concepts.length ? "tmdb_failed" : "reference_unavailable",
+      });
+      return Response.json({ ok: false, reason: "weak_pool" }, { status: 200 });
+    }
     if (!pools) {
       console.error(
         "[slots] FALLBACK TMDb discover failed; the AI chip search runs",
@@ -170,6 +223,25 @@ async function handlePost(req: Request): Promise<Response> {
         .map(normalizeTitle)
         .filter(Boolean),
     );
+
+    // S19a — THE RELEVANCE GATE: a mood pool too thin to answer the words
+    // sends them to the AI search (a backfill never gates: its set is
+    // already on screen).
+    const poolLeft = pools.all
+      ? pools.all.filter((c) => !excluded.has(normalizeTitle(c.title))).length
+      : null;
+    if (mood && count === 5 && (poolLeft ?? 0) < MIN_STRONG_POOL) {
+      console.warn("[slots] weak pool — the AI search runs", {
+        kind,
+        lane,
+        concepts: concepts.length,
+        reference: !!reference,
+        pool: pools.all?.length ?? 0,
+        left: poolLeft,
+        min: MIN_STRONG_POOL,
+      });
+      return Response.json({ ok: false, reason: "weak_pool" }, { status: 200 });
+    }
 
     const picks = assemble({
       recipe,
@@ -279,6 +351,7 @@ async function handlePost(req: Request): Promise<Response> {
             : refiner.era
           : null,
         recipe,
+        mood: mood ? { concepts: concepts.length, reference: !!reference, pool: pools.all?.length ?? 0, left: poolLeft } : null,
         goTos: goTos.length,
         steer: steer?.name ? "yes" : "no",
         nearestScore: scores[0] ?? null,

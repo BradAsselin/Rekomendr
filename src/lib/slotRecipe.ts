@@ -113,7 +113,42 @@ export function floorFor(lane: string | null | undefined): number {
 
 // Tone refiners: genres to keep out, or a genre the title must also carry.
 const DARK_ANY = { movie: [53, 80, 9648, 27], tv: [80, 9648, 10768] };
-const BRIGHT_OUT = { movie: [27, 53, 10752], tv: [10768] };
+// S20c — TV Feel-good keeps Crime out unless the lane carries it (Brad
+// 2026-10-24: Dexter, The Blacklist, Bones sat in Drama + Feel-good).
+const BRIGHT_OUT = { movie: [27, 53, 10752], tv: [10768, 80] };
+
+// Keywords a tone keeps out, chips and mood pools alike (S19a for moods;
+// S20 for chips, Brad 2026-10-24).
+// Feel-good keeps out what TMDb tags as sad: measured, Million Dollar Baby
+// topped "uplifting sports"; Titanic, Me Before You, The Fault in Our Stars
+// and Hamnet sat in Romance + Feel-good. tragedy, tragic ending, terminal
+// illness, euthanasia, cancer, depressing, death of a loved one, tragic
+// love, tragic romance, grief, tragic, somber, death in family, tear jerker
+// (both spellings), sadness, tears, dementia, dying and death, loss of
+// loved one, death row, holocaust (The Notebook, The Green Mile, Life Is
+// Beautiful in the second pass).
+const FEEL_GOOD_OUT = [
+  10614, 368391, 6564, 206662, 10163, 323809, 241364, 10703, 186956, 9872, 325854, 211659, 146946, 346048,
+  156924, 1647, 14708, 2689, 3737, 697, 2501, 1739,
+];
+// TV has no Horror genre, so horror is kept out by keyword: horror,
+// slasher, supernatural horror, psychological horror, horror anthology
+// (Chucky in Crime + Dark; American Horror Story in Drama + Feel-good).
+const TV_HORROR_OUT = [315058, 12339, 256183, 295907, 250593];
+// Teen TV: teen drama, teen psychological drama, high school, high school
+// student, based on young adult novel, teenage romance (Riverdale, Elite,
+// Euphoria, Gossip Girl, Sex Education). Not "teenager": it also tags
+// Unbelievable, a true-crime show about a teen victim.
+const TEEN_OUT = [193400, 369277, 6270, 33910, 246466, 188237];
+// S20b — procedurals out of Dark on TV (Brad 2026-10-24: NCIS, Blue Bloods).
+// Measured on 16 procedurals vs 20 dark serials: "police procedural" tags
+// 6 procedurals but also MINDHUNTER, Sherlock, Dexter, The Night Of and
+// Line of Duty, so it is NOT used. These tag procedurals and none of the
+// dark set: procedural, medical procedural, criminal investigation,
+// homicide detective, interrogation, special agent, criminal
+// consultant — plus inspirational (Blue Bloods), a tone Dark never wants.
+// Not "spin off": it tags Better Call Saul and Berlin.
+const PROCEDURAL_OUT = [207694, 298849, 157241, 180668, 15271, 206958, 212513, 281585];
 
 type PoolSpec = {
   kind: MediaKind;
@@ -125,6 +160,12 @@ type PoolSpec = {
   after: string | null;
   before: string | null;
   pages: number;
+  // S20b — genres the title must ALSO carry (Romance + Feel-good → Comedy).
+  allOf?: number[];
+  // S19a — TMDb keyword filters: AND of OR groups ("10051,6075|240"), and
+  // ids to keep out.
+  withKeywords?: string;
+  withoutKeywords?: string;
 };
 
 const iso = (d: Date) => d.toISOString().slice(0, 10);
@@ -146,11 +187,23 @@ function baseSpec(kind: MediaKind, lane: string | null, refiner: Refiner): PoolS
   // and Family stay out unless the lane is one of them.
   for (const g of [16, 10751, 10762]) if (!genres.includes(g)) without.push(g);
   const tone = refiner?.kind === "tone" ? refiner.vibe.toLowerCase() : "";
+  const withoutK: number[] = [];
+  let allOf: number[] = [];
   if (/feel-good|comfort/.test(tone)) {
     // Bright: no horror/thriller/war — unless the lane itself is one.
     without.push(...BRIGHT_OUT[kind].filter((g) => !genres.includes(g)));
+    withoutK.push(...FEEL_GOOD_OUT);
+    if (kind === "tv") withoutK.push(...TV_HORROR_OUT);
+    // S20b — feel-good TV drama is no teen drama (Riverdale, Euphoria).
+    if (kind === "tv" && genres.includes(18)) withoutK.push(...TEEN_OUT);
+    // S20b — feel-good romance is romcom: Comedy too. Catches the
+    // tear-jerkers no tag names (A Star Is Born, Brokeback Mountain).
+    if (genres.includes(10749) && !genres.includes(35)) allOf = [35];
   } else if (/dark/.test(tone)) {
     anyOf = DARK_ANY[kind];
+    // Dark on TV is grown-up and serialized: no teen drama, no horror, no
+    // procedurals (S20 crime lanes; S20b every TV lane).
+    if (kind === "tv") withoutK.push(...TV_HORROR_OUT, ...TEEN_OUT, ...PROCEDURAL_OUT);
   } else if (/smart/.test(tone)) {
     floor = Math.max(floor, 7.4);
   }
@@ -166,6 +219,8 @@ function baseSpec(kind: MediaKind, lane: string | null, refiner: Refiner): PoolS
     after,
     before,
     pages: 8,
+    ...(allOf.length ? { allOf } : {}),
+    ...(withoutK.length ? { withoutKeywords: withoutK.join(",") } : {}),
   };
 }
 
@@ -205,10 +260,14 @@ async function discover(spec: PoolSpec): Promise<TmdbCandidate[] | null> {
     "vote_average.gte": String(spec.floor),
     "vote_count.gte": String(spec.minVotes),
   };
-  if (spec.genres.length) params.with_genres = spec.genres.join("|");
+  // OR inside the lane, AND with allOf ("10749,35" = Romance and Comedy).
+  const withG = [spec.genres.join("|"), ...(spec.allOf ?? []).map(String)].filter(Boolean);
+  if (withG.length) params.with_genres = withG.join(",");
   if (spec.without.length) params.without_genres = spec.without.join(",");
   if (spec.after) params[`${dateKey}.gte`] = spec.after;
   if (spec.before) params[`${dateKey}.lte`] = spec.before;
+  if (spec.withKeywords) params.with_keywords = spec.withKeywords;
+  if (spec.withoutKeywords) params.without_keywords = spec.withoutKeywords;
   if (spec.kind === "movie") params.with_runtime_gte = "60";
   const pages = await Promise.all(
     Array.from({ length: spec.pages }, (_, i) =>
@@ -245,6 +304,9 @@ export type Pools = {
   popular: TmdbCandidate[];
   fresh: TmdbCandidate[];
   classic: TmdbCandidate[];
+  // S19a — a mood pool (keywords / a named reference): every title in it,
+  // the last resort of every slot, and the fence neighbors stay inside.
+  all?: TmdbCandidate[];
 };
 
 export async function loadPools(kind: MediaKind, lane: string | null, refiner: Refiner): Promise<Pools | null> {
@@ -270,6 +332,97 @@ export async function loadPools(kind: MediaKind, lane: string | null, refiner: R
     fresh: fresh ?? [],
     classic: classic ?? [],
   };
+}
+
+/* ------------------------------------------------------------------
+   S19a — MOOD POOLS (docs/s19-fast-moods-plan.md, Part A): a typed or
+   spoken mood's concrete ideas as TMDb keywords, or the title it named.
+   The chip rules hold (lane genres, floor, refiner, Animation/Family out
+   unless asked); the vote minimum drops to 200 / 60 because a keyword
+   already narrows to the idea. The whole pool is sorted by votes and cut
+   in thirds for the recipe's tiers; fresh and classic come from the same
+   list. Every slot falls back to the whole pool (`all`), so a small pool
+   fills five instead of shipping short. The route decides whether the
+   pool is strong enough to answer at all (MIN_STRONG_POOL).
+------------------------------------------------------------------- */
+export const MIN_STRONG_POOL = 12;
+
+export type MoodConcept = { ids: number[]; exclude: boolean };
+
+function poolsFromList(list: TmdbCandidate[]): Pools {
+  const sorted = [...list].sort((a, b) => (b.votes ?? 0) - (a.votes ?? 0));
+  const third = Math.ceil(sorted.length / 3);
+  const tier1 = sorted.slice(0, third);
+  const touch = Math.max(3, Math.ceil(tier1.length / 2));
+  const thisYear = new Date().getFullYear();
+  return {
+    tier1,
+    tier2: sorted.slice(third, third * 2),
+    tier3: sorted.slice(third * 2),
+    touchstones: tier1.slice(0, touch),
+    popular: tier1.slice(touch),
+    fresh: sorted.filter((c) => (c.year ?? 0) >= thisYear - 1),
+    classic: sorted.filter((c) => c.year != null && c.year <= 1999),
+    all: sorted,
+  };
+}
+
+// Keyword concepts → one discover (AND across concepts, OR inside one).
+// The tone's keyword keep-outs (FEEL_GOOD_OUT, …) come with the base spec.
+export async function loadMoodPools(
+  kind: MediaKind,
+  lane: string | null,
+  refiner: Refiner,
+  concepts: MoodConcept[]
+): Promise<Pools | null> {
+  const withK = concepts.filter((c) => !c.exclude && c.ids.length).map((c) => c.ids.join("|"));
+  const base = baseSpec(kind, lane, refiner);
+  const withoutK = Array.from(
+    new Set([
+      ...(base.withoutKeywords ? base.withoutKeywords.split(",").map(Number) : []),
+      ...concepts.filter((c) => c.exclude).flatMap((c) => c.ids),
+    ])
+  );
+  // A keyword isn't a genre: "coming of age" also tags It (2017). Horror
+  // stays out of a movie mood pool unless the lane asked for it.
+  const without = kind === "movie" && !base.genres.includes(27) ? Array.from(new Set([...base.without, 27])) : base.without;
+  const spec: PoolSpec = {
+    ...base,
+    without,
+    minVotes: kind === "movie" ? 200 : 60,
+    pages: 3,
+    ...(withK.length ? { withKeywords: withK.join(",") } : {}),
+    ...(withoutK.length ? { withoutKeywords: withoutK.join(",") } : {}),
+  };
+  const list = await discover(spec);
+  return list ? poolsFromList(list) : null;
+}
+
+// A named reference with no keyword concept: its own web (recommendations,
+// then similar), held to the same rules as a discover pool.
+export function webPools(
+  kind: MediaKind,
+  lane: string | null,
+  refiner: Refiner,
+  bundle: MediaBundle | null
+): Pools | null {
+  if (!bundle) return null;
+  const spec = baseSpec(kind, lane, refiner);
+  const minVotes = kind === "movie" ? 100 : 40;
+  const afterY = spec.after ? Number(spec.after.slice(0, 4)) : null;
+  const beforeY = spec.before ? Number(spec.before.slice(0, 4)) : null;
+  const list = bundle.candidates.filter((c) => {
+    const g = c.genreIds ?? [];
+    if ((c.votes ?? 0) < minVotes || (c.rating ?? 0) < spec.floor) return false;
+    if (spec.genres.length && !g.some((x) => spec.genres.includes(x))) return false;
+    if (g.some((x) => spec.without.includes(x))) return false;
+    if (spec.anyOf && !g.some((x) => spec.anyOf!.includes(x))) return false;
+    if (spec.allOf && !spec.allOf.every((x) => g.includes(x))) return false;
+    if (afterY != null && (c.year ?? 0) < afterY) return false;
+    if (beforeY != null && (c.year ?? 9999) > beforeY) return false;
+    return true;
+  });
+  return poolsFromList(list);
 }
 
 /* ------------------------------------------------------------------
@@ -361,6 +514,23 @@ export function neighborPool(
   pools?: Pools | null
 ): TmdbCandidate[] {
   const web = (goTo?.bundle?.candidates ?? []).filter((c) => (c.rating ?? 0) >= floor || (c.votes ?? 0) < 50);
+  // S19a — a mood pool is a promise about the idea ("a funny heist
+  // movie"): neighbors stay inside it — the go-to's web where it meets the
+  // pool, then the pool's titles closest in genre to the go-to.
+  if (pools?.all) {
+    const ids = new Set(pools.all.map((c) => c.id));
+    const inPool = (goTo?.bundle?.candidates ?? []).filter((c) => ids.has(c.id));
+    if (inPool.length >= 6) return inPool;
+    const have = new Set(inPool.map((c) => c.id));
+    const genres = goTo?.bundle?.genreIds ?? [];
+    const fill = pools.all
+      .filter((c) => !have.has(c.id))
+      .map((c) => ({ c, s: jaccard(genres, c.genreIds ?? []) }))
+      .sort((a, b) => b.s - a.s || (b.c.votes ?? 0) - (a.c.votes ?? 0))
+      .slice(0, 24)
+      .map((x) => x.c);
+    return [...inPool, ...fill];
+  }
   if (!lane.length) return web;
   const inLane = web.filter((c) => (c.genreIds ?? []).some((g) => lane.includes(g)));
   if (inLane.length >= 6 || !pools) return inLane;
@@ -407,6 +577,9 @@ export function assemble(args: {
     new: [pools.fresh, pools.tier2],
     classic: [pools.classic, pools.tier2],
   };
+
+  // S19a — a mood pool: every slot's last resort is the whole pool.
+  if (pools.all) for (const k of Object.keys(chains) as SlotKind[]) chains[k].push(pools.all);
 
   const slots = args.only ? [args.only] : slotsFor(args.recipe);
   const out: SlotPick[] = [];
