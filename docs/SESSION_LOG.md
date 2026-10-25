@@ -2818,3 +2818,89 @@ Brad: "Keep Crime out of TV Feel-good chips unless the lane is Crime." This clos
 - **Revert:** `git revert -m 1 <#79 merge sha>`.
 
 **§0 check: consistent.** A feel-good tap no longer serves serial killers. No wording, nothing nags, nothing paid.
+
+## Session 21 — chip rows — 2026-10-25 — branch auto/s21-chip-rows — PR #81 (local agent mode, §11)
+
+Brad's brief: genres in one scrolling row; vibes in a second row that appears once a genre is picked; ten approved vibes; "Your go-tos" off the home screen, "+ More like this" on every Favorites tile. Plan: `docs/s21-chip-rows-plan.md`.
+
+### SHIPPED (#81)
+- **Genre row** (`SearchBar.tsx`): one sideways-scrolling row, no scrollbar, bleeding to the screen edge (`-mx-4 px-4`). Chips are `shrink-0`, with 14px side padding so the 5th chip is visibly cut. Measured hidden share of the cut chip: 375px 46%, 390 28%, 393 24%; at 430, 5 full chips plus 86% hidden.
+- **Vibe row:** mounts only when a genre is picked, with a 220ms fade-and-slide and none under reduced motion. Tapping the picked genre clears the genre and vibe and runs no search.
+- **Chips** (`moodChips.ts`): Movies has 16, TV 12, in the approved order. Wine and Books are unchanged.
+- **Vibes:** the ten approved. Funny, Cozy, Tense and Epic ride existing `TONE_BY_VIBE` keys ("Goofy / Silly Fun", "Comfort Watch", "Suspense / Edge-of-Seat" / "Edge-of-Seat", "Epic / Immersive"), so no prompt text changed. Short is a new refiner kind `short`; on the AI fallback it qualifies the lane text.
+- **Pools** (`slotRecipe.ts`):
+  - New lanes: Movies Horror, War (10752), Western (37); TV Sci-Fi & Fantasy (10765), Action & Adventure (10759), Western (37). Old keys stay as aliases.
+  - Tone matching is an exact key table now (`toneOf`); "Comfort Watch" must not read as Feel-good.
+  - The Animation and Family lanes no longer shut each other out (Pixar). Kids' animation stays out of Comedy.
+  - Mappings are listed in the PR. Length vibes check each title's own runtime/seasons (`withinLength`): up to 160 detail reads per pool, in chunks of 40, cached per process. Unread titles are dropped and logged as `[slots] length: detail reads failed`.
+- **Go-tos:** `GoTosList` is gone from home in every category. WineFollowup and "Wine you bought" stay. Favorites rows have `MoreLikeThisButton`, counted as `goto_more`; the open event now carries `counted`.
+- **The route** accepts `{kind:"short"}` and logs it. The typed-mood gate and voice parser know the new vibe words.
+
+### Calls I made (measured)
+- **Cozy tags not used:**
+  - "friendship" and "small town" (One Flew Over the Cuckoo's Nest, Deathly Hallows, Corpus Christi);
+  - "hopeful" (The Passion of the Christ, Transamerica, Crazy Heart).
+- **Cozy fill:** the tagged pool was tiny (Drama + Cozy ≈ 8 titles, first tap shipped 4), so light Comedy/Romance titles under the same keep-outs fill behind it. Tagged + filled vibes use the mood pools' vote minimum (200/60, the S19a precedent).
+- **TV Tense** drops Action & Adventure (Agents of S.H.I.E.L.D.).
+- **TV Epic** needs a scale tag (WandaVision and Hawkeye passed on genre alone).
+- **Runtime:** TMDb's discover runtime filter matches alternate cuts (Léon 111 min passed 130+), so each title's own runtime decides. Short allows 2 minutes of slack ("~100").
+
+### MEASURED (live TMDb, 10 titles per chip; local and preview)
+- **Genres:** every title carries the genre (TV Western 8/8, a small pool).
+- **Funny:**
+  - Movies Drama 8/10 feel funny (10/10 Comedy);
+  - TV Drama 9/10.
+- **Cozy:**
+  - Movies Comedy 8/10;
+  - Movies Drama 7/10 (8/10 on preview);
+  - TV Comedy 9/10;
+  - Movies Surprise me 7/10.
+- **Tense:**
+  - Movies Drama 8/8;
+  - Movies Comedy 6/6;
+  - TV Drama 7/10.
+- **Epic:**
+  - Movies Action and Drama 10/10 at 130+ min (8/10 feel epic);
+  - TV Drama 10/10.
+- **Short:**
+  - Movies 30/30 at ≤102 min;
+  - TV 17/17 at ≤2 seasons.
+- **On the preview:** zero length misses across every Short/Epic set.
+
+### FOUND, NOT FIXED
+- `discover()` still sends `with_runtime_gte`, which is not a TMDb parameter, so the 60-minute feature floor never applied to plain chips (Night and Fog, 32 min, on Documentary). It's kept so existing chips don't change silently; the fix is one line (`with_runtime.gte`) if Brad wants it.
+- Books keeps its old chips and five vibes.
+- Second-call short sets on small pools: Comedy + Tense 6, TV Western 8, TV Drama + Short 8.
+
+### TEST RESIDUE
+`api_usage` / signal rows for `anon_agent_s21_chips_*`. `/api/stats` excludes `anon_agent*`.
+
+### VALIDATION
+- **Suites:** new `validate-s21-chip-rows` 59/59. `validate-s5`, `s12a`, `s17b` and `s17c` updated for the designed changes; all 41 suites green with the Windows shell shim; tsc and lint clean.
+- **Playwright (iPhone 13), local and preview:**
+  - 4 full chips plus Romance cut off;
+  - no vibe row and no go-tos bar on home;
+  - no page side-scroll;
+  - a swipe reveals Romance to Horror;
+  - Comedy shows the ten vibes, and a second tap hides them;
+  - reduced motion: animation "none";
+  - Wine shows its 5 chips;
+  - a seeded Favorites list shows "+ More like this" on the movie and the wine, and tapping it opens the card.
+
+### Promotion
+- `main → release/v2` (ships with S19/S20). No env, no migrations.
+- **Phone check:**
+  - home shows one genre row with the 5th chip cut off, and no vibes or go-tos;
+  - swipe left: War and Western are at the end;
+  - tap Comedy and the vibes slide in; tap again and they hide;
+  - Comedy + Cozy reads warm; Drama + Epic is long and big; Comedy + Short is all under ~100 min;
+  - TV Drama + Epic shows Game of Thrones / Shōgun territory;
+  - Saved → Favorites: each tile has "+ More like this".
+- **Revert:** `git revert -m 1 <#81 merge sha>`.
+
+**§0 check: consistent.**
+- **Less to learn:** one row to scan and a second only after a first choice (progressive disclosure), so the first screen is lighter.
+- **More moods answered:** Short, Cozy, Tense, Epic and Funny are moods people actually name.
+- **Honest picks:** every pick comes from TMDb's public data under the same floor and keep-outs. A vibe that can't fill ships short rather than padded. Nothing pays to move a pick.
+- **No new wording:** only Brad's approved labels.
+- **No pressure:** nothing nags. Removing the go-tos bar removes nothing the person relied on: Favorites still steer and live one tap away under Saved.
