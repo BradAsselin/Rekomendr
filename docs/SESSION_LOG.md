@@ -2904,3 +2904,37 @@ Brad's brief: genres in one scrolling row; vibes in a second row that appears on
 - **Honest picks:** every pick comes from TMDb's public data under the same floor and keep-outs. A vibe that can't fill ships short rather than padded. Nothing pays to move a pick.
 - **No new wording:** only Brad's approved labels.
 - **No pressure:** nothing nags. Removing the go-tos bar removes nothing the person relied on: Favorites still steer and live one tap away under Saved.
+
+## Session 21b — S21 calls — 2026-10-25 — branch auto/s21b-floor-books (local agent mode, §11)
+
+Brad's S21 calls: (1) fix the 60-minute movie floor; (2) Books gets the same layout, keeping its chips; (3) short sets stay as they are.
+
+### SHIPPED
+- **(1) 60-minute floor** (`slotRecipe.ts` `discover()`): every movie pool now sends `with_runtime.gte=60` (a vibe still raises it to 130 for Epic, or caps it at 100 for Short). The dead `with_runtime_gte` param is gone. TV is unchanged.
+- **(2) Books layout: already live, no code change.** `SearchBar` renders one genre row and one vibe row for every category, so Books got the S21 layout in #81. The S21 entry's "Books keeps its old chips" was about the chip labels, not the layout. Suite checks now lock it in.
+- **(3) Short sets:** untouched.
+
+### MEASURED
+- **TMDb discover**, Documentary, vote_count ≥ 300:
+  - with the old param: 176 results, Night and Fog (32 min) on page 1;
+  - with the fix: 170 results, Night and Fog gone.
+- **Local `/api/slots`**, 3 calls each, runtimes read from TMDb:
+  - Documentary 13 titles, Animation 15, Family 15, Comedy 15;
+  - 0 titles under 60 minutes (shortest: Man with a Movie Camera, 68 min).
+- **Playwright Books** (iPhone 13 at 375/390/430):
+  - one line, scrolls, no page side-scroll;
+  - 4 full chips with Sci-Fi cut off (57% / 32% hidden); at 430, 5 full chips with Non-Fiction 87% hidden;
+  - no vibe row on home;
+  - Mystery shows Feel-good · Dark · Smart · Classic · New, and a second tap hides them.
+
+### VALIDATION
+`validate-s21-chip-rows` 64/64 (+5: the floor, no dead param, TV has no floor, Books chips and vibes, one layout for every category). All suites green, tsc and lint clean.
+
+### TEST RESIDUE
+`api_usage` rows for `anon_agent_s21b_floor_*` (excluded by `/api/stats`).
+
+### Promotion
+- Ships with S21 (`main → release/v2`). No env, no migrations.
+- **Phone check:** Movies → Documentary shows nothing under an hour; Books shows one scrolling row, and its vibes appear only after a genre tap.
+
+**§0 check: consistent.** Plain chips now honor the feature-length floor they always claimed to have, so the picks are more honest. The layout doesn't change and no wording is new.

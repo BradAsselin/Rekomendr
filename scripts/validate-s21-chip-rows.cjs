@@ -51,6 +51,9 @@ for (const level of ["warn", "info", "error"]) console[level] = () => {};
   const VIBES = ["Feel-good", "Funny", "Dark", "Smart", "Cozy", "Tense", "Epic", "Classic", "New", "Short"];
   check("Movies vibes, approved order", C.REFINERS_BY_CATEGORY.Movies.map((r) => r.label), VIBES);
   check("TV vibes, approved order", C.REFINERS_BY_CATEGORY["TV Shows"].map((r) => r.label), VIBES);
+  // S21b — Books keeps its chips and its five vibes, in the same layout.
+  check("Books keeps its chips", labels("Books"), ["Mystery", "Thriller", "Romance", "Fantasy", "Sci-Fi", "Non-Fiction", "Surprise me"]);
+  check("Books keeps its vibes", C.REFINERS_BY_CATEGORY.Books.map((r) => r.label), ["Feel-good", "Dark", "Smart", "Classic", "New"]);
   check("Wine keeps its styles", C.REFINERS_BY_CATEGORY.Wine.map((r) => r.label), ["Easy sipper", "Special occasion", "Crisp & dry", "Rich & cozy"]);
   const engine = read("src/engine/rekomendrEngine.ts");
   const tones = [...C.REFINERS_BY_CATEGORY.Movies, ...C.REFINERS_BY_CATEGORY["TV Shows"]].filter((r) => r.kind === "tone");
@@ -108,7 +111,11 @@ for (const level of ["warn", "info", "error"]) console[level] = () => {};
 
   r = await first("movie", "Comedy", null);
   check("kids' animation stays out of Comedy", [16, 10751].every((g) => without(r.q).includes(g)), true);
-  check("plain chips send no runtime bounds", ["with_runtime.gte", "with_runtime.lte"].map((k) => r.q[k] ?? null), [null, null]);
+  check("plain movie chips: the 60-minute floor, no cap", ["with_runtime.gte", "with_runtime.lte"].map((k) => r.q[k] ?? null), ["60", null]);
+  check("the dead with_runtime_gte param is gone", r.q.with_runtime_gte ?? null, null);
+  r = await first("tv", "Comedy", null);
+  check("TV chips send no runtime floor", r.q["with_runtime.gte"] ?? null, null);
+  r = await first("movie", "Comedy", null);
   r = await first("movie", "Animation", null);
   check("Movies Animation keeps Family (Pixar)", without(r.q).includes(10751), false);
   r = await first("movie", "Family", null);
@@ -223,6 +230,7 @@ for (const level of ["warn", "info", "error"]) console[level] = () => {};
   check("vibe row only once a genre is picked", /\{activeChip && \(\s*<div\s+className="vibe-row/.test(bar), true);
   check("second tap on the genre clears it and its vibe, no search", /if \(chipRef\.current\?\.label === c\.label\) \{\s*chipRef\.current = null;\s*setActiveChip\(null\);\s*setRefiner\(null\);\s*return;/.test(bar), true);
   check("vibe row fades/slides in; none under reduced motion", /@keyframes vibeIn/.test(bar) && /prefers-reduced-motion: reduce\) \{\s*\.vibe-row \{\s*animation: none;/.test(bar), true);
+  check("one chip layout for every category (Books, Wine included: no per-category row)", (bar.match(/data-testid="genre-row"/g) || []).length === 1 && (bar.match(/data-testid="vibe-row"/g) || []).length === 1 && !/category === "(Books|Wine)"[^\n]*(genre-row|vibe-row|chips)/.test(bar), true);
   check("search box keeps mic + camera", /data-testid="voice-mic"/.test(bar) && /aria-label="Snap"/.test(bar), true);
 
   /* ---------------- go-tos ---------------- */
