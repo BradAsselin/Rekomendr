@@ -70,10 +70,11 @@ export default function MoreMenu({ attribution }: { attribution: React.ReactNode
 
   return (
     <div ref={rootRef} className="relative">
-      {/* No aria-label: the menu's name needs Brad's wording (flagged). */}
+      {/* S25 — the screen-reader name is Brad's: "More options". */}
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
+        aria-label="More options"
         aria-haspopup="menu"
         aria-expanded={open}
         data-testid="more-menu"

@@ -96,7 +96,7 @@ Each PR merges when green: tsc and lint clean, every harness green, the new harn
 
 ### Books
 - TMDb doesn't know books, so the S12 Books precedent applies. With references applied, a Books search runs the existing **seeded** AI search: seed = the first reference, the lane and vibe kept. Its existing placement sentence names the reference.
-- **No "vs." line on Books cards:** a Books line writer needs new prompt text, which is VOICE. Logged as Brad's call.
+- **No "vs." line on Books cards:** a Books line writer needs new prompt text, which is VOICE. Logged as Brad's call. **S25 (Brad, 2026-10-25): approved.** Books get "vs. your [Book]:" in the movie format: the same writer, the anchor named a book, and each card's own text standing in for a synopsis.
 - The Compare to button and sheet work on Books the same way. Rows show no poster (a placeholder square).
 
 ### UI
@@ -151,10 +151,10 @@ Each PR merges when green: tsc and lint clean, every harness green, the new harn
 - **Wine:** no code path changes. Wine's header stays null, and its slot/snap paths don't read references.
 
 ## Deliberately out of scope (logged)
-- A Books "vs." line (needs new prompt text: VOICE).
+- ~~A Books "vs." line~~ shipped in S25.
 - Re-ranking AI-path Movies/TV sets by references (lines only; the words chose the five).
 - Syncing Recent or references across devices (per device by spec; §0 rule 6 for Recent).
 - Any prompt or voice text change.
 
 ## Approved-wording audit (both PRs)
-A harness diff greps every new user-visible string in the changed components against the approved list above, plus the existing strings ("vs. your", "Sign in", "Sign out", "Share", the TMDb notice, "Undo" toasts), and fails on anything else. The type labels in sheet rows ("Movie", "TV", "Book") are the "type" Brad specified; they are flagged in the summary as the one judgment call.
+A harness diff greps every new user-visible string in the changed components against the approved list above, plus the existing strings ("vs. your", "Sign in", "Sign out", "Share", the TMDb notice, "Undo" toasts), and fails on anything else. The type labels in sheet rows ("Movie", "TV", "Book") are the "type" Brad specified; they are flagged in the summary as the one judgment call. **S25: Brad approved "Movie" / "TV" / "Book"**, and the ⋯ button's screen-reader label "More options".

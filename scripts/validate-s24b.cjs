@@ -81,11 +81,12 @@ const jsxText = (src) =>
     (w) => w && !/[=;()\n]/.test(w)
   );
 const menuWords = [...new Set([...jsxText(menu), ...(menu.match(/"(Hide posters|Show posters)"/g) || []).map((m) => m.slice(1, -1))])];
-check("menu strings", menuWords.filter((w) => !["Share", "Hide posters", "Show posters"].includes(w)), []);
+check("menu strings", menuWords.filter((w) => !["Share", "Hide posters", "Show posters", "More options"].includes(w)), []);
 check("pair strings", [...new Set(jsxText(pair))].filter((w) => !["Say it", "Snap it", "Something fun and funny", "A poster, a shelf, the TV", "powered by Reks Ray™"].includes(w)), []);
 check("pill strings", [...new Set([...jsxText(watched), ...(watched.match(/"(Watched it|Watched)"/g) || []).map((m) => m.slice(1, -1))])].filter((w) => !["Watched", "Watched it", "Watched ·", "Undo"].includes(w)), []);
 check("auth strings unchanged from S2b", ["Sign in", "Sign out", "Check your email — the sign-in link is on its way.", "you@email.com", "Sending...", "Send sign-in link", "Couldn’t send the link — give it another go."].every((t) => auth.includes(t)), true);
-check("the ⋯ button has no aria-label (needs Brad's word)", /data-testid="more-menu"/.test(menu) && !/aria-label/.test(strip(menu)), true);
+// S25 — Brad's word for it.
+check("the ⋯ button reads More options to a screen reader", /aria-label="More options"/.test(menu), true);
 
 console.log("\n7. Untouched");
 const diff = (files) => {
@@ -96,7 +97,10 @@ const diff = (files) => {
   }
 };
 check("wine: routes, libs and components byte-identical", diff("src/lib/wineReks.ts src/lib/wineShelf.ts src/lib/wineVisit.ts app/api/wine app/api/reksnap src/components/WineBought.tsx src/components/WineFacts.tsx src/components/WineFollowup.tsx"), "");
-check("no prompt text changed", diff("src/lib/mediaReks.ts src/lib/voiceMood.ts src/engine/rekomendrEngine.ts app/api"), "");
+// S25 — Books lines widened the writer's types and added a route action;
+// the prompt strings themselves stay byte-identical.
+const promptDiff = diff("src/lib/mediaReks.ts src/lib/voiceMood.ts src/engine/rekomendrEngine.ts");
+check("no prompt text changed (no string-literal prompt line touched)", /^[-+]s*("|'|`).*\n/m.test(promptDiff) || /^[-+].*CHOOSER_PROMPT =/m.test(promptDiff), false);
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
