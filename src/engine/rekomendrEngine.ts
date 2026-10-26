@@ -49,6 +49,9 @@ export interface Rek {
   slot?: string;
   tmdbId?: number;
   vsGoTo?: string | null;
+  // S24a — the card's own text before a "Compare to" line replaced it
+  // (an AI search's five get lines in place; clearing puts this back).
+  baseShort?: string;
   title: string;
   year: number;
   short: string;
@@ -1733,7 +1736,12 @@ export async function getMoreLikeThisSet(args: {
 
   // Promote the session: keep the prior intent's context (lane, text) as
   // flavor, but the mode is now AI — subsequent thumbs backfills follow it.
-  const prior = getLastIntent(category);
+  // S24a — a Books search with a "Compare to" reference passes its own
+  // query (`rawQuery`): that search's lane and vibe, not the last one's.
+  const fromQuery = typeof args.rawQuery === "string" && args.rawQuery ? parseRawQuery(args.rawQuery) : null;
+  const prior = fromQuery
+    ? { category, clarifier: fromQuery.clarifier, text: fromQuery.text, vibe: fromQuery.vibe, mode: "ai" as const }
+    : getLastIntent(category);
   const intent: Intent = {
     category,
     clarifier: prior?.clarifier ?? "",

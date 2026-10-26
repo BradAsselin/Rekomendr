@@ -28,6 +28,7 @@ import { getWineFavorite, onWineFavoriteChange, setWineFavorite } from "../lib/w
 import { fetchSavedLists, onSavedChange, undoSignal, undoWatched } from "../lib/userPrefs";
 import { setPostersHidden, usePostersOn } from "../lib/posterPref";
 import type { SavedCategory, SavedItem } from "../lib/savedLists";
+import { clearRecent, getRecent, onRecentChange, type RecentItem } from "../lib/recent";
 
 const OPEN_EVENT = "rekomendr:open-saved-item";
 
@@ -45,11 +46,12 @@ export function onOpenSavedItem(fn: (t: GoToTarget, counted: boolean) => void): 
 }
 
 const GROUPS: SavedCategory[] = ["Movies", "TV Shows", "Books", "Wine"];
-type Tab = "Saved" | "Watched" | "Favorites";
-const TABS: Tab[] = ["Saved", "Watched", "Favorites"];
+type Tab = "Saved" | "Watched" | "Favorites" | "Recent";
+const TABS: Tab[] = ["Saved", "Watched", "Favorites", "Recent"];
 
 // S18a — what an empty tab says (Brad-approved wording, 2026-10-24).
-const EMPTY: Record<Tab, string> = {
+// S24a — Recent has no approved empty line: an empty Recent shows nothing.
+const EMPTY: Partial<Record<Tab, string>> = {
   Saved: "Nothing saved yet. Tap the bookmark on any card to keep it here.",
   Watched: "Nothing marked watched yet.",
   Favorites: "No favorites yet. Tap ☆ on a card you love.",
@@ -77,6 +79,8 @@ const SavedPage: React.FC = () => {
   const [saved, setSaved] = useState<SavedItem[]>([]);
   const [watched, setWatched] = useState<SavedItem[]>([]);
   const [favorites, setFavorites] = useState<Fav[]>([]);
+  // S24a — this device's Recent (never sent anywhere).
+  const [recent, setRecent] = useState<RecentItem[]>([]);
   // Saved/Watched say "empty" only once a read has actually answered — a
   // list still loading (or a failed read) is not an empty list.
   const [loaded, setLoaded] = useState(false);
@@ -93,6 +97,8 @@ const SavedPage: React.FC = () => {
   useEffect(() => {
     void reload();
     setFavorites(readFavorites());
+    setRecent(getRecent());
+    const offRecent = onRecentChange(() => setRecent(getRecent()));
     const offSaved = onSavedChange(() => void reload());
     const offGoTos = onGoTosChange(() => setFavorites(readFavorites()));
     const offWine = onWineFavoriteChange(() => setFavorites(readFavorites()));
@@ -100,6 +106,7 @@ const SavedPage: React.FC = () => {
       offSaved();
       offGoTos();
       offWine();
+      offRecent();
     };
   }, [reload]);
 
@@ -186,7 +193,12 @@ const SavedPage: React.FC = () => {
       );
     });
 
-  const tabCount: Record<Tab, number> = { Saved: saved.length, Watched: watched.length, Favorites: favorites.length };
+  const tabCount: Record<Tab, number> = {
+    Saved: saved.length,
+    Watched: watched.length,
+    Favorites: favorites.length,
+    Recent: recent.length,
+  };
 
   return (
     <>
@@ -237,7 +249,7 @@ const SavedPage: React.FC = () => {
           </div>
 
           <div className="mx-auto w-full max-w-xl flex-1 overflow-y-auto overscroll-contain px-4 pb-6">
-            {tabCount[tab] === 0 && (tab === "Favorites" || loaded) && (
+            {tabCount[tab] === 0 && (tab === "Favorites" || loaded) && EMPTY[tab] && (
               <p data-testid="saved-empty" className="pt-8 text-center text-[15px] leading-relaxed text-gray-500">
                 {EMPTY[tab]}
               </p>
@@ -280,6 +292,39 @@ const SavedPage: React.FC = () => {
                   true
                 )
               )}
+            {/* S24a — Recent: newest first, every category, this device only. */}
+            {tab === "Recent" && recent.length > 0 && (
+              <>
+                <ul className="divide-y divide-gray-100 pt-2" data-testid="recent-list">
+                  {recent.map((r, i) => (
+                    <li key={`r${i}${r.category}${r.title}`} className="py-1">
+                      <button
+                        type="button"
+                        onClick={() => openItem(targetFor(r.category, r.title))}
+                        className="w-full py-2 text-left"
+                        data-testid="saved-item"
+                      >
+                        <span className="line-clamp-2 text-[15px] text-gray-900">
+                          {r.title}
+                          {r.year ? <span className="text-gray-500"> ({r.year})</span> : null}
+                        </span>
+                        <span className="block text-[12px] font-medium uppercase tracking-wide text-gray-400">{r.category}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+                <div className="pt-4 text-center">
+                  <button
+                    type="button"
+                    onClick={() => clearRecent()}
+                    data-testid="recent-clear"
+                    className="rounded-full px-4 py-2.5 text-[15px] font-medium text-[#3B6BD4]"
+                  >
+                    Clear recent
+                  </button>
+                </div>
+              </>
+            )}
           </div>
 
           <div className="mx-auto w-full max-w-xl border-t border-gray-200 px-4">

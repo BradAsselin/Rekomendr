@@ -106,7 +106,8 @@ const readNdjson = async (res) => {
   console.log("1. Early paint: cards first (with facts), then the lines");
   events.length = 0;
   const t0 = Date.now();
-  let res = await post({ ...base, goTos: [{ name: "Knives Out", tmdbKind: "movie", tmdbId: 546554, at: "2026-10-01" }], stream: "ndjson" });
+  // S24a — only a Compare to ref steers (refs); go-tos are exclusions.
+  let res = await post({ ...base, refs: [{ name: "Knives Out", tmdbKind: "movie", tmdbId: 546554, at: "2026-10-01" }], stream: "ndjson" });
   check("answers NDJSON", (res.headers.get("content-type") || "").includes("ndjson"), true);
   let msgs = await readNdjson(res);
   check("two messages: cards, then lines", msgs.map((m) => m.msg.type), ["cards", "lines"]);
@@ -132,9 +133,16 @@ const readNdjson = async (res) => {
   check("cards + empty lines", [msgs[0].msg.linesPending, msgs[1].msg.lines.length], [false, 0]);
   check("no writer call", events.some((e) => e[0] === "writer-start"), false);
 
+  console.log("\n2b. S24a — a starred go-to alone steers nothing (steering is off by default)");
+  events.length = 0;
+  res = await post({ ...base, goTos: [{ name: "Knives Out", tmdbKind: "movie", tmdbId: 546554, at: "2026-10-01" }], stream: "ndjson" });
+  msgs = await readNdjson(res);
+  check("go-tos only: no lines, no writer, no steer", [msgs[0].msg.linesPending, msgs[1].msg.lines.length, events.some((e) => e[0] === "writer-start"), msgs[0].msg.steer], [false, 0, false, null]);
+  check("go-tos only: every card shows its synopsis", msgs[0].msg.reks.every((r) => r.vsGoTo === null), true);
+
   console.log("\n3. Writer down: synopses stand, named");
   writerFails = true;
-  res = await post({ ...base, goTos: [{ name: "Knives Out", tmdbKind: "movie", tmdbId: 546554, at: "2026-10-01" }], stream: "ndjson" });
+  res = await post({ ...base, refs: [{ name: "Knives Out", tmdbKind: "movie", tmdbId: 546554, at: "2026-10-01" }], stream: "ndjson" });
   msgs = await readNdjson(res);
   check("cards, then no lines", [msgs[0].msg.reks.length, msgs[1].msg.lines.length], [5, 0]);
   writerFails = false;

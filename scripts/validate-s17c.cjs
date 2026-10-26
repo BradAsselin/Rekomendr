@@ -121,7 +121,8 @@ for (const level of ["log", "warn", "info", "error"]) console[level] = () => {};
   const layout = read("app/layout.tsx");
   const page = read("app/page.tsx");
   check("top bar: Saved sits left of Share", layout.indexOf("<SavedPage />") > 0 && layout.indexOf("<SavedPage />") < layout.indexOf("<ShareButton />"), true);
-  check("tabs Saved · Watched · Favorites", /const TABS: Tab\[\] = \["Saved", "Watched", "Favorites"\];/.test(sp), true);
+  // S24a — plus Recent (Brad's approved word).
+  check("tabs Saved · Watched · Favorites · Recent", /const TABS: Tab\[\] = \["Saved", "Watched", "Favorites", "Recent"\];/.test(sp), true);
   check("groups Movies · TV Shows · Books · Wine", /const GROUPS: SavedCategory\[\] = \["Movies", "TV Shows", "Books", "Wine"\];/.test(sp), true);
   check("remove = every save row, every spelling", /item\.rawCategories\.map\(\(category\) => undoSignal\(\{ category, title: item\.title, action: "save", remove: true \}\)\)/.test(sp), true);
   check("un-watch through S16's route", /undoWatched\(\{ category, title: item\.title \}\)/.test(sp), true);
@@ -138,14 +139,15 @@ for (const level of ["log", "warn", "info", "error"]) console[level] = () => {};
     ...(code.match(/>\s*([A-Z][^<>{}]*?)\s*</g) || []).map((m) => m.replace(/^>\s*|\s*<$/g, "")),
     ...(code.match(/aria-label="([^"]+)"/g) || []).map((m) => m.slice(12, -1)),
   ].filter(Boolean);
-  const allowed = new Set(["Saved", "Watched", "Favorites", "Show posters", "Close", "Your go-to (tap to unstar)"]);
+  // S24a — "Recent" and "Clear recent" (Brad's approved wording, 2026-10-25).
+  const allowed = new Set(["Saved", "Watched", "Favorites", "Show posters", "Close", "Your go-to (tap to unstar)", "Recent", "Clear recent"]);
   // S18a — the three empty states, approved by Brad 2026-10-24.
   check("empty states: the approved wording, exactly", [
     sp.includes('Saved: "Nothing saved yet. Tap the bookmark on any card to keep it here."'),
     sp.includes('Watched: "Nothing marked watched yet."'),
     sp.includes('Favorites: "No favorites yet. Tap ☆ on a card you love."'),
   ], [true, true, true]);
-  check("empty text waits for a real answer (not shown while loading or after a failed read)", /tabCount\[tab\] === 0 && \(tab === "Favorites" \|\| loaded\)/.test(sp), true);
+  check("empty text waits for a real answer (not shown while loading or after a failed read)", /tabCount\[tab\] === 0 && \(tab === "Favorites" \|\| loaded\) && EMPTY\[tab\]/.test(sp), true);
   check("every visible string / label is approved or existing", [...new Set(visible)].filter((w) => !allowed.has(w)), []);
 
   say(`\n${passed} passed, ${failed} failed`);

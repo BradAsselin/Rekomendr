@@ -13,6 +13,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { recordWatched, undoWatched } from "./userPrefs";
 import { BAR_CATEGORY, goToCategoryFor } from "./goToCategory";
+import { noteRecent } from "./recent";
 
 export type WatchedItem = { title: string; year?: number | null; category: string };
 
@@ -72,6 +73,8 @@ export function useWatchedMarks(
     const k = keyOf(item.title);
     set(k, true);
     onChangeRef.current?.(item, true);
+    // S24a — a mark lands in Recent (this device only).
+    noteRecent({ category, title: item.title, year: item.year ?? null });
     if (!silent) {
       if (timer.current) clearTimeout(timer.current);
       setToast(item);
