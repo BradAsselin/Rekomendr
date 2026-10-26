@@ -9,6 +9,7 @@ import RekCard from "./RekCard";
 import ShareRow from "./ShareRow";
 import GoToStar from "./GoToStar";
 import { addToVoiceSet, noteVoiceAction } from "../lib/voiceSignals";
+import { noteRecent } from "../lib/recent";
 import { isGoTo, logGoToEvent } from "../lib/goTos";
 import { goToCategoryFor } from "../lib/goToCategory";
 import { noteSetShown } from "../lib/screenVisit";
@@ -97,6 +98,8 @@ interface ResultsProps {
   // S17 — the results header: the active chips ("Comedy · Feel-good") or
   // the typed/spoken words. Data, never copy.
   header?: string | null;
+  // S24a — the header row's right side (the page's "Compare to" control).
+  headerRight?: React.ReactNode;
 }
 
 const ResultsV4: React.FC<ResultsProps> = ({
@@ -116,6 +119,7 @@ const ResultsV4: React.FC<ResultsProps> = ({
   backfillOverride,
   linesPending,
   header,
+  headerRight,
 }) => {
   const [reks, setReks] = useState<Rek[]>([]);
   // Mark state (graduation model, same as the snap lane): thumbs-up marks
@@ -722,7 +726,7 @@ const ResultsV4: React.FC<ResultsProps> = ({
   // no like is still holding it, un-saving returns the card from the
   // trail to the top of the frontier.
   const handleSave = (rek: Rek) => {
-    noteVoiceAction("save", rek.title);
+    noteAct("save", rek);
     if (savedRef.current.some((s) => s.id === rek.id)) {
       setSaved((p) => p.filter((s) => s.id !== rek.id));
       if (!contendersRef.current.some((c) => c.id === rek.id)) returnToFrontier(rek.id);
@@ -741,6 +745,14 @@ const ResultsV4: React.FC<ResultsProps> = ({
         if (savedRef.current.some((s) => s.id === rek.id)) handleSave(rek);
       });
     }
+  };
+
+  // S24a — every open, share, save and mark also lands in Recent (this
+  // device only, never sent): with the card's poster and TMDb id, so the
+  // Compare to sheet can show it.
+  const noteAct = (kind: "tap" | "share" | "star" | "save" | "play", rek: Rek) => {
+    noteVoiceAction(kind, rek.title);
+    noteRecent({ category, title: rek.title, year: rek.year, tmdbId: rek.tmdbId ?? null, posterPath: rek.posterPath ?? null, facts: rek.facts });
   };
 
   /* -----------------------------
@@ -771,7 +783,7 @@ const ResultsV4: React.FC<ResultsProps> = ({
             postJson
           )
         }
-        onTap={() => noteVoiceAction("share", rek.title)}
+        onTap={() => noteAct("share", rek)}
       />
     ) : undefined;
 
@@ -787,7 +799,7 @@ const ResultsV4: React.FC<ResultsProps> = ({
   });
   const starFor = (rek: Rek) =>
     rek.slot === "touchstone" ? undefined : (
-      <GoToStar item={goToItem(rek)} onStar={() => noteVoiceAction("star", rek.title)} />
+      <GoToStar item={goToItem(rek)} onStar={() => noteAct("star", rek)} />
     );
 
   // S12b — "A classic to steer by ☆" on a touchstone card; one tap stars it.
@@ -800,7 +812,7 @@ const ResultsV4: React.FC<ResultsProps> = ({
           size={15}
           onStar={() => {
             logGoToEvent("touchstone_star", goToCategoryFor(category));
-            noteVoiceAction("star", rek.title);
+            noteAct("star", rek);
           }}
         />
       </span>
@@ -844,6 +856,7 @@ const ResultsV4: React.FC<ResultsProps> = ({
       return;
     }
     watched.toggle(item);
+    noteRecent({ category, title: rek.title, year: rek.year, tmdbId: rek.tmdbId ?? null, posterPath: rek.posterPath ?? null, facts: rek.facts });
     const index = reksRef.current.findIndex((r) => r.id === rek.id);
     const leaves = inFrontier && index >= 0;
     if (leaves) {
@@ -939,11 +952,14 @@ const ResultsV4: React.FC<ResultsProps> = ({
 
       {/* S17 — what this set answers: the chips, or the words. */}
       {header && (
-        <div
-          data-testid="results-header"
-          className="w-full max-w-xl mb-2 truncate text-[13px] font-medium text-gray-300 sm:text-gray-600"
-        >
-          {header}
+        <div className="w-full max-w-xl mb-2 flex flex-wrap items-center gap-x-2 gap-y-1.5">
+          <div
+            data-testid="results-header"
+            className="min-w-[7rem] flex-1 truncate text-[13px] font-medium text-gray-300 sm:text-gray-600"
+          >
+            {header}
+          </div>
+          {headerRight}
         </div>
       )}
 
@@ -998,7 +1014,7 @@ const ResultsV4: React.FC<ResultsProps> = ({
                     titleHref={isMedia ? titleInfoUrl(rek.title) : undefined}
                     detailsOpen={expandedTop === rek.id}
                     onToggleDetails={() => {
-                      if (expandedTop !== rek.id) noteVoiceAction("tap", rek.title);
+                      if (expandedTop !== rek.id) noteAct("tap", rek);
                       toggleTopExpand(rek.id);
                     }}
                     thumbSignal={
@@ -1015,12 +1031,12 @@ const ResultsV4: React.FC<ResultsProps> = ({
                        stays empty — no chaining from the trail. */
                     verbLeft={
                       isMedia && expandedTop === rek.id ? (
-                        <TrailerVerb name={rek.title} href={rek.trailerUrl} onOpen={() => noteVoiceAction("play", rek.title)} />
+                        <TrailerVerb name={rek.title} href={rek.trailerUrl} onOpen={() => noteAct("play", rek)} />
                       ) : undefined
                     }
                     verbMiddle={
                       isMedia && expandedTop === rek.id ? (
-                        <WhereToWatchVerb name={rek.title} onOpen={() => noteVoiceAction("play", rek.title)} />
+                        <WhereToWatchVerb name={rek.title} onOpen={() => noteAct("play", rek)} />
                       ) : undefined
                     }
                   />
@@ -1073,7 +1089,7 @@ const ResultsV4: React.FC<ResultsProps> = ({
                 titleHref={isMedia ? titleInfoUrl(rek.title) : undefined}
                 detailsOpen={expandedTop === rek.id}
                 onToggleDetails={() => {
-                      if (expandedTop !== rek.id) noteVoiceAction("tap", rek.title);
+                      if (expandedTop !== rek.id) noteAct("tap", rek);
                       toggleTopExpand(rek.id);
                     }}
                 // Swipe grammar (touch only): a committed swipe in either
@@ -1088,7 +1104,7 @@ const ResultsV4: React.FC<ResultsProps> = ({
                 onThumbDown={() => handleDislike(rek)}
                 onSave={() => handleSave(rek)}
                 shareSlot={shareFor(rek)}
-                starSlot={d2 ? <GoToStar item={goToItem(rek)} onStar={() => noteVoiceAction("star", rek.title)} /> : starFor(rek)}
+                starSlot={d2 ? <GoToStar item={goToItem(rek)} onStar={() => noteAct("star", rek)} /> : starFor(rek)}
                 markerSlot={d2 ? undefined : touchstoneLabel(rek)}
                 shortLead={vsLead(rek)}
                 /* Media verbs stay expansion-gated in this lane (logic
@@ -1096,12 +1112,12 @@ const ResultsV4: React.FC<ResultsProps> = ({
                    search lane only, where its plumbing lives. */
                 verbLeft={
                   isMedia && expandedTop === rek.id ? (
-                    <TrailerVerb name={rek.title} href={rek.trailerUrl} onOpen={() => noteVoiceAction("play", rek.title)} />
+                    <TrailerVerb name={rek.title} href={rek.trailerUrl} onOpen={() => noteAct("play", rek)} />
                   ) : undefined
                 }
                 verbMiddle={
                   isMedia && expandedTop === rek.id ? (
-                    <WhereToWatchVerb name={rek.title} onOpen={() => noteVoiceAction("play", rek.title)} />
+                    <WhereToWatchVerb name={rek.title} onOpen={() => noteAct("play", rek)} />
                   ) : undefined
                 }
                 verbRight={

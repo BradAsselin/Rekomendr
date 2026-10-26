@@ -131,9 +131,10 @@ check("lines call uses CHOOSER_PROMPT verbatim", /(content|system): CHOOSER_PROM
 const engineDiff = execSync("git diff main -- src/engine/rekomendrEngine.ts", { cwd: root, encoding: "utf8" });
 check("engine: buildAIPrompt untouched", /^[-+].*(buildAIPrompt|You are Rekomendr)/m.test(engineDiff), false);
 const route = read("app/api/slots/route.ts");
-check("no-go-to sets make no model call (lines only with a steering go-to)", (route.includes("if (steer?.bundle && picks.length > 0) {") || route.includes("if (!steer?.bundle || picks.length === 0) return new Map")) /* S16 moved the writer into linesP */, true);
-check("the line call is capped like every chooser call", route.includes('capGate(clientId, "reksnap-text")'), true);
-check("a failed line call ships synopses, named", route.includes('"[slots] go-to lines failed — synopses shipped"'), true);
+// S24a — the writer runs per Compare to ref (linesByRef): no ref, no call.
+check("no-ref sets make no model call (lines only for a steering ref)", route.includes("if (!ref.bundle || cards.length === 0) return;"), true);
+check("the line call is capped like every chooser call", route.includes('capGate(args.clientId, "reksnap-text")'), true);
+check("a failed line call ships synopses, named", route.includes('"[slots] compare lines failed — synopses shipped"'), true);
 check("TMDb down is loud", route.includes('"[slots] FALLBACK TMDb discover failed; the AI chip search runs"'), true);
 
 console.log("\n8. Screens");

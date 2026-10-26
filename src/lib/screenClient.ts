@@ -5,7 +5,7 @@
 
 import type { Rek } from "../engine/rekomendrEngine";
 import { getAnonymousClientId } from "./userPrefs";
-import { goTosFor } from "./goTos";
+import { refsFor, refsPayload } from "./compareTo";
 import { readServiceFailure } from "./aiServiceError";
 
 export type ScreenTitles = { kind: "movie" | "tv"; id: number }[];
@@ -22,14 +22,9 @@ export type ScreenAnswer = {
 
 let nextId = -6_000_000;
 
-// A screen mixes films and shows: both kinds of go-to steer it.
-const screenGoTos = () =>
-  [...goTosFor("Movies"), ...goTosFor("TV Shows")].map((g) => ({
-    name: g.name,
-    tmdbKind: g.tmdbKind,
-    tmdbId: g.tmdbId,
-    at: g.at,
-  }));
+// S24a — steering is off by default: only refs chosen in "Compare to…"
+// (Movies or TV — a screen mixes films and shows) rank and compare it.
+const screenGoTos = () => refsPayload([...refsFor("Movies"), ...refsFor("TV Shows")]);
 
 export async function fetchScreen(
   req: { image: string } | { titles: ScreenTitles; service: string | null; steer: string },

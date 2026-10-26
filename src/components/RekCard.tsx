@@ -128,6 +128,11 @@ type Props = {
 };
 
 // Approved wording (Brad, S17).
+// S24a — a "Compare to" line ("vs. Knives Out: …") sits on a pale band
+// in the app's blue family, its lead in the deep blue.
+const VS_BAND = " rounded-lg bg-[#EEF3FC] px-2.5 py-1.5";
+const VS_LEAD = "font-semibold text-[#1E3A8A]";
+
 const NOT_FOR_ME = "Not for me";
 const SAVE_FOR_LATER = "Save for later";
 
@@ -245,8 +250,8 @@ const RekCard: React.FC<Props> = ({
                 </div>
               </div>
               {factsLine && <div className="mt-0.5 text-[13px] text-gray-600">{factsLine}</div>}
-              <p className="mt-2 text-[15px] leading-relaxed text-gray-900">
-                {shortLead && <span className="font-medium">{shortLead} </span>}
+              <p className={`mt-2 text-[15px] leading-relaxed text-gray-900${shortLead ? VS_BAND : ""}`} data-vs-line={shortLead ? "" : undefined}>
+                {shortLead && <span className={VS_LEAD}>{shortLead} </span>}
                 {short}
                 {(long || expandable) && onToggleDetails && (
                   <>
@@ -424,9 +429,10 @@ const RekCard: React.FC<Props> = ({
       {/* SHORT DESCRIPTION + EXPAND (expand when a long body exists, or when
           the parent lazy-loads one on first expand) */}
       <p
-        className={`${accent ? "text-base" : "text-[15px]"} font-normal text-gray-900 mb-2 leading-relaxed`}
+        className={`${accent ? "text-base" : "text-[15px]"} font-normal text-gray-900 mb-2 leading-relaxed${shortLead ? VS_BAND : ""}`}
+        data-vs-line={shortLead ? "" : undefined}
       >
-        {shortLead && <span className="font-medium">{shortLead} </span>}
+        {shortLead && <span className={VS_LEAD}>{shortLead} </span>}
         {short}
         {(long || expandable) && (
           <>

@@ -5,6 +5,7 @@
 // taste profile loaded by loadPrefsForCategory.
 
 import { getAnonymousClientId } from './userPrefs';
+import { noteRecent } from './recent';
 
 // 'detail_expand' = first "Show details" tap on the anchor card per snap.
 // 'chain' = "+ More like this" on a rek card — pursuit of an item. A chain
@@ -44,6 +45,10 @@ export async function recordSnapSignal(params: {
 }): Promise<void> {
   const clientId = getAnonymousClientId();
   if (!clientId) return;
+  // S24a — a snap card saved or liked lands in Recent (this device only).
+  if (params.action === "save" || params.action === "like") {
+    noteRecent({ category: params.itemCategory, title: params.itemName });
+  }
 
   // S23 — through /api/signals (service role): anon and authenticated hold
   // no privileges on reksnap_signals. The route sets source and NULLs the

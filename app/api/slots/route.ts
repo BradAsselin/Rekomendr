@@ -24,6 +24,16 @@
 // (docs/s16-watched-search-plan.md, Part B). The one-card backfill stays
 // plain JSON.
 //
+// S24a — steering is OFF by default (docs/s22-compare-to-plan.md): the
+// client's `goTos` are exclusions only (a starred title never comes back
+// as a pick). Only `refs` steer: up to 3 titles chosen in "Compare to…",
+// or one the person named in their words. With refs, the neighbors are
+// every ref's web, interleaved; each card belongs to its closest ref (the
+// web it came from, else the best genre overlap), and its line is written
+// against that ref — one chooser call per ref, prompt verbatim.
+// `action: "lines"` writes those lines for a set already on screen (an AI
+// search's five), without re-picking.
+//
 // S19a — a typed or spoken mood's `keywords` (TMDb keyword ids, one OR
 // group per concept) and/or a named `reference` build a MOOD POOL instead
 // of the lane's (src/lib/slotRecipe.ts loadMoodPools / webPools). The
@@ -38,7 +48,8 @@ import { withLlmContext } from "../../../src/lib/llm";
 import { cleanClientId } from "../../../src/lib/anchorSnapshots";
 import { capGate } from "../../../src/lib/apiUsage";
 import { loadMediaBundle, mediaConfigured, whereOf, type MediaKind } from "../../../src/lib/tmdbMedia";
-import { normalizeTitle } from "../../../src/lib/tmdbVerify";
+import { normalizeTitle, verifyTitles } from "../../../src/lib/tmdbVerify";
+import type { TmdbCandidate } from "../../../src/lib/tmdbMedia";
 import { linesVsGoTo, raceTaste } from "../../../src/lib/mediaReks";
 import {
   assemble,
@@ -53,6 +64,9 @@ import {
   neighborPool,
   webPools,
   type MoodConcept,
+  type LoadedGoTo,
+  closestRef,
+  refNeighbors,
   rankGoTos,
   recipeFor,
   shortSynopsis,
@@ -121,6 +135,117 @@ function conceptsOf(raw: unknown): MoodConcept[] {
     .filter((c) => c.ids.length > 0);
 }
 
+// S24a — the lines against each card's ref: one chooser call per ref that
+// has cards, in parallel, each capped like every chooser call. A refused
+// cap or a failed call ships that group's synopses, named in the log.
+async function linesByRef(args: {
+  clientId: string;
+  groups: { ref: LoadedGoTo; cards: TmdbCandidate[] }[];
+  taste: { liked: string[]; disliked: string[] };
+  lane: string | null;
+}): Promise<Map<number, { line: string; ref: string }>> {
+  const out = new Map<number, { line: string; ref: string }>();
+  await Promise.all(
+    args.groups.map(async ({ ref, cards }) => {
+      if (!ref.bundle || cards.length === 0) return;
+      const capped = await capGate(args.clientId, "reksnap-text");
+      if (capped) {
+        console.warn("[slots] over cap — synopses instead of compare lines", { ref: ref.name });
+        return;
+      }
+      try {
+        const lines = await linesVsGoTo({
+          goTo: {
+            title: ref.bundle.title,
+            year: ref.bundle.year,
+            kind: ref.bundle.kind,
+            overview: ref.bundle.overview,
+          },
+          candidates: cards,
+          taste: { liked: args.taste.liked, disliked: args.taste.disliked, watched: [] },
+          lane: args.lane,
+        });
+        lines.forEach((line, id) => out.set(id, { line, ref: ref.name }));
+      } catch (err) {
+        // Named, never silent: the cards are real either way; this group
+        // ships with TMDb's synopses instead of compare lines.
+        console.error("[slots] compare lines failed — synopses shipped", {
+          ref: ref.name,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }),
+  );
+  return out;
+}
+
+// S24a — { action: "lines" }: compare lines for five already on screen.
+// The five are found on TMDb by the title check's own matcher (cached from
+// the check that let them ship); an unmatched title keeps its synopsis.
+async function handleLines(body: any, clientId: string, kind: MediaKind): Promise<Response> {
+  const started = Date.now();
+  const refs = goTosOf(body?.refs).slice(0, 3);
+  const items: { title: string; year: number | null }[] = (Array.isArray(body?.items) ? body.items : [])
+    .filter((t: any) => typeof t?.title === "string" && t.title.trim() && t.title.length <= 300)
+    .slice(0, 5)
+    .map((t: any) => ({ title: t.title.trim(), year: Number.isInteger(t.year) ? t.year : null }));
+  if (!refs.length || !items.length)
+    return Response.json({ ok: false, reason: "bad_request" }, { status: 400 });
+  const [loadedRefs, verdicts, taste] = await Promise.all([
+    loadGoTos(kind, refs),
+    Promise.race([
+      verifyTitles(items.map((t) => ({ title: t.title, year: t.year ?? undefined, kind }))).catch(() => null),
+      new Promise<null>((r) => setTimeout(() => r(null), BUNDLE_WAIT_MS)),
+    ]),
+    raceTaste(clientId, kind),
+  ]);
+  const bundles = await Promise.all(
+    items.map((_, i) => {
+      const v = verdicts?.verdicts[i];
+      const id = v?.resolved && Number.isInteger(v.tmdbId) ? (v.tmdbId as number) : null;
+      return id == null
+        ? Promise.resolve(null)
+        : Promise.race([
+            loadMediaBundle(kind, id).catch(() => null),
+            new Promise<null>((r) => setTimeout(() => r(null), BUNDLE_WAIT_MS)),
+          ]);
+    }),
+  );
+  const cards: TmdbCandidate[] = [];
+  const asShown = new Map<number, string>(); // TMDb id → the card's own title
+  bundles.forEach((b, i) => {
+    if (!b || asShown.has(b.id)) return;
+    asShown.set(b.id, items[i].title);
+    cards.push({ id: b.id, kind, title: b.title, year: b.year, overview: b.overview, genreIds: b.genreIds });
+  });
+  const usable = loadedRefs.filter((r) => r.bundle);
+  const lines = await linesByRef({
+    clientId,
+    groups: usable.map((ref) => ({ ref, cards: cards.filter((c) => closestRef(c, usable, null) === ref) })),
+    taste,
+    lane: null,
+  });
+  const out = cards
+    .filter((c) => lines.has(c.id))
+    .map((c) => ({ title: asShown.get(c.id)!, short: leadLine(lines.get(c.id)!.line), vsGoTo: lines.get(c.id)!.ref }));
+  console.info("[slots] lines for a set on screen", {
+    kind,
+    refs: refs.length,
+    usable: usable.length,
+    asked: items.length,
+    matched: cards.length,
+    lines: out.length,
+    ms: Date.now() - started,
+  });
+  if (out.length < items.length) {
+    console.warn("[slots] some cards keep their synopsis", {
+      unmatched: items.length - cards.length,
+      unwritten: cards.length - out.length,
+    });
+  }
+  return Response.json({ ok: true, lines: out }, { status: 200 });
+}
+
 async function handlePost(req: Request): Promise<Response> {
   const started = Date.now();
   let body: any = null;
@@ -142,12 +267,14 @@ async function handlePost(req: Request): Promise<Response> {
 
   try {
     maybeSimulateOpenAIFailure();
+    if (body?.action === "lines") return await handleLines(body, clientId, kind);
     const lane =
       typeof body?.lane === "string"
         ? body.lane.trim().slice(0, 40) || null
         : null;
     const refiner = refinerOf(body?.refiner);
     const goTos = goTosOf(body?.goTos);
+    const refs = goTosOf(body?.refs).slice(0, 3);
     const count = body?.count === 1 ? 1 : 5;
     const only: SlotKind | undefined = SLOT_KINDS.has(body?.slot)
       ? body.slot
@@ -163,17 +290,18 @@ async function handlePost(req: Request): Promise<Response> {
         ? normalizeTitle(body.reference.slice(0, 200))
         : null;
     const mood = concepts.length > 0 || !!reference;
-    const [lanePools, loaded, taste] = await Promise.all([
+    const [lanePools, loaded, loadedRefs, taste] = await Promise.all([
       concepts.length
         ? loadMoodPools(kind, lane, refiner, concepts)
         : mood
           ? Promise.resolve(null)
           : loadPools(kind, lane, refiner),
       loadGoTos(kind, goTos),
+      loadGoTos(kind, refs),
       raceTaste(clientId, kind),
     ]);
     const referenceGoTo = reference
-      ? (loaded.find((g) => normalizeTitle(g.name) === reference) ?? null)
+      ? (loadedRefs.find((g) => normalizeTitle(g.name) === reference) ?? null)
       : null;
     const pools =
       mood && !concepts.length
@@ -201,7 +329,7 @@ async function handlePost(req: Request): Promise<Response> {
     }
 
     const laneIds = laneGenres(kind, lane);
-    const { order, scores } = rankGoTos(loaded, laneIds, pools);
+    const { order, scores } = rankGoTos(loadedRefs, laneIds, pools);
     const asked =
       typeof body?.steer === "string" ? normalizeTitle(body.steer) : null;
     const steer = asked
@@ -209,7 +337,14 @@ async function handlePost(req: Request): Promise<Response> {
         order[0] ??
         null)
       : (order[0] ?? null);
-    const recipe = recipeFor(goTos.length);
+    // S24a — the refs that can steer (TMDb found them), the asked/nearest
+    // one first: the neighbors interleave their webs in this order. A ref
+    // TMDb can't place steers nothing (said in the set's log line).
+    const steering = [
+      ...(steer?.bundle ? [steer] : []),
+      ...order.filter((g) => g !== steer && g.bundle),
+    ];
+    const recipe = recipeFor(steering.length);
 
     // THE GUARANTEE: shown this visit, starred, watched, disliked — and
     // every go-to's own TMDb title — never ship.
@@ -218,6 +353,8 @@ async function handlePost(req: Request): Promise<Response> {
         ...seen,
         ...goTos.map((g) => g.name),
         ...loaded.map((g) => g.bundle?.title ?? ""),
+        ...refs.map((g) => g.name),
+        ...loadedRefs.map((g) => g.bundle?.title ?? ""),
         ...taste.watched,
         ...taste.disliked,
       ]
@@ -244,10 +381,11 @@ async function handlePost(req: Request): Promise<Response> {
       return Response.json({ ok: false, reason: "weak_pool" }, { status: 200 });
     }
 
+    const near = refNeighbors(steering, (ref) => neighborPool(ref, laneIds, floorFor(lane), pools));
     const picks = assemble({
       recipe,
       pools,
-      neighbors: neighborPool(steer, laneIds, floorFor(lane), pools),
+      neighbors: near.list,
       excluded,
       count,
       only:
@@ -256,42 +394,21 @@ async function handlePost(req: Request): Promise<Response> {
           : undefined,
     });
 
-    // Lines against the steering go-to: one model call, capped like every
-    // chooser call. A refused cap or a failed call ships the synopsis.
-    // S16 — started the moment the picks exist, beside the bundle reads,
-    // so the set completes in parse + pools + writer, not their sum.
-    const linesP: Promise<Map<number, string>> = (async () => {
-      if (!steer?.bundle || picks.length === 0) return new Map<number, string>();
-      const capped = await capGate(clientId, "reksnap-text");
-      if (capped) {
-        console.warn("[slots] over cap — synopses instead of go-to lines");
-        return new Map<number, string>();
-      }
-      try {
-        return await linesVsGoTo({
-          goTo: {
-            title: steer.bundle.title,
-            year: steer.bundle.year,
-            kind: steer.bundle.kind,
-            overview: steer.bundle.overview,
-          },
-          candidates: picks,
-          taste: {
-            liked: taste.liked,
-            disliked: taste.disliked,
-            watched: [],
-          },
-          lane,
-        });
-      } catch (err) {
-        // Named, never silent: the five are real either way; they ship
-        // with TMDb's synopses instead of go-to lines.
-        console.error("[slots] go-to lines failed — synopses shipped", {
-          error: err instanceof Error ? err.message : String(err),
-        });
-        return new Map<number, string>();
-      }
-    })();
+    // S24a — each pick's ref: the web it came from, else the closest by
+    // genre. Lines: one call per ref, started the moment the picks exist,
+    // beside the bundle reads (S16), so the set completes in parse + pools
+    // + writer, not their sum.
+    const refOf = new Map<number, LoadedGoTo>();
+    for (const p of picks) {
+      const r = closestRef(p, steering, near.from.get(p.id) ?? null);
+      if (r) refOf.set(p.id, r);
+    }
+    const linesP = linesByRef({
+      clientId,
+      groups: steering.map((ref) => ({ ref, cards: picks.filter((p) => refOf.get(p.id) === ref) })),
+      taste,
+      lane,
+    });
 
     // S16 — each pick's TMDb bundle, for the card's facts (S15's
     // "2h 10m • on Netflix"). Hang protection only: a pick whose bundle
@@ -316,7 +433,7 @@ async function handlePost(req: Request): Promise<Response> {
     }
     const cardsMs = Date.now() - started;
 
-    const cardFor = (p: (typeof picks)[number], i: number, line?: string) => {
+    const cardFor = (p: (typeof picks)[number], i: number, line?: { line: string; ref: string }) => {
       const b = bundles[i];
       return {
         title: p.title,
@@ -326,9 +443,9 @@ async function handlePost(req: Request): Promise<Response> {
         genreIds: p.genreIds ?? [],
         genre: genreLine(p.genreIds ?? []),
         slot: p.slot,
-        short: line ? leadLine(line) : shortSynopsis(p.overview),
+        short: line ? leadLine(line.line) : shortSynopsis(p.overview),
         long: p.overview,
-        vsGoTo: line ? steer!.name : null,
+        vsGoTo: line ? line.ref : null,
         facts: b ? [b.commitment, whereOf(b)].filter((f): f is string => !!f) : [],
         // S17 — the poster thumbnail: the bundle's, else the pool row's.
         posterPath: b?.posterPath ?? p.posterPath ?? null,
@@ -342,7 +459,7 @@ async function handlePost(req: Request): Promise<Response> {
       order: order.map((g) => g.name),
     };
 
-    const logSet = (lines: Map<number, string>) => {
+    const logSet = (lines: Map<number, { line: string; ref: string }>) => {
       console.info("[slots]", {
         kind,
         lane,
@@ -356,6 +473,8 @@ async function handlePost(req: Request): Promise<Response> {
         recipe,
         mood: mood ? { concepts: concepts.length, reference: !!reference, pool: pools.all?.length ?? 0, left: poolLeft } : null,
         goTos: goTos.length,
+        refs: refs.length,
+        steering: steering.length,
         steer: steer?.name ? "yes" : "no",
         nearestScore: scores[0] ?? null,
         excluded: excluded.size,
@@ -382,14 +501,14 @@ async function handlePost(req: Request): Promise<Response> {
       const stream = new ReadableStream<Uint8Array>({
         async start(ctrl) {
           const send = (o: unknown) => ctrl.enqueue(enc.encode(JSON.stringify(o) + "\n"));
-          send({ type: "cards", ...head, reks: cards, linesPending: !!steer?.bundle && cards.length > 0 });
+          send({ type: "cards", ...head, reks: cards, linesPending: steering.length > 0 && cards.length > 0 });
           const lines = await linesP;
           send({
             type: "lines",
             lines: picks
               .map((p) => ({ tmdbId: p.id, line: lines.get(p.id) }))
-              .filter((l): l is { tmdbId: number; line: string } => !!l.line)
-              .map((l) => ({ tmdbId: l.tmdbId, short: leadLine(l.line), vsGoTo: steer!.name })),
+              .filter((l): l is { tmdbId: number; line: { line: string; ref: string } } => !!l.line)
+              .map((l) => ({ tmdbId: l.tmdbId, short: leadLine(l.line.line), vsGoTo: l.line.ref })),
           });
           logSet(lines);
           ctrl.close();
