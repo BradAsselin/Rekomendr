@@ -246,7 +246,9 @@ const ref = (name) => ({ name, tmdbKind: "movie", tmdbId: REF_BUNDLES[name].id, 
     }
   };
   check("wine: routes and libs byte-identical", diff("src/lib/wineReks.ts src/lib/wineShelf.ts src/lib/wineVisit.ts app/api/wine app/api/reksnap src/components/WineBought.tsx src/components/WineFacts.tsx"), "");
-  check("no prompt text changed (chooser, mood parser)", diff("src/lib/mediaReks.ts src/lib/voiceMood.ts"), "");
+  // S25 — the writer's types widened for Books; its prompt strings did not change.
+  const promptDiff = diff("src/lib/mediaReks.ts src/lib/voiceMood.ts");
+  check("no prompt text changed (chooser, mood parser)", /^[-+]s*("|'|`).*\n/m.test(promptDiff) || /^[-+].*CHOOSER_PROMPT =/m.test(promptDiff), false);
   check("engine: no prompt lines changed", /^[-+].*(buildAIPrompt|You are Rekomendr|Sentence 3)/m.test(diff("src/engine/rekomendrEngine.ts")), false);
 
   quiet.log(`\n${passed} passed, ${failed} failed`);

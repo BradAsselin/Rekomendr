@@ -1070,14 +1070,20 @@ export default function Page() {
   // S24a — compare lines for an AI search's five (the words chose them;
   // the refs only add a line each). Same cards, merged in place; a card
   // keeps its own text in `baseShort` so clearing can put it back.
-  const addCompareLines = async (list: Rek[], cat: "Movies" | "TV Shows", searchId: number) => {
+  // S25 — Books get their lines the same way, each card's text standing
+  // in for a synopsis.
+  const addCompareLines = async (list: Rek[], cat: "Movies" | "TV Shows" | "Books", searchId: number) => {
     const refs = refsPayload(refsFor(cat));
     if (!refs.length || !list.length) return;
     setLinesPending(true);
     const lines = await fetchCompareLines(
       cat,
       refs,
-      list.map((r) => ({ title: r.title, year: r.year || null }))
+      list.map((r) => ({
+        title: r.title,
+        year: r.year || null,
+        ...(cat === "Books" ? { overview: r.long || r.short || "" } : {}),
+      }))
     );
     if (searchId !== searchIdRef.current) return;
     setLinesPending(false);
@@ -1322,7 +1328,8 @@ export default function Page() {
 
       // S24a — Books with a Compare to reference: the existing seeded
       // search, placed against the first reference (TMDb doesn't know
-      // books, so there's no web to pull from and no "vs." line).
+      // books, so there's no web to pull from). S25: then each card gets
+      // its "vs." line against that reference.
       const bookRefs = nextCategory === "Books" ? refsFor("Books") : [];
       let next: { reks: Rek[]; notice?: string };
       if (bookRefs.length) {
@@ -1361,6 +1368,9 @@ export default function Page() {
         // S24a — the words chose these five; Compare to adds the lines.
         setLoading(false);
         await addCompareLines(next.reks, nextCategory, searchId);
+      } else if (nextCategory === "Books" && bookRefs.length) {
+        setLoading(false);
+        await addCompareLines(next.reks, "Books", searchId);
       }
     } catch (err) {
       if (searchId !== searchIdRef.current) return;

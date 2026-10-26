@@ -108,14 +108,19 @@ const ownSlotsNote = (candidates: number) =>
 
 const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s);
 
+// S25 — a Books compare line names the anchor a book (the prompt itself
+// is unchanged); a book candidate carries the card's own text.
+type LineKind = MediaKind | "book";
+type LineCandidate = Pick<TmdbCandidate, "id" | "title" | "year" | "overview">;
+
 function buildUserMessage(args: {
-  anchor: { title: string; year: number | null; kind: MediaKind; overview: string };
+  anchor: { title: string; year: number | null; kind: LineKind; overview: string };
   lane: string | null;
   taste: Taste;
-  candidates: TmdbCandidate[];
+  candidates: LineCandidate[];
 }): string {
   const { anchor, lane, taste, candidates } = args;
-  const kindWord = anchor.kind === "movie" ? "movie" : "TV show";
+  const kindWord = anchor.kind === "movie" ? "movie" : anchor.kind === "book" ? "book" : "TV show";
   const recent = (list: string[]) => list.slice(-TASTE_TITLES).join("; ") || "(none)";
   return [
     `ANCHOR (${kindWord}): ${anchor.title}${anchor.year ? ` (${anchor.year})` : ""}`,
@@ -292,8 +297,8 @@ export async function chooseMediaReks(args: {
    TMDb's synopsis and no lead.
 ------------------------------------------------------------------- */
 export async function linesVsGoTo(args: {
-  goTo: { title: string; year: number | null; kind: MediaKind; overview: string };
-  candidates: TmdbCandidate[];
+  goTo: { title: string; year: number | null; kind: LineKind; overview: string };
+  candidates: LineCandidate[];
   taste: Taste;
   lane?: string | null;
 }): Promise<Map<number, string>> {
