@@ -3,13 +3,12 @@
 import React, { useEffect, useRef, useState } from "react";
 import SearchBar, { type VoiceAnswer } from "../src/components/SearchBar";
 import ResultsV4 from "../src/components/ResultsV4";
-import RekSnapButton from "../src/components/RekSnapButton";
+import SayOrSnap from "../src/components/SayOrSnap";
 import RekSnapResults, {
   type SnapRek,
   type SnapResult,
 } from "../src/components/RekSnapResults";
 import RecipeModal from "../src/components/RecipeModal";
-import AuthControl from "../src/components/AuthControl";
 import InstallCoach from "../src/components/InstallCoach";
 import {
   installOfferSnoozed,
@@ -658,6 +657,8 @@ export default function Page() {
   }, []);
 
   const vibePlayRef = useRef<null | (() => void)>(null);
+  // S24b — SearchBar hands over its mic start for home's Say it.
+  const micRef = useRef<null | (() => void)>(null);
   const searchIdRef = useRef(0);
   // Staleness guard for in-flight snap responses — bumped by anything that
   // dismisses snap results (new search, home reset) so a late vision
@@ -1587,8 +1588,7 @@ export default function Page() {
     <main className="min-h-screen w-full flex justify-center px-4 py-6">
       <div className="w-full max-w-xl">
         {/* The wordmark is the app's only home affordance — no separate
-            button. AuthControl sits quietly at the right edge; it gates
-            nothing (anonymous stays primary). */}
+            button. S24b: Sign in moved to the top bar's ⋯ menu. */}
         <div className="relative mb-6 text-center">
           <button
             type="button"
@@ -1598,7 +1598,6 @@ export default function Page() {
           >
             Rekomendr<span className="text-[#2D5AB5]/70">.AI</span>
           </button>
-          <AuthControl />
         </div>
         <SearchBar
           key={searchBarKey}
@@ -1618,6 +1617,9 @@ export default function Page() {
           categoryHint={barCategoryHint}
           registerVibePlay={(fn) => {
             vibePlayRef.current = fn;
+          }}
+          registerMic={(fn) => {
+            micRef.current = fn;
           }}
         />
 
@@ -1662,7 +1664,7 @@ export default function Page() {
             )}
             {!hasSnapped && (
               <div className="sm:hidden">
-                <RekSnapButton onClick={openSnapPicker} category={barCategory} />
+                <SayOrSnap onSay={() => micRef.current?.()} onSnap={openSnapPicker} category={barCategory} />
               </div>
             )}
             </>

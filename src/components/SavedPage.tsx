@@ -1,8 +1,9 @@
 "use client";
 
-// S17c — the Saved page (docs/s17-mood-first-plan.md). "Saved [n]" in the
-// top bar opens a full-screen sheet with three tabs, Saved · Watched ·
-// Favorites, every category grouped (Movies · TV Shows · Books · Wine).
+// S17c — the Saved page (docs/s17-mood-first-plan.md). S24b: the top bar
+// has four labeled buttons, Favorites · Watched · Recent · Saved, each with
+// its count; each opens this full-screen sheet on its own tab, every
+// category grouped (Movies · TV Shows · Books · Wine).
 //
 //   Saved     → this client's save rows (/api/saved); the lit bookmark
 //               removes one (every save row of that title, /api/signals/undo).
@@ -10,14 +11,15 @@
 //   Favorites → go-tos (the S12 mirror) + wine's one go-to (S8); the lit
 //               star un-stars. S21 — each tile has "+ More like this" (the
 //               home screen's go-tos bar is gone; this is its home).
+//   Recent    → this device's last opened/shared/saved/marked cards (S24a).
 //   Tap a title → its card opens on the page (the go-to open path).
-//   Footer    → "Show posters" (S17b's switch, back on after the poster ×).
+// The posters switch moved to the top bar's ⋯ menu (S24b).
 //
 // No new words beyond the approved ones: the controls are the cards' own
 // (bookmark, check, star) with the cards' own labels.
 
 import React, { useCallback, useEffect, useState } from "react";
-import { Bookmark, Star, X } from "lucide-react";
+import { Bookmark, CircleCheck, RotateCcw, Star, X, type LucideIcon } from "lucide-react";
 
 import { WatchedButton } from "./WatchedControl";
 import GoToStar from "./GoToStar";
@@ -26,7 +28,6 @@ import { BAR_CATEGORY, goToCategoryFor } from "../lib/goToCategory";
 import { getGoTos, onGoTosChange, type GoTo } from "../lib/goTos";
 import { getWineFavorite, onWineFavoriteChange, setWineFavorite } from "../lib/wineVisit";
 import { fetchSavedLists, onSavedChange, undoSignal, undoWatched } from "../lib/userPrefs";
-import { setPostersHidden, usePostersOn } from "../lib/posterPref";
 import type { SavedCategory, SavedItem } from "../lib/savedLists";
 import { clearRecent, getRecent, onRecentChange, type RecentItem } from "../lib/recent";
 
@@ -47,7 +48,8 @@ export function onOpenSavedItem(fn: (t: GoToTarget, counted: boolean) => void): 
 
 const GROUPS: SavedCategory[] = ["Movies", "TV Shows", "Books", "Wine"];
 type Tab = "Saved" | "Watched" | "Favorites" | "Recent";
-const TABS: Tab[] = ["Saved", "Watched", "Favorites", "Recent"];
+const TABS: Tab[] = ["Favorites", "Watched", "Recent", "Saved"];
+const TAB_ICON: Record<Tab, LucideIcon> = { Favorites: Star, Watched: CircleCheck, Recent: RotateCcw, Saved: Bookmark };
 
 // S18a — what an empty tab says (Brad-approved wording, 2026-10-24).
 // S24a — Recent has no approved empty line: an empty Recent shows nothing.
@@ -84,7 +86,6 @@ const SavedPage: React.FC = () => {
   // Saved/Watched say "empty" only once a read has actually answered — a
   // list still loading (or a failed read) is not an empty list.
   const [loaded, setLoaded] = useState(false);
-  const postersOn = usePostersOn();
 
   const reload = useCallback(async () => {
     const lists = await fetchSavedLists();
@@ -124,8 +125,6 @@ const SavedPage: React.FC = () => {
       window.removeEventListener("keydown", onKey);
     };
   }, [open]);
-
-  const count = saved.length + watched.length + favorites.length;
 
   const openItem = (t: GoToTarget, counted = false) => {
     setOpen(false);
@@ -202,19 +201,30 @@ const SavedPage: React.FC = () => {
 
   return (
     <>
-      <button
-        type="button"
-        onClick={() => {
-          setOpen(true);
-          void reload();
-        }}
-        data-testid="saved-open"
-        className="flex items-center gap-1.5 rounded-full border border-white/15 bg-white/5 px-3 py-1.5 text-xs font-medium text-white/90 hover:bg-white/10 active:scale-[0.99]"
-      >
-        <Bookmark size={13} aria-hidden="true" />
-        Saved
-        {count > 0 && <span className="text-white/60">{count}</span>}
-      </button>
+      <div className="flex min-w-0 items-center gap-0.5 sm:gap-2">
+        {TABS.map((t) => {
+          const Icon = TAB_ICON[t];
+          return (
+            <button
+              key={t}
+              type="button"
+              onClick={() => {
+                setTab(t);
+                setOpen(true);
+                void reload();
+              }}
+              data-testid={`topbar-${t}`}
+              className="flex min-w-[4.25rem] flex-col items-center gap-0.5 rounded-xl px-1.5 py-1 text-[11px] font-medium text-white/90 hover:bg-white/10 active:scale-[0.98]"
+            >
+              <span className="flex items-center gap-1">
+                <Icon size={17} strokeWidth={1.8} aria-hidden="true" />
+                {tabCount[t] > 0 && <span className="text-[11px] text-white/60">{tabCount[t]}</span>}
+              </span>
+              {t}
+            </button>
+          );
+        })}
+      </div>
 
       {open && (
         <div
@@ -267,7 +277,7 @@ const SavedPage: React.FC = () => {
                 )
               )}
             {tab === "Watched" &&
-              grouped(watched, (w, i) => row(`w${i}${w.title}`, w.category, w.title, w.year, <WatchedButton on onToggle={() => void unwatch(w)} />))}
+              grouped(watched, (w, i) => row(`w${i}${w.title}`, w.category, w.title, w.year, <WatchedButton compact on onToggle={() => void unwatch(w)} />))}
             {tab === "Favorites" &&
               grouped(favorites, (f, i) =>
                 row(
@@ -327,23 +337,6 @@ const SavedPage: React.FC = () => {
             )}
           </div>
 
-          <div className="mx-auto w-full max-w-xl border-t border-gray-200 px-4">
-            <label className="flex h-14 items-center justify-between text-[15px] text-gray-900">
-              Show posters
-              <button
-                type="button"
-                role="switch"
-                aria-checked={postersOn}
-                data-testid="show-posters"
-                onClick={() => setPostersHidden(postersOn)}
-                className={`relative h-7 w-12 rounded-full transition-colors motion-reduce:transition-none ${postersOn ? "bg-[#3B6BD4]" : "bg-gray-300"}`}
-              >
-                <span
-                  className={`absolute top-0.5 h-6 w-6 rounded-full bg-white shadow transition-[left] motion-reduce:transition-none ${postersOn ? "left-[22px]" : "left-0.5"}`}
-                />
-              </button>
-            </label>
-          </div>
         </div>
       )}
     </>
