@@ -3125,3 +3125,40 @@ Rows for `anon_agent_s24a_*` and `anon_agent_s24b_*` (likes, watched, api_usage)
 3. Revert: `git revert -m 1 f698584` (S24b) and/or `git revert -m 1 6677258` (S24a). Per-device localStorage keys (`rekomendr.compare_to`, `rekomendr.recent`) are harmless if left behind.
 
 **§0 check: consistent.** Picks come from the mood unless the person chooses what to compare against: no hidden steering. Every comparison names the title it's measured against. Recent never leaves the device (§0 rule 6). Wine is unchanged.
+
+## Session 25 — Block 5 check, S24 follow-ups — 2026-10-25 — branch auto/s25-followups (local agent mode, §11)
+
+Brad: promoted. Run the held Block 5 revoke (backup first) and confirm saving on production, then: Books "vs. your [Book]:" lines; approve the "Movie"/"TV"/"Book" labels; the ⋯ label is "More options"; remove the snap tips (WITHDRAWN mid-session, so the tips stay). Items 5–7 stay as built.
+
+### Block 5: already done, verified, not re-run
+- Block 5 ran in S23b (#86, backup `backups/2026-10-25-1554-s23-block5.sql`). Re-running a revoke that's already in effect changes nothing, so I took no new backup and ran no SQL.
+- **Read-only check:** `role_table_grants` shows 0 rows for anon/authenticated on public, and 0 usage grants. `has_table_privilege(INSERT)` is false/false/false/false on user_likes and reksnap_signals for both roles.
+- The public key's direct PostgREST insert into user_likes is refused (42501).
+
+### Production saving: confirmed on the S24 bundle
+- release/v2 is at b68cfcb (#90) and contains 6677258, f698584 and 46d0d46. The live chunks carry `topbar-`, `compare-open` and "Something fun and funny".
+- **API:** save (movies, books) and Watched each returned `{ok:true}` and read back through `/api/saved`; the undo removed each one (removed:1).
+- **Browser** (iPhone 13, www.rekomendr.ai): Comedy → bookmark → `/api/signals` 200. The top bar shows "1 Saved", the Saved tab lists the card, and un-saving empties it. 0 console errors.
+
+### SHIPPED: #91, merged as 2b0e546
+- **Books lines.** `/api/slots` `{action:"lines", category:"Books"}`.
+  - It uses the same chooser writer. The system prompt is byte-identical; the user message names the anchor a book. Each card's own text stands in for its synopsis.
+  - Capped and named-on-failure like the movie lines. Lines are written against the first reference (the seed of the Books five). "your" only for a starred favorite.
+- **⋯ label.** `aria-label="More options"`.
+- **Sheet labels.** "Movie" / "TV" / "Book" approved; no code change.
+- **Snap tips.** They stay under Say it / Snap it.
+
+### VALIDATION
+- New `validate-s25` 21/21. The s24a/s24b prompt checks now pin the prompt strings instead of an empty diff. All 46 suites green; tsc, lint and build clean.
+- **Live local** (real writer): 5/5 Books cards got `vs. your Gone Girl:` (starred), then `vs. Rebecca:` (Recent).
+- **Preview:** S25 9/9, S24b 30/30, S24a 31/31.
+
+### TEST RESIDUE
+`anon_agent_s24_prodcheck_*`, `anon_agent_s25_*` (removed saves leave api_usage rows only). `/api/stats` excludes `anon_agent*`.
+
+### PROMOTION
+1. Promote `main → release/v2`. No env changes, migrations or SQL.
+2. **Phone:** Books → Mystery → Compare to → a starred book → every card reads "vs. your [Book]: …" a beat after the cards. A Recent book reads "vs. [Book]: …". × → neutral.
+3. Revert: `git revert -m 1 2b0e546`.
+
+**§0 check: consistent.** Books comparisons appear only when the person chooses a reference, and every line names the book it's measured against. Nothing new leaves the device, and wine is unchanged.
