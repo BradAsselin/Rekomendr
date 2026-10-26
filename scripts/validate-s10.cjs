@@ -63,7 +63,8 @@ check("no SHELF_TIP on results", results.includes("SHELF_TIP"), false);
 check("Snap the shelf still under the anchor", results.includes("Snap the shelf"), true);
 const page = read("app/page.tsx");
 check("camera-screen tip removed (S11, Brad)", page.includes("SHELF_TIP"), false);
-check("tips follow the bar's category", page.includes("<RekSnapButton onClick={openSnapPicker} category={barCategory} />"), true);
+// S24b — under the Say it / Snap it pair now.
+check("tips follow the bar's category", page.includes("<SayOrSnap onSay={() => micRef.current?.()} onSnap={openSnapPicker} category={barCategory} />"), true);
 
 console.log("\n4. Snap tips (Brad-approved wording, 2026-10-17)");
 // S11 made the set context-aware (tipsFor); the full Wine + go-to set
@@ -85,7 +86,7 @@ const tipsSrc = read("src/components/SnapTips.tsx");
 check("reduced motion: no transition, no timer", tipsSrc.includes("if (reduced) return;") && tipsSrc.includes("style={reduced ? undefined"), true);
 check("pause on touch", ["onPointerDown={hold}", "onPointerUp={release}"].every((t) => tipsSrc.includes(t)), true);
 check("storage wrapped in try/catch", /try \{\s*let n = Number\(localStorage/.test(tipsSrc), true);
-check("old static line gone", read("src/components/RekSnapButton.tsx").includes("Rek anything"), false);
+check("old static line gone", read("src/components/SayOrSnap.tsx").includes("Rek anything"), false);
 
 console.log(`\n${passed} passed, ${failed} failed.`);
 process.exit(failed ? 1 : 0);

@@ -208,7 +208,10 @@ rollback;
 
 
 -- ---------------------------------------------------------------------
--- BLOCK 5 — STAGED: RUN ONLY AFTER S23 IS PROMOTED TO PRODUCTION.
+-- BLOCK 5 — EXECUTED 2026-10-25 after promotion (release/v2 399e59f contains
+-- 17f62fa); backup backups/2026-10-25-1554-s23-block5.sql. Readback: 0 rows;
+-- adversarial: positive control t + six refusals. (Was: STAGED, run only
+-- after S23 is promoted to production.)
 -- (Production's browser bundle must be writing through /api/signals.)
 -- Same §11.2 discipline: backup, run, readback, adversarial.
 -- ---------------------------------------------------------------------

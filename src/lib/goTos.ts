@@ -7,7 +7,8 @@
 // server never got is pushed again. Many go-tos per category, newest first.
 
 import { getAnonymousClientId } from "./userPrefs";
-import { goToCategoryFor, type GoToCategory } from "./goToCategory";
+import { goToCategoryFor, BAR_CATEGORY, type GoToCategory } from "./goToCategory";
+import { noteRecent } from "./recent";
 
 export type GoTo = {
   category: GoToCategory;
@@ -99,6 +100,8 @@ export async function starGoTo(item: StarInput): Promise<void> {
     at: new Date().toISOString(),
   };
   write([local, ...read().filter((g) => !(g.category === category && same(g.name, local.name)))]);
+  // S24a — a star lands in Recent (this device only).
+  noteRecent({ category: BAR_CATEGORY[category], title: local.name, year: local.year, tmdbId: local.tmdbId });
   const r = await post({ action: "star", item: { ...local, category } });
   if (!r?.ok) {
     console.warn("[go-tos] star not persisted", { reason: r?.reason ?? null });

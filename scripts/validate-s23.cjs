@@ -204,7 +204,8 @@ const reset = (mode = 200) => { tmdb.calls = []; tmdb.mode = mode; tmdb.delayMs 
   out("\n10. Attribution notice in the root layout (source)");
   const layout = fs.readFileSync(path.join(ROOT, "app/layout.tsx"), "utf8");
   check("exact TMDb notice", layout.includes("This product uses the TMDB API but is not endorsed or certified by TMDB."), true);
-  check("rendered on every page (in RootLayout's body)", /<TopBar \/>\s*\{children\}\s*<Attribution \/>/.test(layout), true);
+  // S24b — in the top bar's ⋯ menu, which RootLayout renders on every page.
+  check("rendered on every page (the ⋯ menu in RootLayout's top bar)", /<MoreMenu attribution=\{<Attribution \/>\} \/>/.test(layout) && /<TopBar \/>\s*\{children\}/.test(layout), true);
   check("TMDb logo beside it (S2.4)", layout.includes('<img src="/tmdb-logo.svg" alt="TMDB"'), true);
   const svg = fs.readFileSync(path.join(ROOT, "public/tmdb-logo.svg"), "utf8");
   check("logo asset is TMDb's official mark (viewBox)", svg.includes('viewBox="0 0 273.42 35.52"'), true);

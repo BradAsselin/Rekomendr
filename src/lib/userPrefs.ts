@@ -7,6 +7,7 @@
 
 import { getAnonymousClientId } from './clientId';
 import type { SavedItem } from './savedLists';
+import { noteRecent } from './recent';
 export { getAnonymousClientId };
 
 export type LikeAction = 'like' | 'dislike' | 'save' | 'more_like_this';
@@ -58,6 +59,10 @@ export async function recordLike(params: {
 }): Promise<void> {
   const clientId = getAnonymousClientId();
   if (!clientId) return;
+  // S24a — a save or like lands in Recent (this device only, never sent).
+  if (params.action === 'save' || params.action === 'like') {
+    noteRecent({ category: params.category, title: params.title, year: params.year ?? null });
+  }
 
   // S23 — through /api/signals (service role): anon and authenticated hold
   // no privileges on user_likes. keepalive: a swipe can be the last act

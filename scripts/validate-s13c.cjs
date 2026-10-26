@@ -216,11 +216,13 @@ const noGoTos = { movies: [], tv: [], wine: null };
   const page = read("app/page.tsx");
   check("screens: the slot recipe with the mapped chip, steered when a title was named", (/await handleSearch\(chipQuery\(cat, chip, refiner\), cat, \{ chip, refiner \}, steerOpts, voice\);/.test(page) || /await handleSearch\(chipQuery\(cat, plan\.chip, plan\.refiner\), cat, \{ chip: plan\.chip, refiner: plan\.refiner \}, plan\.steerOpts, voice\);/.test(page) /* S16: slotPlanFromMood */ || /await handleSearch\(`\$\{cat\}\|\|\|\|\$\{transcript\}\|\|mode:ai`, cat, undefined, undefined, voice, data\);/.test(page)) /* S19a: the typed branch, parse in hand */, true);
   check("wine: the wine chip search, price as lane words", /chipQuery\("Wine", \{ label: chip\.label, lane: laneText \}, refiner\)/.test(page), true);
-  check("a named title rides as a transient go-to, kept for replacements", /extraGoTos: \[extraGoTo\]/.test(page) && /\.\.\.\(s\.extraGoTo \? \{ extraGoTos: \[s\.extraGoTo\] \} : \{\}\)/.test(page), true);
+  // S24a — a named title is the first steering ref (never stored), kept for replacements.
+  check("a named title rides as a transient ref, kept for replacements", /const refs = steeringRefs\(named, runCat\);/.test(page) && /refs: s\.refs,/.test(page), true);
   check("any other search ends the voice set", /if \(!voice\) clearVoiceSet\(\);/.test(page), true);
   check("both result paths mark the voice set", (page.match(/if \(voice\) setVoiceSet\(voice\.moodId/g) || []).length, 2);
   const r4 = read("src/components/ResultsV4.tsx");
-  check("cards report tap / play / share / save / star", ["\"tap\"", "\"play\"", "\"share\"", "\"save\"", "\"star\""].every((k) => r4.includes(`noteVoiceAction(${k}`)), true);
+  // S24a — through noteAct (which also notes Recent).
+  check("cards report tap / play / share / save / star", ["\"tap\"", "\"play\"", "\"share\"", "\"save\"", "\"star\""].every((k) => r4.includes(`noteAct(${k}`)) && r4.includes("noteVoiceAction(kind, rek.title);"), true);
 
   console.log("\n5. Stats and SQL");
   const stats = read("app/api/stats/route.ts");

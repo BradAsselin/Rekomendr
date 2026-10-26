@@ -718,6 +718,54 @@ export function neighborPool(
   return [...inLane, ...fill];
 }
 
+// S24a — "Compare to" with 2–3 refs: their neighbor pools interleaved
+// (first ref's best, second's best, …), each title kept once, with the ref
+// whose web it came from. One ref = that ref's pool, unchanged.
+export function refNeighbors(
+  refs: LoadedGoTo[],
+  poolOf: (ref: LoadedGoTo) => TmdbCandidate[]
+): { list: TmdbCandidate[]; from: Map<number, LoadedGoTo> } {
+  const lists = refs.map((r) => poolOf(r));
+  const list: TmdbCandidate[] = [];
+  const from = new Map<number, LoadedGoTo>();
+  // A title in a ref's OWN web (not the lane fill) belongs to that ref.
+  const webIds = refs.map((r) => new Set((r.bundle?.candidates ?? []).map((c) => c.id)));
+  const longest = Math.max(0, ...lists.map((l) => l.length));
+  for (let i = 0; i < longest; i++) {
+    lists.forEach((l, k) => {
+      const c = l[i];
+      if (!c || from.has(c.id)) return;
+      list.push(c);
+      from.set(c.id, refs[k]);
+    });
+  }
+  from.forEach((ref, id) => {
+    const own = refs.findIndex((_, k) => webIds[k].has(id));
+    if (own >= 0) from.set(id, refs[own]);
+  });
+  return { list, from };
+}
+
+// S24a — the ref a card compares to: the web it came from, else the ref
+// whose genres overlap the card's most (ties → the first, the nearest).
+export function closestRef(
+  card: { genreIds?: number[] },
+  refs: LoadedGoTo[],
+  cameFrom: LoadedGoTo | null
+): LoadedGoTo | null {
+  if (cameFrom && refs.includes(cameFrom)) return cameFrom;
+  let best: LoadedGoTo | null = null;
+  let bestScore = -1;
+  for (const r of refs) {
+    const s = jaccard(r.bundle?.genreIds ?? [], card.genreIds ?? []);
+    if (s > bestScore) {
+      best = r;
+      bestScore = s;
+    }
+  }
+  return best;
+}
+
 export function assemble(args: {
   recipe: RecipeName;
   pools: Pools;

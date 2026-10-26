@@ -25,6 +25,8 @@ export type SlotRequest = {
   reference?: string | null;
 };
 
+export type RefIn = { name: string; tmdbKind: "movie" | "tv" | null; tmdbId: number | null; at: string };
+
 export type SlotAnswer = { reks: Rek[]; steer: string | null; order: string[] };
 
 let nextId = -5_000_000;
@@ -74,9 +76,10 @@ export async function fetchSlots(
     count?: 1;
     slot?: string;
     extraSeen?: string[];
-    // S13c — a title the person NAMED in a spoken mood ("like Lioness but
-    // funnier") steers this request as if it were a go-to. Never stored.
-    extraGoTos?: { name: string; tmdbKind: "movie" | "tv"; tmdbId: number; at: string }[];
+    // S24a — the ONLY steering: the refs chosen in "Compare to…", plus a
+    // title the person NAMED in a spoken or typed mood (S13c, never
+    // stored). Starred go-tos travel as exclusions only.
+    refs?: RefIn[];
     // S16 — early paint: called with the five as soon as they exist
     // (TMDb synopses), before the "vs." lines. `linesPending` = a line
     // writer is still running. The promise still resolves with the
@@ -94,10 +97,8 @@ export async function fetchSlots(
       refiner: req.refiner,
       ...(req.keywords?.length ? { keywords: req.keywords } : {}),
       ...(req.reference ? { reference: req.reference } : {}),
-      goTos: [
-        ...goTosFor(req.category).map((g) => ({ name: g.name, tmdbKind: g.tmdbKind, tmdbId: g.tmdbId, at: g.at })),
-        ...(opts.extraGoTos ?? []),
-      ],
+      goTos: goTosFor(req.category).map((g) => ({ name: g.name, tmdbKind: g.tmdbKind, tmdbId: g.tmdbId, at: g.at })),
+      refs: (opts.refs ?? []).slice(0, 3),
       steer: opts.steer ?? null,
       seen: [...visitSeen(req.category), ...(opts.extraSeen ?? [])],
       ...(opts.count ? { count: opts.count } : {}),
@@ -181,3 +182,27 @@ export const goToShortName = (name: string): string => {
   const cut = t.replace(/^(the|a|an)\s+/i, "");
   return cut.length >= 3 ? cut : t;
 };
+
+// S24a — compare lines for five already on screen (an AI search's set):
+// matched by title, written against each card's closest ref. Empty on any
+// failure — the cards keep their synopses, and the log says so.
+export async function fetchCompareLines(
+  category: "Movies" | "TV Shows",
+  refs: RefIn[],
+  items: { title: string; year: number | null }[]
+): Promise<{ title: string; short: string; vsGoTo: string }[]> {
+  if (!refs.length || !items.length) return [];
+  const res = await fetch("/api/slots", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ clientId: getAnonymousClientId(), category, action: "lines", refs: refs.slice(0, 3), items: items.slice(0, 5) }),
+  }).catch(() => null);
+  const data = res?.ok ? await res.json().catch(() => null) : null;
+  if (!data?.ok || !Array.isArray(data.lines)) {
+    console.warn("[compare-to] lines did not arrive — synopses stand", { status: res?.status ?? null });
+    return [];
+  }
+  return data.lines.filter(
+    (l: any) => typeof l?.title === "string" && typeof l?.short === "string" && typeof l?.vsGoTo === "string"
+  );
+}

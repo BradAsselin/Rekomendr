@@ -3,13 +3,12 @@
 import React, { useEffect, useRef, useState } from "react";
 import SearchBar, { type VoiceAnswer } from "../src/components/SearchBar";
 import ResultsV4 from "../src/components/ResultsV4";
-import RekSnapButton from "../src/components/RekSnapButton";
+import SayOrSnap from "../src/components/SayOrSnap";
 import RekSnapResults, {
   type SnapRek,
   type SnapResult,
 } from "../src/components/RekSnapResults";
 import RecipeModal from "../src/components/RecipeModal";
-import AuthControl from "../src/components/AuthControl";
 import InstallCoach from "../src/components/InstallCoach";
 import {
   installOfferSnoozed,
@@ -17,7 +16,17 @@ import {
   pointManifestAt,
 } from "../src/lib/installPrompt";
 import { getMoreLikeThisSet, getTop5FromEngine, type Rek } from "../src/engine/rekomendrEngine";
-import { fetchSlots, type SlotRequest } from "../src/lib/slotsClient";
+import { fetchCompareLines, fetchSlots, type RefIn, type SlotRequest } from "../src/lib/slotsClient";
+import {
+  clearIfCategoryChanged,
+  compareCategoryOf,
+  onRefsChange,
+  refsFor,
+  refsPayload,
+  setRefs,
+  type CompareRef,
+} from "../src/lib/compareTo";
+import CompareSheet, { CompareHeader } from "../src/components/CompareSheet";
 import { typedMoodGate } from "../src/lib/typedMoodGate";
 import { fetchScreen, type ScreenAnswer, type ScreenTitles } from "../src/lib/screenClient";
 import { noteSetShown, seedEngineFromVisit } from "../src/lib/screenVisit";
@@ -45,8 +54,20 @@ import { onOpenSavedItem } from "../src/components/SavedPage";
 import { goTosFor, logGoToEvent, syncGoTos } from "../src/lib/goTos";
 import { BAR_CATEGORY } from "../src/lib/goToCategory";
 
-// S13c — a title named in a spoken mood, steering one recipe as a go-to.
-type TransientGoTo = { name: string; tmdbKind: "movie" | "tv"; tmdbId: number; at: string };
+// S24a — what steers a recipe: the person's own words naming a title
+// (S13c, never stored) first, then the refs chosen in "Compare to…".
+// Favorites steer nothing on their own (docs/s22-compare-to-plan.md).
+const steeringRefs = (named: RefIn | null | undefined, category: unknown): RefIn[] => {
+  const out: RefIn[] = [];
+  for (const r of [...(named ? [named] : []), ...refsPayload(refsFor(category))]) {
+    if (!out.some((o) => o.name.trim().toLowerCase() === r.name.trim().toLowerCase())) out.push(r);
+  }
+  return out.slice(0, 3);
+};
+
+// S24a — a Books "Compare to" reference as the seed the seeded search
+// places every pick against.
+const seedRekOf = (r: CompareRef): Rek => ({ id: -7_000_000, title: r.name, year: r.year ?? 0, short: "", long: "" });
 
 // S12b — a chip's refiner, as the slot route reads it.
 const slotRefiner = (r: Refiner | null): SlotRequest["refiner"] =>
@@ -67,7 +88,7 @@ type SlotPlan = {
   chip: Chip;
   refiner: Refiner | null;
   req: SlotRequest;
-  steerOpts?: { req: SlotRequest; steer: string; extraGoTo?: TransientGoTo };
+  steerOpts?: { req: SlotRequest; named: RefIn | null };
 };
 function slotPlanFromMood(data: any): SlotPlan | null {
   const cat = data?.category;
@@ -88,15 +109,20 @@ function slotPlanFromMood(data: any): SlotPlan | null {
     ...(keywords.length ? { keywords } : {}),
     ...(goTo ? { reference: goTo.name } : {}),
   };
-  const steerOpts = goTo
-    ? {
-        req,
-        steer: goTo.name,
-        ...(!goTo.starred && goTo.tmdbKind && goTo.tmdbId
-          ? { extraGoTo: { name: goTo.name, tmdbKind: goTo.tmdbKind, tmdbId: goTo.tmdbId, at: new Date().toISOString() } }
-          : {}),
-      }
+  // A named title steers this one request: a starred one with its TMDb id
+  // from the go-to mirror (else by name), any other as TMDb found it.
+  const at = new Date().toISOString();
+  const starred = goTo?.starred
+    ? goTosFor(cat).find((g) => g.name.trim().toLowerCase() === goTo.name.trim().toLowerCase())
     : undefined;
+  const named: RefIn | null = !goTo
+    ? null
+    : goTo.starred
+      ? { name: goTo.name, tmdbKind: starred?.tmdbKind ?? null, tmdbId: starred?.tmdbId ?? null, at }
+      : goTo.tmdbKind && goTo.tmdbId
+        ? { name: goTo.name, tmdbKind: goTo.tmdbKind, tmdbId: goTo.tmdbId, at }
+        : null;
+  const steerOpts = goTo ? { req, named } : undefined;
   return { cat, chip, refiner, req, steerOpts };
 }
 
@@ -591,16 +617,29 @@ export default function Page() {
   };
 
   // S21 — no go-tos on the home screen in any category (wine's left last):
-  // they live under Saved → Favorites and still steer every recipe.
+  // they live under Saved → Favorites (S24a: they steer only when chosen
+  // in Compare to).
   useEffect(() => {
     void syncGoTos();
     // S12b — the engine's seen set starts from this visit's shown titles.
     seedEngineFromVisit();
   }, []);
 
-  // S12b — the set on screen came from the slot recipe (its request and
-  // the go-to steering it), and the order/selection for the Steer by row.
-  const slotReqRef = useRef<{ req: SlotRequest; steer: string | null; extraGoTo?: TransientGoTo } | null>(null);
+  // S12b — the set on screen came from the slot recipe: its request, the
+  // title the words named, and (S24a) the refs it was built with — a
+  // backfill matches its own set, not a later Compare to change.
+  const slotReqRef = useRef<{ req: SlotRequest; named: RefIn | null; refs: RefIn[] } | null>(null);
+  // S24a — the last search as asked (a Compare to change re-runs it), and
+  // the five on screen (an AI set gets its compare lines in place).
+  const lastSearchRef = useRef<{ query: string; cat: string; meta?: { chip: Chip; refiner: Refiner | null }; parsedMood?: any } | null>(null);
+  const pageReksRef = useRef<Rek[]>([]);
+  pageReksRef.current = reks;
+  const [compareOpen, setCompareOpen] = useState(false);
+  const [refsVersion, setRefsVersion] = useState(0);
+  useEffect(() => onRefsChange(() => setRefsVersion((v) => v + 1)), []);
+  // The bar's category as the person last chose it (null = just mounted):
+  // a change clears the Compare to set.
+  const lastBarCatRef = useRef<string | null>(null);
   // S15 — the set on screen came from a snapped streaming screen: its
   // titles (Steer by re-ranks these, never others) and the photo's service.
   const screenRef = useRef<{ titles: ScreenTitles; service: string | null } | null>(null);
@@ -618,6 +657,8 @@ export default function Page() {
   }, []);
 
   const vibePlayRef = useRef<null | (() => void)>(null);
+  // S24b — SearchBar hands over its mic start for home's Say it.
+  const micRef = useRef<null | (() => void)>(null);
   const searchIdRef = useRef(0);
   // Staleness guard for in-flight snap responses — bumped by anything that
   // dismisses snap results (new search, home reset) so a late vision
@@ -1026,14 +1067,61 @@ export default function Page() {
     setReks(screen.reks);
   };
 
+  // S24a — compare lines for an AI search's five (the words chose them;
+  // the refs only add a line each). Same cards, merged in place; a card
+  // keeps its own text in `baseShort` so clearing can put it back.
+  const addCompareLines = async (list: Rek[], cat: "Movies" | "TV Shows", searchId: number) => {
+    const refs = refsPayload(refsFor(cat));
+    if (!refs.length || !list.length) return;
+    setLinesPending(true);
+    const lines = await fetchCompareLines(
+      cat,
+      refs,
+      list.map((r) => ({ title: r.title, year: r.year || null }))
+    );
+    if (searchId !== searchIdRef.current) return;
+    setLinesPending(false);
+    const by = new Map(lines.map((l) => [l.title.trim().toLowerCase(), l]));
+    setReks(
+      list.map((r) => {
+        const l = by.get(r.title.trim().toLowerCase());
+        return l ? { ...r, baseShort: r.baseShort ?? r.short, short: l.short, vsGoTo: l.vsGoTo } : r;
+      })
+    );
+  };
+  const stripCompareLines = (list: Rek[]): Rek[] =>
+    list.map((r) => (r.vsGoTo ? { ...r, short: r.baseShort ?? r.short, vsGoTo: null } : r));
+
+  // S24a — "Done" in the sheet, a chip's ×. The set is stored first; then
+  // the results follow it: a recipe set re-runs (the five shift toward
+  // the refs' webs), a Books set re-runs (seeded or not), and an AI
+  // search's five keep their places and get (or lose) their lines.
+  const applyRefs = (cat: CompareRef["category"], next: CompareRef[]) => {
+    setRefs(cat, next);
+    const last = lastSearchRef.current;
+    if (!last || screenRef.current || categoryFromQuery(last.query) !== cat && !slotReqRef.current) return;
+    if (slotReqRef.current) {
+      void handleSearch(last.query, last.cat, last.meta, { req: slotReqRef.current.req, named: slotReqRef.current.named }, undefined, last.parsedMood);
+      return;
+    }
+    if (cat === "Books") {
+      void handleSearch(last.query, last.cat, last.meta, undefined, undefined, last.parsedMood);
+      return;
+    }
+    const searchId = ++searchIdRef.current;
+    const base = stripCompareLines(pageReksRef.current);
+    setReks(base);
+    void addCompareLines(base, cat, searchId);
+  };
+
   const handleSearch = async (
     query: string,
     _cat: string,
     meta?: { chip: Chip; refiner: Refiner | null },
-    // S12b — a Steer by tap: the recipe request to re-run, steered.
-    // S13c — or a title named in a spoken mood (extraGoTo: steers this
-    // recipe without being a go-to).
-    steerOpts?: { req: SlotRequest; steer: string; extraGoTo?: TransientGoTo },
+    // S24a — a re-run of the recipe on screen (a Compare to change), or a
+    // title named in a spoken/typed mood (`named`: steers this recipe
+    // without being stored).
+    steerOpts?: { req: SlotRequest; named: RefIn | null },
     // S13c — this search answers a spoken mood: its five become the voice
     // set whose taps, plays, shares, saves and stars are counted.
     // S17 — `said`: the words, for the results header.
@@ -1060,6 +1148,9 @@ export default function Page() {
     setLinesPending(false);
 
     const nextCategory = categoryFromQuery(query);
+    // S24a — a search in another category clears the Compare to set.
+    clearIfCategoryChanged(nextCategory);
+    lastSearchRef.current = { query, cat: _cat, meta, parsedMood };
     // S17 — the header: spoken words, else the chips, else the typed words.
     // A steer re-run keeps the header it had. Wine keeps its own layout.
     if (!steerOpts || voice) {
@@ -1149,6 +1240,8 @@ export default function Page() {
       let runSteer = steerOpts;
       let runCat: Category = nextCategory;
       if (typedMood) {
+        // A Compare to re-run reuses this parse (no second model call).
+        if (mood && lastSearchRef.current?.query === query) lastSearchRef.current.parsedMood = mood;
         const plan = slotPlanFromMood(mood);
         // Only a mood the vocabulary holds whole takes the fast path (S19a:
         // chips, resolved TMDb keywords, a named title TMDb found); anything
@@ -1168,10 +1261,11 @@ export default function Page() {
             refiner: plan.refiner?.label ?? null,
             keywords: plan.req.keywords?.length ?? 0,
             reference: !!plan.req.reference,
-            steer: plan.steerOpts ? (plan.steerOpts.extraGoTo ? "named" : "go-to") : null,
+            named: !!plan.steerOpts?.named,
           });
           if (plan.cat !== nextCategory) {
             // Category words win ("a dark crime show" on the Movies bar).
+            clearIfCategoryChanged(plan.cat);
             setCategory(plan.cat);
             setBarCategoryHint((h) => ({ value: plan.cat, n: h.n + 1 }));
           }
@@ -1185,23 +1279,25 @@ export default function Page() {
 
       if (runReq) {
         const req = runReq;
-        const extraGoTo = runSteer?.extraGoTo;
+        const named = runSteer?.named ?? null;
+        // S24a — only the person's own words and Compare to steer.
+        const refs = steeringRefs(named, runCat);
         // S16 — early paint: the five land with TMDb's synopses as soon as
         // they exist; the "vs." lines follow onto the same cards.
-        const show = (list: Rek[], steer: string | null, order: string[]) => {
-          slotReqRef.current = { req, steer, extraGoTo };
+        const show = (list: Rek[]) => {
+          slotReqRef.current = { req, named, refs };
           noteSetShown(runCat, list.map((r) => r.title));
           if (voice) setVoiceSet(voice.moodId, list.map((r) => r.title));
           setReks(list);
         };
         let painted = false;
         const ans = await fetchSlots(req, {
-          steer: runSteer?.steer ?? null,
-          ...(extraGoTo ? { extraGoTos: [extraGoTo] } : {}),
+          steer: named?.name ?? null,
+          refs,
           onCards: (c) => {
             if (searchId !== searchIdRef.current || c.reks.length === 0) return;
             painted = true;
-            show(c.reks, c.steer, c.order);
+            show(c.reks);
             setLinesPending(c.linesPending);
             setLoading(false);
           },
@@ -1211,7 +1307,7 @@ export default function Page() {
         if (ans && ans.reks.length > 0) {
           // Same cards, lines merged in (ResultsV4 merges by id).
           if (painted) setReks(ans.reks);
-          else show(ans.reks, ans.steer, ans.order);
+          else show(ans.reks);
           return;
         }
         // Named, never silent: fetchSlots logged the reason (or the pools
@@ -1224,13 +1320,32 @@ export default function Page() {
       }
       slotReqRef.current = null;
 
-      const next = await getTop5FromEngine({
-        rawQuery: query,
-        likedTitles: prefs.likedTitles,
-        dislikedTitles: prefs.dislikedTitles,
-        watchedTitles: Array.from(watchedNow),
-        shortlist: prefs.shortlist,
-      });
+      // S24a — Books with a Compare to reference: the existing seeded
+      // search, placed against the first reference (TMDb doesn't know
+      // books, so there's no web to pull from and no "vs." line).
+      const bookRefs = nextCategory === "Books" ? refsFor("Books") : [];
+      let next: { reks: Rek[]; notice?: string };
+      if (bookRefs.length) {
+        const seedNames = new Set(bookRefs.map((r) => r.name.trim().toLowerCase()));
+        const seeded = await getMoreLikeThisSet({
+          seed: seedRekOf(bookRefs[0]),
+          category: "Books",
+          rawQuery: query,
+          likedTitles: prefs.likedTitles,
+          dislikedTitles: prefs.dislikedTitles,
+          watchedTitles: Array.from(watchedNow),
+        });
+        next = { reks: seeded.filter((r) => !seedNames.has(r.title.trim().toLowerCase())) };
+        console.info("[compare-to] books seeded search", { refs: bookRefs.length, shipped: next.reks.length });
+      } else {
+        next = await getTop5FromEngine({
+          rawQuery: query,
+          likedTitles: prefs.likedTitles,
+          dislikedTitles: prefs.dislikedTitles,
+          watchedTitles: Array.from(watchedNow),
+          shortlist: prefs.shortlist,
+        });
+      }
       if (searchId !== searchIdRef.current) return;
 
       noteSetShown(nextCategory, next.reks.map((r) => r.title));
@@ -1242,6 +1357,10 @@ export default function Page() {
       // else keeps the one Reks Ray failure voice.
       if (next.reks.length === 0) {
         setSearchError(next.notice ?? AI_SEARCH_FAILED_MSG);
+      } else if (nextCategory === "Movies" || nextCategory === "TV Shows") {
+        // S24a — the words chose these five; Compare to adds the lines.
+        setLoading(false);
+        await addCompareLines(next.reks, nextCategory, searchId);
       }
     } catch (err) {
       if (searchId !== searchIdRef.current) return;
@@ -1266,8 +1385,8 @@ export default function Page() {
     const s = slotReqRef.current;
     if (!s) return null;
     const ans = await fetchSlots(s.req, {
-      steer: s.steer,
-      ...(s.extraGoTo ? { extraGoTos: [s.extraGoTo] } : {}),
+      steer: s.named?.name ?? null,
+      refs: s.refs,
       count: 1,
       slot: removed.slot,
       extraSeen: current.map((r) => r.title),
@@ -1438,17 +1557,38 @@ export default function Page() {
     setWatchPendingTitle(null);
     setWatchFailedTitle(null);
     slotReqRef.current = null;
+    lastSearchRef.current = null;
+    setCompareOpen(false);
+    lastBarCatRef.current = null; // the remounted bar's first report isn't a change
     setResultsHeader(null);
     setSearchBarKey((k) => k + 1); // remount SearchBar → pristine bar + lane
   };
   resetToHomeRef.current = resetToHome;
 
+  // S24a — "Compare to" in the results header: Movies/TV/Books sets with a
+  // header (chips, typed or spoken words), never wine or a screen set.
+  const compareCat = compareCategoryOf(category);
+  const appliedRefs = compareCat ? refsFor(compareCat) : [];
+  void refsVersion; // re-read the store when it changes
+  const compareHeader =
+    compareCat && resultsHeader && !screenOn ? (
+      <CompareHeader
+        refs={appliedRefs}
+        onOpen={() => setCompareOpen(true)}
+        onRemove={(name) =>
+          applyRefs(
+            compareCat,
+            appliedRefs.filter((r) => r.name !== name)
+          )
+        }
+      />
+    ) : null;
+
   return (
     <main className="min-h-screen w-full flex justify-center px-4 py-6">
       <div className="w-full max-w-xl">
         {/* The wordmark is the app's only home affordance — no separate
-            button. AuthControl sits quietly at the right edge; it gates
-            nothing (anonymous stays primary). */}
+            button. S24b: Sign in moved to the top bar's ⋯ menu. */}
         <div className="relative mb-6 text-center">
           <button
             type="button"
@@ -1458,7 +1598,6 @@ export default function Page() {
           >
             Rekomendr<span className="text-[#2D5AB5]/70">.AI</span>
           </button>
-          <AuthControl />
         </div>
         <SearchBar
           key={searchBarKey}
@@ -1470,10 +1609,17 @@ export default function Page() {
           onCategoryChange={(c) => {
             barCategoryRef.current = c;
             setBarCategory(c);
+            // S24a — the person moved the bar to another category: the
+            // Compare to set clears (a mount's first report doesn't count).
+            if (lastBarCatRef.current !== null && lastBarCatRef.current !== c) clearIfCategoryChanged(c);
+            lastBarCatRef.current = c;
           }}
           categoryHint={barCategoryHint}
           registerVibePlay={(fn) => {
             vibePlayRef.current = fn;
+          }}
+          registerMic={(fn) => {
+            micRef.current = fn;
           }}
         />
 
@@ -1518,7 +1664,7 @@ export default function Page() {
             )}
             {!hasSnapped && (
               <div className="sm:hidden">
-                <RekSnapButton onClick={openSnapPicker} category={barCategory} />
+                <SayOrSnap onSay={() => micRef.current?.()} onSnap={openSnapPicker} category={barCategory} />
               </div>
             )}
             </>
@@ -1543,13 +1689,14 @@ export default function Page() {
                    Books); its titles still feed the freshness slot. */
                 shortlist={category === "Wine" ? shortlist : []}
                 header={resultsHeader}
+                headerRight={compareHeader}
                 onWatched={handleWatched}
                 onWatchedChange={handleWatchedChange}
                 linesPending={linesPending}
                 watchPendingTitle={watchPendingTitle}
                 watchFailedTitle={watchFailedTitle}
-                /* S17 — the Steer by row is gone (go-tos still steer every
-                   recipe, nearest first); a screen set keeps its header. */
+                /* S17 — the Steer by row is gone (S24a: Compare to in the
+                   header steers now); a screen set keeps its header. */
                 steerRow={
                   screenOn ? (
                     <div className="w-full max-w-xl mb-2 text-[13px] font-medium text-gray-300 sm:text-gray-600">
@@ -1563,6 +1710,19 @@ export default function Page() {
           )}
         </div>
       </div>
+
+      {compareOpen && compareCat && (
+        <CompareSheet
+          category={compareCat}
+          applied={appliedRefs}
+          onClose={() => setCompareOpen(false)}
+          onDone={(next) => {
+            setCompareOpen(false);
+            const key = (l: CompareRef[]) => l.map((r) => r.name.trim().toLowerCase()).join("|");
+            if (key(next) !== key(appliedRefs)) applyRefs(compareCat, next);
+          }}
+        />
+      )}
 
       <InstallCoach open={installOffer} onClose={() => setInstallOffer(false)} />
 

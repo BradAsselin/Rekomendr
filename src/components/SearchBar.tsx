@@ -60,6 +60,8 @@ interface SearchBarProps {
   // ResultsV4's "Try another lane" (the pool exhaustion card) still asks
   // the bar to play the next lane.
   registerVibePlay?: (fn: () => void) => void;
+  // S24b — home's Say it starts the same listening the mic icon does.
+  registerMic?: (fn: () => void) => void;
 
   // The camera icon (mobile only — desktop has none; a desktop user won't
   // file-pick a product photo) always opens the current RekSnap flow.
@@ -93,6 +95,7 @@ const SearchBar: React.FC<SearchBarProps> = ({
   onSearch,
   setLoading,
   registerVibePlay,
+  registerMic,
   onSnap,
   onCategoryChange,
   categoryHint,
@@ -324,6 +327,11 @@ const SearchBar: React.FC<SearchBarProps> = ({
     setListening(true);
     setHint(MIC_HINT);
   };
+  const tapMicRef = useRef(tapMic);
+  tapMicRef.current = tapMic;
+  useEffect(() => {
+    registerMic?.(() => tapMicRef.current());
+  }, [registerMic]);
 
   useEffect(() => () => listenerRef.current?.stop(), []);
 

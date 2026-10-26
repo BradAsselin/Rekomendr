@@ -120,15 +120,17 @@ for (const level of ["log", "warn", "info", "error"]) console[level] = () => {};
   const sp = read("src/components/SavedPage.tsx");
   const layout = read("app/layout.tsx");
   const page = read("app/page.tsx");
-  check("top bar: Saved sits left of Share", layout.indexOf("<SavedPage />") > 0 && layout.indexOf("<SavedPage />") < layout.indexOf("<ShareButton />"), true);
-  check("tabs Saved · Watched · Favorites", /const TABS: Tab\[\] = \["Saved", "Watched", "Favorites"\];/.test(sp), true);
+  // S24b — the four buttons, then the ⋯ menu (Share lives in it).
+  check("top bar: the Saved buttons sit left of the ⋯ menu", layout.indexOf("<SavedPage />") > 0 && layout.indexOf("<SavedPage />") < layout.indexOf("<MoreMenu "), true);
+  check("tabs Favorites · Watched · Recent · Saved", /const TABS: Tab\[\] = \["Favorites", "Watched", "Recent", "Saved"\];/.test(sp), true);
   check("groups Movies · TV Shows · Books · Wine", /const GROUPS: SavedCategory\[\] = \["Movies", "TV Shows", "Books", "Wine"\];/.test(sp), true);
   check("remove = every save row, every spelling", /item\.rawCategories\.map\(\(category\) => undoSignal\(\{ category, title: item\.title, action: "save", remove: true \}\)\)/.test(sp), true);
   check("un-watch through S16's route", /undoWatched\(\{ category, title: item\.title \}\)/.test(sp), true);
   check("un-star: go-tos by the S12 star, wine by its favorite", /<GoToStar item=/.test(sp) && /setWineFavorite\(null\)/.test(sp), true);
   // S21 — the event carries `counted`: a title tap isn't, "+ More like this" is.
   check("tap opens the card on the page (not counted as a go-to more)", /onOpenSavedItem\(\(t, counted\) => moreFromGoToRef\.current\(t, \{ counted \}\)\)/.test(page) && /const openItem = \(t: GoToTarget, counted = false\)/.test(sp), true);
-  check("footer: Show posters switch", /role="switch"/.test(sp) && /setPostersHidden\(postersOn\)/.test(sp), true);
+  // S24b — the posters switch moved to the ⋯ menu.
+  check("posters: Show posters / Hide posters in the ⋯ menu", /setPostersHidden\(postersOn\)/.test(read("src/components/MoreMenu.tsx")) && !/setPostersHidden/.test(sp), true);
   check("a failed write puts the row back (re-read)", (sp.match(/void reload\(\);\s*\}/g) || []).length >= 2, true);
   check("route reads through the guarded dynamic import", /import\("\.\.\/\.\.\/\.\.\/src\/lib\/supabaseServer"\)/.test(read("app/api/saved/route.ts")) && !/^import .*supabaseServer/m.test(read("app/api/saved/route.ts")), true);
 
@@ -138,14 +140,15 @@ for (const level of ["log", "warn", "info", "error"]) console[level] = () => {};
     ...(code.match(/>\s*([A-Z][^<>{}]*?)\s*</g) || []).map((m) => m.replace(/^>\s*|\s*<$/g, "")),
     ...(code.match(/aria-label="([^"]+)"/g) || []).map((m) => m.slice(12, -1)),
   ].filter(Boolean);
-  const allowed = new Set(["Saved", "Watched", "Favorites", "Show posters", "Close", "Your go-to (tap to unstar)"]);
+  // S24a — "Recent" and "Clear recent" (Brad's approved wording, 2026-10-25).
+  const allowed = new Set(["Saved", "Watched", "Favorites", "Show posters", "Close", "Your go-to (tap to unstar)", "Recent", "Clear recent"]);
   // S18a — the three empty states, approved by Brad 2026-10-24.
   check("empty states: the approved wording, exactly", [
     sp.includes('Saved: "Nothing saved yet. Tap the bookmark on any card to keep it here."'),
     sp.includes('Watched: "Nothing marked watched yet."'),
     sp.includes('Favorites: "No favorites yet. Tap ☆ on a card you love."'),
   ], [true, true, true]);
-  check("empty text waits for a real answer (not shown while loading or after a failed read)", /tabCount\[tab\] === 0 && \(tab === "Favorites" \|\| loaded\)/.test(sp), true);
+  check("empty text waits for a real answer (not shown while loading or after a failed read)", /tabCount\[tab\] === 0 && \(tab === "Favorites" \|\| loaded\) && EMPTY\[tab\]/.test(sp), true);
   check("every visible string / label is approved or existing", [...new Set(visible)].filter((w) => !allowed.has(w)), []);
 
   say(`\n${passed} passed, ${failed} failed`);
