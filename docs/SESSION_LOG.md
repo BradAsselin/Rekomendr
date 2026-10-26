@@ -3068,3 +3068,60 @@ Brad: production is promoted and Ready; run Block 5 the same way.
 - **Revert:** `grant insert on table public.user_likes, public.reksnap_signals to anon, authenticated;` That's only useful if an old bundle has to write directly again; the S3.1 build-skew reload makes that unlikely.
 
 **§0 check: consistent.** There's no change people will see. Every save now passes the server's gates, and nobody holding the public key can write, read or erase anyone's marks.
+
+## Session 24 — Compare to, top bar, Say it / Snap it, Watched it — 2026-10-25 — branches auto/s24a-compare-to, auto/s24b-top-bar (local agent mode, §11)
+
+Brad's brief, items 1–6. The plan is at `docs/s22-compare-to-plan.md`; the brief called it S22, and it's logged as S24 because S22 and S23 were already used. It shipped as two PRs to main. Production and release/v2 were not touched.
+
+### SHIPPED
+- **S24a, #87, merged as 6677258.** Brief items 1–3.
+  - **Steering off by default.** Go-tos are exclusions only. Chip, typed and spoken Movies/TV/Books results are neutral, and cards show the TMDb synopsis.
+  - **Compare to.** A button in the results header opens a sheet: Favorites · Watched · Recent · Saved, current category only, up to 3. Applied references show as "vs. Title ×" chips plus "+".
+    - The references pull the five toward their TMDb neighborhoods (S12 logic, driven by the chosen refs; with 2–3, the webs are interleaved).
+    - Each card gets a highlighted "vs. [Title]:" line naming its closest ref; "your" appears only for starred favorites. Lines are painted after the cards.
+    - References persist across vibe and genre changes and new searches, clear on a category change, and are stored per device (`rekomendr.compare_to`).
+    - AI-path Movies/TV sets keep their five and get lines through a new lines-only call (`/api/slots` `action:"lines"`).
+  - **Recent.** The last 30 cards opened, shared, saved or marked, in localStorage only and never sent. There's a Recent tab and a "Clear recent" action.
+- **S24b, #88, merged as f698584.** Brief items 4–6.
+  - **Top bar.** Four labeled buttons with counts (★ Favorites · ✓ Watched · ↺ Recent · 🔖 Saved), each opening the Saved page on its tab; the tabs are in the same order.
+  - **⋯ menu.** Holds Share, Show posters / Hide posters, Sign in / Sign out and the TMDb notice with its logo. The auth listener stays mounted, so the merge still fires on every load.
+  - **Home.** Say it (the search box's own mic start) and Snap it (the camera), each with its approved hint.
+  - **Watched it pill.** Outlined, with a check circle; marked, it fills navy and reads "Watched".
+
+### CALLS I MADE (yours to overrule)
+- **Typed and spoken titles.** A title named in a typed or spoken mood ("like Knives Out") still steers that one search as a transient reference; it isn't stored. That's the S13 behavior, now routed through refs.
+- **Screen snap** (a Netflix row) is neutral unless Compare to refs are set for Movies or TV.
+- **Books has no "vs." line.** A Books reference re-runs More-like-this seeded on it, keeping the lane and vibe. A vs. line for Books would need prompt text, which is your call.
+- **AI-path sets** (typed moods the gate sends to AI) get lines but no re-rank; the five stay as they were.
+- **Type labels.** The sheet rows say "Movie" / "TV" / "Book"; the brief's "type" field needed a word. Seasons come from TMDb facts ("3 seasons").
+- **⋯ aria-label.** The ⋯ button has none, because its accessible name needs your wording.
+- **When references clear.** Going home and reloading don't clear them; only a category change does (a search landing in another category, a typed mood moving it, or moving the bar).
+- **Home extras.** The snap tips and the "powered by Reks Ray™" line still sit under the Say it / Snap it pair. Dropping them is your call.
+
+### VALIDATION
+- **Harnesses:** new `validate-s24a` 53/53 and `validate-s24b` 39/39. s10, s12b, s13c, s16b, s17c, s19a, s21 and s23 were updated to the new design. All 45 suites are green; tsc, lint and `next build` are clean.
+- **Playwright at iPhone 13 size, on the S24b preview:** 70/70 (S24a acceptance 31, AI path and Books 9, S24b 30). Every acceptance line in the brief is covered except the real mic and camera, which the test stubs.
+- **Wine and prompts:** `git diff main` is empty on the wine routes, libs and components, and on mediaReks/voiceMood.
+
+### TEST RESIDUE
+Rows for `anon_agent_s24a_*` and `anon_agent_s24b_*` (likes, watched, api_usage). `/api/stats` excludes `anon_agent*`.
+
+### PHONE CHECKLIST (iPhone, after promotion)
+1. Top bar shows ★ Favorites · ✓ Watched · ↺ Recent · 🔖 Saved with counts; each opens the Saved page on its tab.
+2. ⋯ → Share works; Hide posters, then Show posters; Sign in opens the email form; the TMDb notice is there.
+3. Home → Say it starts listening; Snap it opens the camera; the search box's mic and camera still work.
+4. Movies → Comedy → Feel-good: neutral cards (synopsis only) and "Compare to ☐" in the header.
+5. Compare to → Knives Out → Done: the picks shift and every card shows "vs. your Knives Out:". The lines may land a beat after the cards.
+6. Change the vibe → the reference stays. × → back to neutral.
+7. "+" → pick two more → each card names its closest one.
+8. Switch to TV → cleared. The TV sheet shows TV only; pick Ted Lasso.
+9. Open a few cards → Recent fills (top bar count + the tab); Clear recent empties it.
+10. Watched it pill → tap → "Watched" + Undo toast.
+11. Wine: snap a shelf and a label → unchanged (go-to compare and taste bars).
+
+### PROMOTION
+1. Promote `main → release/v2` (yours). No env changes, no migrations, no SQL.
+2. Run the phone checklist above on www.rekomendr.ai.
+3. Revert: `git revert -m 1 f698584` (S24b) and/or `git revert -m 1 6677258` (S24a). Per-device localStorage keys (`rekomendr.compare_to`, `rekomendr.recent`) are harmless if left behind.
+
+**§0 check: consistent.** Picks come from the mood unless the person chooses what to compare against: no hidden steering. Every comparison names the title it's measured against. Recent never leaves the device (§0 rule 6). Wine is unchanged.
