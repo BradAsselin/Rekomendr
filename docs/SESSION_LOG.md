@@ -3456,3 +3456,35 @@ Promote `main → release/v2` (yours). There are no env, SQL or migration change
 Promote `main → release/v2` (yours). There are no env, SQL or migration changes. Revert: `git revert -m 1 8afdd4a`.
 
 **§0 check: consistent.** Comparing is opt-in on every More like this, and a parse miss is retried instead of shown. Nothing new is stored or sent.
+
+## Session 34 — Silent retry on an unparsed reply: wine picks, shelf read, first photo read — 2026-10-31 — branch auto/s34-retry-wine-vision
+
+**Brief (Brad, in chat; S33 call 1 approved):** extend the silent one-time retry to wine's re-roll and card chain, and to the first read of a photo (shelf, bottle, poster, TV). Log the same way.
+
+### SHIPPED
+**#116 → 48f8109**
+- **Helper:** `src/lib/parseRetry.ts` (`parseWithRetry`) is used at every site.
+  - Attempt 1 logs a warn `[tag] parse failed — retrying`.
+  - A success on attempt 2 logs an info `[tag] parse retry succeeded`.
+  - A miss on attempt 2 logs an error `[tag] parse failed — giving up`.
+  - Each line carries attempt, of, chars, finishReason and the error. Only parse misses retry.
+- **Tags:**
+  - `chain` (S33, moved onto the helper; same lines).
+  - `wine`: every `generateWineReks` caller, which covers the card chain, re-roll, first set, price chip and replacement.
+  - `wine-shelf`: the shelf read. A second miss falls into the existing fail-soft.
+  - `snap-read`: the first read of a whole photo, strips or a typed bottle. The re-read is not streamed and uses the same input and prompt. A second miss gives the existing `[snap-read-fail]` and failure line.
+- A re-read poster or TV screen still takes the TMDb path.
+- `validate-s8a/s10/s13a` were updated for the re-read: there is now a fourth `SYSTEM_PROMPT` call, and the refusal fixtures refuse twice.
+
+### TESTS
+- New `validate-s34`: 28/28. 56 suites, tsc, lint and build pass.
+- On the preview: S33 9/9, S32 19/19, S31 32/32, S26b 42/42, S26a 41/41, S29 53/53, S30 35/35.
+- Live: a typed wine and a wine re-roll each made one call and logged no retries.
+
+### NOT COVERED
+Backfill (one replacement card), Show details, the typed-wine classifier and the search lane's /api/openai still fail on one bad reply.
+
+### PROMOTION
+Promote `main → release/v2` (yours). There are no env, SQL or migration changes. Revert: `git revert -m 1 48f8109`.
+
+**§0 check: consistent.** A bad model reply is retried instead of shown, so there are fewer dead ends. Nothing new is stored or sent.
