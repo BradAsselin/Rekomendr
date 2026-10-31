@@ -51,14 +51,18 @@ export const SHELF_READ_PROMPT =
   "- talker_points / talker_source: only when a shelf talker or score card at that bottle PRINTS a score (\"90 POINTS\", \"Wine Enthusiast 90\"): the number, and the publication if it is printed. Otherwise null. Never supply a score from memory.\n" +
   "- staff_pick: true only when a store sign at that bottle says it is a staff pick, an employee or manager favorite, or someone's favorite (\"John's Favorite Wine!!!\"). Otherwise false.\n" +
   "\n" +
-  "anchor_price — the tag price of the MAIN bottle (the one the photo centers on, or the nearest and largest), only if readable. Otherwise null.\n" +
+  "anchor_name / anchor_reason / anchor_price — the shelf's MOST POPULAR bottle: of the bottles you listed, the best-known, most widely available one, not the one the photo centers on. For this pick alone you may use what you know about the labels. anchor_name: its name exactly as you listed it in bottles. anchor_reason: a few words on why it is the best-known. anchor_price: its tag price, only if readable. Otherwise null. With no bottles listed, all three are null.\n" +
   "\n" +
-  'Return JSON only: { "scene": "single"|"shelf"|"haul"|"other", "anchor_price": number|null, "bottles": [ { "name": string, "price": number|null, "talker_points": number|null, "talker_source": string|null, "staff_pick": boolean } ] }';
+  'Return JSON only: { "scene": "single"|"shelf"|"haul"|"other", "anchor_name": string|null, "anchor_reason": string|null, "anchor_price": number|null, "bottles": [ { "name": string, "price": number|null, "talker_points": number|null, "talker_source": string|null, "staff_pick": boolean } ] }';
 
 export type ShelfRead = {
   scene: WineScene;
   bottles: ShelfBottle[];
   anchorPrice: number | null;
+  // S27 — the shelf's most popular bottle (one of `bottles`, by name) and
+  // the read's reason for it; null when the read named none it listed.
+  anchorName: string | null;
+  anchorReason: string | null;
 };
 
 export async function readShelf(images: string[]): Promise<ShelfRead | null> {
@@ -89,6 +93,8 @@ export async function readShelf(images: string[]): Promise<ShelfRead | null> {
       talkers: read.bottles.filter((b) => b.talkerPoints != null).length,
       staffPicks: read.bottles.filter((b) => b.staffPick).length,
       anchorPrice: read.anchorPrice,
+      anchorName: read.anchorName,
+      anchorReason: read.anchorReason,
       strips: images.length > 1 ? images.length : 0,
       provider: completion.provider,
       ms: Date.now() - started,
