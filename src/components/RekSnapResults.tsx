@@ -30,6 +30,7 @@ import WineFacts from "./WineFacts";
 import WineTopCard, { firstSentence } from "./WineTopCard";
 import WineCompareSheet from "./WineCompareSheet";
 import { CompareHeader } from "./CompareSheet";
+import { useMltCompare, vsLeadFor, type MltSeed } from "./MltCompare";
 import { refPayload, sameRef, type WineRef } from "../lib/wineCompare";
 import GoToStar from "./GoToStar";
 import { goToCategoryFor } from "../lib/goToCategory";
@@ -183,6 +184,11 @@ type Props = {
   // S16 — a card's "Watched" mark or undo; the page keeps its session
   // list, which every re-run excludes.
   onWatchedChange?: (item: WatchedItem, watched: boolean) => void;
+  // S31 — this set came from More like this: a Movies/TV title (named,
+  // unchecked, over the five) or, for wine, the bottle itself (its
+  // comparison starts off; checking it shows the lines and ring).
+  mltSeed?: MltSeed | null;
+  mltWine?: boolean;
 };
 
 // S18b — the D2 card is Movies/TV's (books and wine keep theirs).
@@ -221,7 +227,14 @@ const RekSnapResults: React.FC<Props> = ({
   shelfPreview,
   barCategory,
   onWatchedChange,
+  mltSeed = null,
+  mltWine = false,
 }) => {
+  const mltWineRef = useRef(mltWine);
+  mltWineRef.current = mltWine;
+  // S31 — wine More like this: the bottle the set came from, offered
+  // unchecked as "Compare to [Bottle]" (the server already wrote its lines).
+  const [winePending, setWinePending] = useState<WineRef | null>(null);
   // Thumb marks and saves are independent per item name (a card can be
   // thumbed-up AND saved). Thumbs are one-active-within-thumbs and toggle on
   // repeat tap — same grammar as the search lane.
@@ -518,8 +531,12 @@ const RekSnapResults: React.FC<Props> = ({
               },
             ]
           : [];
-      wineRefsRef.current = autoRef;
-      setWineRefs(autoRef);
+      // S31 — a More like this wine set starts off: the bottle waits,
+      // unchecked, in the Compare to row.
+      const startOff = mltWineRef.current && autoRef.length > 0;
+      setWinePending(startOff ? autoRef[0] : null);
+      wineRefsRef.current = startOff ? [] : autoRef;
+      setWineRefs(startOff ? [] : autoRef);
       preCompareRef.current = null;
       setWineSheetOpen(false);
       tasteSeenRef.current = new Map();
@@ -1855,6 +1872,20 @@ const RekSnapResults: React.FC<Props> = ({
     });
   };
 
+  // S31 — Movies/TV More like this: the tapped title, unchecked, over
+  // the five; checked, each card carries the "vs." line for it.
+  const mediaCat = result?.media ? (result.media.kind === "movie" ? "Movies" : "TV Shows") : null;
+  const mediaMlt = useMltCompare(
+    mltSeed && mediaCat && mltSeed.category === mediaCat ? mltSeed : null,
+    [...trail.map((e) => e.rek), ...(lists?.[activeMode] ?? [])].map((r) => ({ title: r.name, year: r.year ?? null }))
+  );
+  const mltLine = (name: string) => (mediaMlt.on ? mediaMlt.lineFor(name) : null);
+  const mltShort = (r: SnapRek) => mltLine(r.name)?.short ?? r.description;
+  const mltLead = (r: SnapRek) => {
+    const l = mltLine(r.name);
+    return l && mediaCat ? vsLeadFor(mediaCat, l.vsGoTo) : undefined;
+  };
+
   if (loading) {
     // S13b — once the shelf is read the label moves on to the picks.
     // S26b — no pile of bottle pills (Brad's S25 brief, item 5): one quiet
@@ -2469,7 +2500,7 @@ const RekSnapResults: React.FC<Props> = ({
               <TrailRow
                 key={entry.rek.name}
                 title={entry.rek.name}
-                hint={entry.rek.description}
+                hint={mltShort(entry.rek)}
                 thumbed={thumbSignals[entry.rek.name] === "like"}
                 saved={!!savedNames[entry.rek.name]}
                 titleHref={titleLinkFor(entry.rek.name, entry.rek.category)}
@@ -2495,7 +2526,7 @@ const RekSnapResults: React.FC<Props> = ({
                   factsLine={d2 ? factsLineFor(entry.rek.name) : undefined}
                   title={entry.rek.name}
                   year={entry.rek.year ?? undefined}
-                  short={entry.rek.description}
+                  short={mltShort(entry.rek)}
                   long={entry.rek.long || undefined}
                   detailsOpen={openRek === entry.rek.name}
                   onToggleDetails={() =>
@@ -2525,7 +2556,7 @@ const RekSnapResults: React.FC<Props> = ({
                   }
                   dimmed={watchedOn(entry.rek.name, entry.rek.category)}
                   infoSlot={wineFactsFor(entry.rek)}
-                  shortLead={wineLead(entry.rek)}
+                  shortLead={wineLead(entry.rek) ?? mltLead(entry.rek)}
                   starSlot={
                     entry.rek.wine || goToCategoryFor(entry.rek.category)
                       ? starFor(entry.rek.name, entry.rek.description, entry.rek.wine ?? null, entry.rek.category)
@@ -2633,6 +2664,17 @@ const RekSnapResults: React.FC<Props> = ({
           </div>
         )}
 
+        {/* S31 — Movies/TV More like this: "Compare to [Title] ☐". */}
+        {mediaMlt.active && !anchorIsHealthMedical && (
+          <div
+            className="mb-3 flex items-center gap-2"
+            data-testid="mlt-compare-row"
+            data-lines-pending={mediaMlt.pending || undefined}
+          >
+            {mediaMlt.row}
+          </div>
+        )}
+
         {/* S26b — wine's Compare to row (board W1): "Your 5 from this
             shelf" on a shelf snap, and the movie header's own button and
             chips on the right. */}
@@ -2643,8 +2685,17 @@ const RekSnapResults: React.FC<Props> = ({
             )}
             <CompareHeader
               refs={wineRefs.map((r) => ({ name: shortWineName(r.name) }))}
+              pendingName={!wineRefs.length && winePending ? shortWineName(winePending.name) : undefined}
               onOpen={() => {
-                if (!chainBusyRef.current) setWineSheetOpen(true);
+                if (chainBusyRef.current) return;
+                // S31 — checking the bottle turns on the lines the server
+                // already wrote against it: no re-run.
+                if (!wineRefs.length && winePending) {
+                  wineRefsRef.current = [winePending];
+                  setWineRefs([winePending]);
+                  return;
+                }
+                setWineSheetOpen(true);
               }}
               onRemove={(short) => applyWineRefs(wineRefs.filter((r) => shortWineName(r.name) !== short))}
             />
@@ -2688,7 +2739,7 @@ const RekSnapResults: React.FC<Props> = ({
                 title={rek.name}
                 year={rek.year ?? undefined}
                 rank={rek.rank}
-                short={rek.description}
+                short={mltShort(rek)}
                 long={rek.long || undefined}
                 detailsOpen={openRek === rek.name}
                 onToggleDetails={() =>
@@ -2711,7 +2762,7 @@ const RekSnapResults: React.FC<Props> = ({
                 }
                 dimmed={watchedOn(rek.name, rek.category)}
                 infoSlot={wineFactsFor(rek)}
-                shortLead={wineLead(rek)}
+                shortLead={wineLead(rek) ?? mltLead(rek)}
                 starSlot={
                   rek.wine || goToCategoryFor(rek.category)
                     ? starFor(rek.name, rek.description, rek.wine ?? null, rek.category)

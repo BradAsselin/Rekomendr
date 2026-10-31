@@ -21,6 +21,7 @@ if (typeof window !== "undefined") {
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { jsonText, llmCall } from "./llm";
 import { normalizeTitle, logFakeTitles } from "./tmdbVerify";
+import { comparativeReason } from "./standaloneLine";
 import {
   mediaCategoryFor,
   resolveExactTitle,
@@ -71,6 +72,52 @@ const CHOOSER_PROMPT =
   "\n" +
   'Return JSON only: { "picks": [ { "n": number, "line": string } ], "wildcard": { "title": string, "year": number, "line": string } | null }\n' +
   "picks: five DISTINCT candidate numbers from the list (fewer only when the list is shorter), best first.";
+
+/* S31 — More like this (Brad, 2026-10-31): the picks stay chosen around
+   the tapped title, but each line stands alone, written as if no seed
+   existed. Only the instructions that make the line comparative change
+   (job 2, the grounding source, the open-on-the-comparison rule, the
+   on-screen-anchor rule, and the RIGHT/WRONG pair's comparison); every
+   other byte of CHOOSER_PROMPT is the same. Conditional assembly: the
+   standalone prompt carries no comparison vocabulary to dodge into.
+   The other paths (typed title, snapped poster, linesVsGoTo) keep
+   CHOOSER_PROMPT exactly. */
+const STANDALONE_SWAPS: [string, string][] = [
+  [
+    "2. For each pick write ONE line: a single sentence of at most 24 words saying how it compares to the anchor.\n",
+    "2. For each pick write ONE line: a single sentence of at most 24 words about that title on its own.\n",
+  ],
+  [
+    "- Ground it. Use only what the two synopses say plus the title's widely known tone.",
+    "- Ground it. Use only what the candidate's own synopsis says plus the title's widely known tone.",
+  ],
+  [
+    "- Open on the comparison itself — a bare comparative or a same-but: 'Same CIA-recruit-goes-undercover pressure, but the mole is inside the Agency.' / 'Lighter and funnier, with the band-as-escape plot moved to an American high school.'\n",
+    "- Write it as if it were the only title on the page: who it follows and what happens to them, standing on its own.\n",
+  ],
+  [
+    "- The anchor is on screen directly above. Never name it; never write 'than the one you looked up'.\n",
+    "- The anchor is only for choosing. The line is about the candidate alone and names no other title.\n",
+  ],
+  [
+    "- RIGHT: 'Swaps the battlefield for a Dublin bedroom — a teenager forms a band to win a girl, and the songs carry the story.'\n",
+    "- RIGHT: 'In 1985 Dublin, a teenager forms a band to win a girl, and the songs he writes for her carry the story.'\n",
+  ],
+  ["(no comparison, no concrete thing, banned words)", "(no concrete thing, banned words)"],
+];
+export const STANDALONE_CHOOSER_PROMPT = STANDALONE_SWAPS.reduce((p, [from, to]) => {
+  if (!p.includes(from)) throw new Error(`mediaReks: standalone swap missing: ${from.slice(0, 40)}`);
+  return p.replace(from, to);
+}, CHOOSER_PROMPT);
+
+// S31 — THE GUARANTEE for standalone lines lives in standaloneLine.ts
+// (shared with the search lane); the synopsis's first sentence stands in.
+export const synopsisLine = (overview: string): string => {
+  const text = overview.replace(/\s+/g, " ").trim();
+  if (!text) return "";
+  const first = text.match(/^.*?[.!?](?=\s|$)/)?.[0] ?? text;
+  return clip(first, 240);
+};
 
 // When TMDb's web is thin (a brand-new title with no neighbours yet), the
 // own-knowledge slots grow to fill five — every one still verified.
@@ -158,8 +205,11 @@ export async function chooseMediaReks(args: {
   lane?: string | null;
   // Which path asked, for the logs ("typed" | "snap").
   path: "typed" | "snap";
+  // S31 — a More like this set: standalone lines (see above).
+  standalone?: boolean;
 }): Promise<MediaRek[]> {
   const { anchor, taste, path } = args;
+  const standalone = args.standalone === true;
   const lane = args.lane?.trim() || null;
   const category = mediaCategoryFor(anchor.kind);
 
@@ -178,7 +228,7 @@ export async function chooseMediaReks(args: {
     schema: CHOOSER_SCHEMA,
     temperature: 0.5,
     maxTokens: 900,
-    system: CHOOSER_PROMPT + ownSlotsNote(candidates.length),
+    system: (standalone ? STANDALONE_CHOOSER_PROMPT : CHOOSER_PROMPT) + ownSlotsNote(candidates.length),
     user: buildUserMessage({ anchor, lane, taste, candidates }),
   });
   let parsed: any = null;
@@ -266,10 +316,26 @@ export async function chooseMediaReks(args: {
         ? [...picked.slice(0, 4), own[0]]
         : picked.slice(0, 5)
       : [...picked, ...own].slice(0, 5);
-  const ranked = final.map((r, i) => ({ ...r, rank: i + 1 }));
+  // S31 — the standalone guarantee: a comparing line becomes the
+  // synopsis's first sentence; with no synopsis the card can't ship.
+  const replaced: { title: string; why: string }[] = [];
+  const checked = standalone
+    ? final.flatMap((r) => {
+        const why = comparativeReason(r.description, anchor.title);
+        if (!why) return [r];
+        replaced.push({ title: r.name, why });
+        const plain = synopsisLine(r.long);
+        return plain ? [{ ...r, description: plain }] : [];
+      })
+    : final;
+  if (replaced.length) {
+    console.warn("[media-reks] standalone: comparing line replaced by the synopsis", { anchor: anchor.title, replaced });
+  }
+  const ranked = checked.map((r, i) => ({ ...r, rank: i + 1 }));
 
   console.info("[media-reks]", {
     path,
+    ...(standalone ? { standalone: true } : {}),
     anchor: anchor.title,
     kind: anchor.kind,
     pool: args.candidates.length,

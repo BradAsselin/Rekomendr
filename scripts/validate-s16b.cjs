@@ -241,7 +241,8 @@ const readNdjson = async (res) => {
   console.log("\n8. The results merge lines in place (no reset)");
   const rv = read("src/components/ResultsV4.tsx");
   check("same ids + titles → merge, return before the reset", /if \(ids && ids === lastIncomingIdsRef\.current\) \{[\s\S]*?setReks\(merge\);\s*setTrail\(merge\);\s*return;/.test(rv), true);
-  check("pending marker on the results", /data-lines-pending=\{linesPending \|\| undefined\}/.test(rv), true);
+  // S31 — More like this lines count as pending too.
+  check("pending marker on the results", /data-lines-pending=\{linesPending \|\| mlt\.pending \|\| undefined\}/.test(rv), true);
 
   console.log("\n9. No prompt or wording change");
   const mergedB = (() => {

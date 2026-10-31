@@ -23,6 +23,7 @@ import { rankMovieCandidates } from "./movieProfileScorer";
 import { readServiceFailure, isAIServiceError } from "../lib/aiServiceError";
 import { getAnonymousClientId } from "../lib/clientId";
 import { shortSynopsis } from "../lib/synopsis";
+import { dropComparingSentences } from "../lib/standaloneLine";
 // S1.5 — the real-title guard. Movies/TV only; the lookup itself lives
 // server-side (TMDB_API_KEY never reaches the browser, and this engine
 // runs in the browser).
@@ -709,6 +710,15 @@ function buildAIPrompt(args: {
   // rules (prime rule, setup, complication, garage pair) are identical
   // in both branches — Brad-confirmed working; never touch them here.
   const hasSeed = Boolean(seedTitle);
+  // S31 — More like this (Brad, 2026-10-31): a seeded set is still chosen
+  // around the seed (hasSeed: the pick line and the seed's name below),
+  // but for Movies/TV/Books every line stands alone, written as if no
+  // seed existed — the no-seed sentence rules, with no comparison
+  // vocabulary anywhere in the prompt (the round-4 structural rule).
+  // placeAgainstSeed carries every line-writing branch. Wine keeps its
+  // seeded verdict grammar (charter §2.3), byte-identical.
+  const placeAgainstSeed =
+    hasSeed && !(category === "Movies" || category === "TV Shows" || category === "Books");
 
   // Long-tier spec, split by category: Movies/TV/Books earn a 3-4 sentence
   // payoff (the expanded card is the read moment — what it is, who it's
@@ -718,7 +728,7 @@ function buildAIPrompt(args: {
     category === "Movies" || category === "TV Shows" || category === "Books";
   const longFormat = mediaLong
     ? "3-4 sentences: the setup's concrete situation, the texture, the viewing moment it wins — deepening short's angle, setup only."
-    : hasSeed
+    : placeAgainstSeed
     ? "EXACTLY 3 sentences: the axis deepened, what the wine DOES, then the verdict beat — see the wine long rules."
     : "EXACTLY 3 sentences: the axis deepened, what the wine DOES, then the sell — see the wine long rules.";
   const longRules = mediaLong
@@ -729,7 +739,7 @@ function buildAIPrompt(args: {
   - Optional sentence 4: the honest going-in warning — texture a trailer won't admit (slow burn, talky, violent) — and never a restatement of short's last line.
 - long must DEEPEN the angle short established — never paraphrase or re-say short in different words.
 ${
-  hasSeed
+  placeAgainstSeed
     ? "- long never repeats short's placement: long's sentence 3 is the viewing situation ('One for...', 'Save it for...'), a different job than short's comparative — one comparison per card, in short."
     : "- long never repeats short's close: the split is clean — short's last line puts you inside the night (what watching it feels like, what it leaves behind); long's sentence 3 says WHEN to watch it ('One for...', 'Save it for...'); long's optional sentence 4 is the going-in warning only."
 }
@@ -740,13 +750,13 @@ ${
   - Sentence 1: deepen the short's dry-vs-sweet placement with finer CONCRETE decision words (grapefruit pith, toasted oak, clover honey) — never re-characterize on a different axis, never contradict the short.
   - Sentence 2: what the wine DOES, as behavior, never an inventory of notes — where the fruit sits, when the oak arrives, what the finish does ('The fruit rides up front and the oak stays out of the way until the finish.'). A bag of descriptors that could hang on half the category is the named failure.
 ${
-  hasSeed
+  placeAgainstSeed
     ? `  - Sentence 3: the verdict beat — where this lands relative to the seed bottle: keeps it with a difference, trades it for something else, or doubles down ('Doubles down on the crispness'; 'Trades the plushness for structure — leaner, but longer'), naming it by TITLE or using a bare comparative — mechanism words never appear in prose, and the comparison targets the seed bottle ONLY, never an invented varietal average ('most Chardonnays', 'typical Cabernets'). An honest not-for-this-search steer is a SUCCESS. Never a rating, never an occasion, never a person-type.`
     : `  - Sentence 3: THE SELL — the concrete, bottle-specific reason to open it tonight, standing on the bottle alone ('Bone-dry enough to make oysters taste sweeter — the bottle empties before the bread.'). Never a rating, never an occasion, never a person-type.`
 }
   - The FINAL WORD is a concrete noun — a food, a moment, a place. Never end on a mood.
 ${
-  hasSeed
+  placeAgainstSeed
     ? `- RIGHT: 'The dryness runs bone-deep — lime pith and crushed stone with no fruit-sweetness padding it. The acidity hits first and the body stays out of the way, so it finishes fast and clean. Doubles down on the crispness — if you wanted roundness, this is the wrong door, but with oysters it sings.'
 - WRONG: 'A well-balanced and elegant wine with notes of citrus and minerality, perfect for those who enjoy crisp whites.' (descriptor inventory; rating register; person-type; never places the verdict against the seed)`
     : `- RIGHT: 'The dryness runs bone-deep — lime pith and crushed stone with no fruit-sweetness padding it. The acidity hits first and the body stays out of the way, so it finishes fast and clean. Bone-dry enough to make the oysters taste sweeter — the bottle empties before the bread.'
@@ -754,7 +764,7 @@ ${
 }`;
   const longFitRule = mediaLong
     ? "- long, sentence 1 or 2, should tilt its specifics toward the searcher's line where it's natural — the same premise reads differently after a 'funny feel-good' search than after a 'dark thriller' search. Never announce the fit ('since you searched...', 'if you're looking for...'); let the chosen specifics carry it."
-    : hasSeed
+    : placeAgainstSeed
     ? "- long, sentence 3, carries the fit: the verdict is stated AGAINST the seed bottle — never announce it ('since you searched...'); let the relationship carry it."
     : "- long, sentence 3, carries the sell — never announce the fit ('since you searched...'); let the bottle carry it.";
 
@@ -806,7 +816,7 @@ ${backfill ? `{ "results": [` : "["}
     "title": "Example Title",
     "year": 2014,
     "short": "${
-      hasSeed
+      placeAgainstSeed
         ? `Three sentences: the setup (characterized role + premise only this title has), the complication (setup only, never a twist), then the placement — tone, pace, or temperature against ${seedTitle}, named or as a bare comparative.`
         : "Three sentences: the setup (characterized role + premise only this title has), the complication (setup only, never a twist), then the simulation close — the night from inside it, e.g. 'Halfway in you stop checking your phone without noticing.' or 'The one you'll be explaining to a coworker tomorrow, badly.'"
     }",
@@ -825,7 +835,7 @@ Rules:
 - Sentence 1 — THE SETUP: a CHARACTERIZED role — a vivid description that sets the tone ('an insurance lawyer who has never lost', 'a wedding DJ who hates music', 'a couple eager to buy their first home'), NEVER a proper name (names mean nothing to someone who hasn't seen it), never a bare 'a man'/'a woman' — then the concrete premise only this title has. A topic is not a premise: the 'Explores/Delves into/Capturing [topic]' register is banned in any form.
 - Sentence 2 — THE COMPLICATION: what goes wrong, what's at stake, the turn that makes the setup a story — drawn from the SETUP only, never the twist or the ending. If the hook needs the twist, you chose the wrong sentence; hook from the premise instead.
 ${
-  hasSeed
+  placeAgainstSeed
     ? `- Sentence 3 — THE PLACEMENT: place this title against the seed title, bare comparative shape — tone, pace, or temperature, naming the DIRECTION of the difference. Name it by TITLE, or use a bare comparative with no referent phrase at all. The comparison targets the seed title ONLY — never an invented genre average ('most romantic comedies', 'typical thrillers', banned in any wording). Never a rating, never 'similar to' filler, never a person-type.
 - RIGHT (placement, fictional referent): 'Quieter and stranger than Midnight Ledger — the menace stays under the surface.' (names the referent title) — equally right: 'Quieter and stranger — the menace stays under the surface.' (bare comparative)
 - WRONG: 'Quieter and stranger than the seed.' ('the seed' is a prompt word, not prose — the plumbing leaked into the blurb)
@@ -854,7 +864,7 @@ BANNED REGISTER — applies to every sentence of short and long:
 - Review-speak and person-types: 'heartwarming', 'a journey of', 'refreshing take', 'must-watch', 'a rollercoaster', 'keeps you on the edge of your seat', 'perfect for', 'fans of', 'those who enjoy', 'explores themes of', 'a testament to', 'resonates', 'ideal for', 'great for', 'lingers long after', 'stays with you', opening with 'The story of...'.
 - Summary verbs, ANY sentence: 'grapples with', 'navigates', 'faces', 'struggles with', 'deals with', 'comes to terms with' — and the abstract-verdict cousins 'examines/challenges/explores/celebrates/bends/probes/embraces' + any abstraction ('challenges the very idea of connection', 'probes the nature of intimacy', 'embraces wildness and danger'). A summary verb + an abstraction is a book report about the story, never the story.
 ${
-  hasSeed
+  placeAgainstSeed
     ? "- Mechanism words: 'the seed', 'the referent', 'this lane', 'the shelf', 'your search' — prompt vocabulary, never prose. Name the referent title or use a bare comparative; the reader must never see the plumbing."
     : "- Mechanism words: 'this lane', 'the shelf', 'your search' — prompt vocabulary, never prose; the reader must never see the plumbing."
 }
@@ -907,10 +917,14 @@ ${
     ? `Seed title:
 ${seedTitle}
 
-Comparative referent (sentence 3 places each rek against this):
+${
+        placeAgainstSeed
+          ? `Comparative referent (sentence 3 places each rek against this):
 the seed title, ${seedTitle} — place each rek against it, naming it by TITLE or with a bare comparative. NEVER write the words 'the seed' or 'the referent' in a description.
 
 `
+          : ""
+      }`
     : ""
 }Recent likes:
 ${likedTitles.length ? likedTitles.slice(-10).join(", ") : "(none)"}
@@ -1241,6 +1255,24 @@ async function generateAIReks(args: {
       args.outcome.produced = produced;
       args.outcome.droppedAsFake = drops.fake;
       args.outcome.droppedUnverifiable = drops.unverifiable;
+    }
+
+    // S31 — THE GUARANTEE for a seeded Movies/TV/Books set (the prompt is
+    // pressure): a sentence that still compares (to the seed or at all)
+    // leaves the card's text; a card left with nothing doesn't ship. Wine
+    // keeps its seeded verdict grammar. Logged, so prompt drift shows.
+    if (args.seedTitle && (args.category === "Movies" || args.category === "TV Shows" || args.category === "Books")) {
+      const seedTitle = args.seedTitle;
+      const trimmed: { title: string; dropped: string[] }[] = [];
+      const kept = out.flatMap((r) => {
+        const s = dropComparingSentences(r.short || "", seedTitle);
+        const l = dropComparingSentences(r.long || "", seedTitle);
+        if (!s.dropped.length && !l.dropped.length) return [r];
+        trimmed.push({ title: r.title, dropped: [...s.dropped, ...l.dropped] });
+        return s.text ? [{ ...r, short: s.text, long: l.text }] : [];
+      });
+      if (trimmed.length) console.warn("[mlt] standalone: comparing sentences removed", { seed: seedTitle, trimmed });
+      out.splice(0, out.length, ...kept);
     }
 
     return out.length >= 1 ? normalize(out.slice(0, args.count)) : null;
