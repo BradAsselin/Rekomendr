@@ -3162,3 +3162,65 @@ Brad: promoted. Run the held Block 5 revoke (backup first) and confirm saving on
 3. Revert: `git revert -m 1 2b0e546`.
 
 **§0 check: consistent.** Books comparisons appear only when the person chooses a reference, and every line names the book it's measured against. Nothing new leaves the device, and wine is unchanged.
+
+## Session 26 — Home fits one screen, Go, wine shelf Compare to — 2026-10-30 — branches auto/s26a-home-go, auto/s26b-shelf-compare (local agent mode, §11)
+
+Brad's brief `docs/S25_HOME_GO_AND_SHELF_COMPARE_LAUNCH_PROMPT.md`. It's logged as S26 because S25 was already used. It shipped as two PRs to main. Production and release/v2 were not touched; no env changes, no SQL.
+
+### SHIPPED
+- **S26a, #93, merged as df51e38.** Items 1–3 and 8.
+  - **Header.** The wordmark is top-left in the top bar with ⋯ on the right. The four list buttons are outlined tiles with colored icons (Favorites amber, Watched green, Recent gray, Saved blue). Search and chips follow.
+  - **One screen.** The scroll came from `main.min-h-screen` sitting under the 57px bar. Body is now `min-h-[100dvh]`. The chip rows scroll inside a clip, so iOS's indicator can't draw a bar under them.
+  - **Go.** It appears inside the field whenever the box has text. While listening, it stops the mic and runs the spoken words at once; the pause's own auto-run stays. Enter still works.
+  - **Snap tips** no longer render under Say it / Snap it.
+- **S26b, #94, merged as e588f9e.** Items 4–7.
+  - **Off by default.** Wine compares to nothing unless picked; the go-to rides as `goTo`, a name only. Exception: a single-bottle (or typed) wine compares to itself (`autoRef`), with × to undo.
+  - **Shelf reading.** "Reading the shelf…" then "… N bottles found", in place of the bottle pills.
+  - **Top card.** "This shelf · most popular": name, price, one line, blue-dot bars, and no star, save or thumbs. The pick is returned as `wine.anchorPick` and logged as `[wine] shelf anchor`.
+  - **Compare row and sheet.** "Your 5 from this shelf" sits beside Compare to. The sheet opens on "This shelf N": every bottle read, in shelf order, with the approved helper line.
+  - **Picking a bottle.** The five re-run against it and may re-rank. The top card becomes "Comparing to · from this shelf" (amber, ×). Each pick gets "vs. [Short]:" and the orange ring at the bottle's taste position. × restores the earlier five without lines or rings. Up to 3 references; the first drives the lines.
+  - **Prompt.** One conditional data line asks for `go_to` (the reference's taste) only when the client doesn't know it. Every existing line is byte-identical; the voice is untouched.
+
+### CALLS (Brad's to overrule)
+- **Wording not quoted in the brief:**
+  - "Go" (the brief's name for the button);
+  - "Comparing to" without "· from this shelf" for a Favorites/Recent/Saved reference;
+  - the bare short name in the ring legend when the reference isn't the starred go-to;
+  - the card's × screen-reader label reuses "vs. [Short] ×".
+- **"Most popular"** is the vision read's main bottle, the one the photo centers on. A true popularity pick needs the locked vision prompt (§2.3), so it's a joint session; the pick and its shelf index are logged for tuning.
+- **2–3 references:** the lines and ring measure against the first; the others ride as KEPT.
+- **Single-bottle snap:** the top card stays the normal anchor card; the reference shows as the chip.
+- **Shelf top card:** no Share row and no "Snap the shelf" button.
+- **Price chips** stay between the top card and the "Your 5" row.
+
+### VALIDATION
+- **Harnesses:** new `validate-s26a` 20/20 and `validate-s26b` 44/44 (the real route with stubbed models). 48/48 suites green.
+  - Updated: s13b, s13c, s17c, s24a/b, s25, s8b, s9. The s24a/s24b/s25 wine fences now diff their own merge commits.
+  - tsc, lint and build are clean.
+  - Note: the suites that shell out to `npx` need a shell on Windows. I ran them with a scratch preload shim that wasn't committed.
+- **Playwright on the previews:**
+  - `pw-s26a-home` 41/41: no scroll on all four categories at 390×844 and 375×667, the header order and colors, and Go for typed, Enter and spoken.
+  - `pw-s26b-shelf` 42/42, using the stored fixture `scripts/fixtures/s26b-wine.json`.
+- **Live model, preview:**
+  - Comedy → Feel-good gave five cards in two taps.
+  - A typed "Kim Crawford Sauvignon Blanc" auto-referenced, with 5/5 "vs. Kim Crawford:" lines and rings.
+  - A Recent pick (Cloudy Bay) re-ran with 5 "vs. Cloudy Bay:" lines and rings at its position.
+
+### TEST RESIDUE
+`anon_agent_s26a_*`, `anon_agent_s26b_*` (api_usage rows). `/api/stats` excludes `anon_agent*`.
+
+### PHONE CHECKLIST (iPhone, after promotion)
+1. Home: logo top-left, ⋯ top-right, four colored list tiles, then search. No scrolling, and no blue bar under the chips.
+2. Type a word: Go appears. Clear it: Go disappears. Say it: the words appear, Go appears, tap Go and the results come.
+3. Wine → snap a shelf (or use the stored shelf shot): "Reading the shelf…" with no pile of bubbles. The top card is the shelf's main bottle, with no star or thumbs on it. The five picks have no "vs." lines.
+4. Compare to → This shelf lists the bottles from the photo. Pick one you know.
+5. That bottle is now the top card with an amber outline. Each pick says "vs. [it]:" and shows the orange ring on its sliders.
+6. × goes back to step 3. The bottle is still in the This shelf list.
+7. Snap a single bottle: it's compared automatically.
+8. Movies still work: Comedy → Feel-good → five cards, two taps.
+
+### PROMOTION
+1. Promote `main → release/v2` (yours). No env changes, migrations or SQL.
+2. Revert: `git revert -m 1 e588f9e` (S26b) and/or `git revert -m 1 df51e38` (S26a).
+
+**§0 check: consistent.** Comparisons appear only for a bottle the person chose (or the bottle they just snapped), and each one names its reference. The home screen asks less effort (no scroll, Go never waits). The shelf list stays in the result on the device; nothing new is sent or stored.
