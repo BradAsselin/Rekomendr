@@ -34,13 +34,14 @@ const bar = read("src/components/SearchBar.tsx");
 const watched = read("src/components/WatchedControl.tsx");
 
 console.log("1. Top bar: four labeled buttons, then the ⋯ menu");
-check("layout order: Saved buttons, ⋯ menu", layout.indexOf("<SavedPage />") > 0 && layout.indexOf("<SavedPage />") < layout.indexOf("<MoreMenu attribution={<Attribution />} />"), true);
+// S26a — two rows: wordmark + ⋯, then the four tiles.
+check("layout order: wordmark + ⋯ menu, then the Saved tiles", layout.indexOf("<HomeWordmark />") > 0 && layout.indexOf("<MoreMenu attribution={<Attribution />} />") < layout.indexOf("<SavedPage />"), true);
 check("Share / Saved pills gone from the bar", /ShareButton/.test(layout) || exists("src/components/ShareButton.tsx"), false);
 check("tabs Favorites · Watched · Recent · Saved", /const TABS: Tab\[\] = \["Favorites", "Watched", "Recent", "Saved"\];/.test(sp), true);
 check("icons ★ ✓ ↺ 🔖", /const TAB_ICON: Record<Tab, LucideIcon> = \{ Favorites: Star, Watched: CircleCheck, Recent: RotateCcw, Saved: Bookmark \};/.test(sp), true);
 check("each button opens the page on its tab", /onClick=\{\(\) => \{\s*setTab\(t\);\s*setOpen\(true\);\s*void reload\(\);\s*\}\}/.test(sp) && /data-testid=\{`topbar-\$\{t\}`\}/.test(sp), true);
-check("each shows its count where it has one", /\{tabCount\[t\] > 0 && <span className="text-\[11px\] text-white\/60">\{tabCount\[t\]\}<\/span>\}/.test(sp), true);
-check("the label is the tab's own word", /<\/span>\s*\{t\}\s*<\/button>/.test(sp), true);
+check("each shows its count where it has one", /\{tabCount\[t\] > 0 && <span className="text-\[12px\] text-white\/70">\{tabCount\[t\]\}<\/span>\}/.test(sp), true);
+check("the label is the tab's own word", /<span className="truncate">\{t\}<\/span>\s*<\/button>/.test(sp), true);
 check("the Saved page's posters footer is gone", /role="switch"|Show posters|setPostersHidden/.test(sp), false);
 
 console.log("\n2. The ⋯ menu");
@@ -66,7 +67,8 @@ check("the search box keeps its mic and camera", /<Mic size=\{20\}/.test(bar) &&
 check("two equal buttons side by side", /grid-cols-2/.test(pair) && (pair.match(/className=\{BIG\}/g) || []).length === 2, true);
 check("Say it: mic + hint", /<Mic [^>]*\/>\s*<span[^>]*>Say it<\/span>/.test(pair) && pair.includes(">Something fun and funny<"), true);
 check("Snap it: camera + hint", /<Camera [^>]*\/>\s*<span[^>]*>Snap it<\/span>/.test(pair) && pair.includes(">A poster, a shelf, the TV<"), true);
-check("the snap tips stay under the pair", /<SnapTips category=\{category\} \/>/.test(pair), true);
+// S26a — Brad's S25 brief (item 8): the rotating snap tips leave home.
+check("the snap tips are gone from under the pair (S26a)", /SnapTips/.test(strip(pair)), false);
 
 console.log("\n5. Watched it pill");
 check("outlined pill, check circle 16", /rounded-full border px-3 py-1/.test(watched) && /<CircleCheck size=\{16\}/.test(watched), true);

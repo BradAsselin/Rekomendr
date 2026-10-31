@@ -50,6 +50,13 @@ const GROUPS: SavedCategory[] = ["Movies", "TV Shows", "Books", "Wine"];
 type Tab = "Saved" | "Watched" | "Favorites" | "Recent";
 const TABS: Tab[] = ["Favorites", "Watched", "Recent", "Saved"];
 const TAB_ICON: Record<Tab, LucideIcon> = { Favorites: Star, Watched: CircleCheck, Recent: RotateCcw, Saved: Bookmark };
+// S26a — the tiles' icon colors (board F1): amber, green, light gray, light blue.
+const TAB_TINT: Record<Tab, string> = {
+  Favorites: "text-amber-400",
+  Watched: "text-emerald-400",
+  Recent: "text-gray-300",
+  Saved: "text-sky-300",
+};
 
 // S18a — what an empty tab says (Brad-approved wording, 2026-10-24).
 // S24a — Recent has no approved empty line: an empty Recent shows nothing.
@@ -201,7 +208,8 @@ const SavedPage: React.FC = () => {
 
   return (
     <>
-      <div className="flex min-w-0 items-center gap-0.5 sm:gap-2">
+      {/* S26a — the top bar's second row: four outlined tiles. */}
+      <div className="grid grid-cols-4 gap-2 pb-2" data-testid="topbar-tiles">
         {TABS.map((t) => {
           const Icon = TAB_ICON[t];
           return (
@@ -214,13 +222,13 @@ const SavedPage: React.FC = () => {
                 void reload();
               }}
               data-testid={`topbar-${t}`}
-              className="flex min-w-[4.25rem] flex-col items-center gap-0.5 rounded-xl px-1.5 py-1 text-[11px] font-medium text-white/90 hover:bg-white/10 active:scale-[0.98]"
+              className="flex min-w-0 flex-col items-center gap-0.5 rounded-xl border border-white/15 px-1 py-1.5 text-[12px] font-medium text-white/90 hover:bg-white/5 active:scale-[0.98] sm:border-white/25"
             >
               <span className="flex items-center gap-1">
-                <Icon size={17} strokeWidth={1.8} aria-hidden="true" />
-                {tabCount[t] > 0 && <span className="text-[11px] text-white/60">{tabCount[t]}</span>}
+                <Icon size={17} strokeWidth={1.8} aria-hidden="true" className={TAB_TINT[t]} />
+                {tabCount[t] > 0 && <span className="text-[12px] text-white/70">{tabCount[t]}</span>}
               </span>
-              {t}
+              <span className="truncate">{t}</span>
             </button>
           );
         })}

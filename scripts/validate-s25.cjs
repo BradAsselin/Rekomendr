@@ -117,7 +117,8 @@ const items = [
   check("sheet labels Movie / TV / Book (approved)", /const TYPE: Record<CompareCategory, string> = \{ Movies: "Movie", "TV Shows": "TV", Books: "Book" \};/.test(read("src/components/CompareSheet.tsx")), true);
   check("⋯ reads More options", /aria-label="More options"/.test(read("src/components/MoreMenu.tsx")), true);
   const pair = read("src/components/SayOrSnap.tsx");
-  check("snap tips stay under Say it / Snap it", /<SnapTips category=\{category\} \/>/.test(pair), true);
+  // S26a — the brief's item 8 removed them after all.
+  check("snap tips gone from Say it / Snap it (S26a)", /<SnapTips/.test(pair), false);
   check("powered by Reks Ray™ stays", pair.includes(">powered by Reks Ray™<"), true);
 
   console.log("\n5. Untouched");
