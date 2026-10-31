@@ -1587,6 +1587,21 @@ const RekSnapResults: React.FC<Props> = ({
       );
       return;
     }
+    const anchorSeed = chainSeedFor(
+      {
+        name: forResult.detected_item.name,
+        description: "",
+        category: forResult.detected_item.category,
+        rank: 0,
+        year: forResult.detected_item.year ?? null,
+      },
+      forResult.detected_item.category,
+      mode
+    );
+    const seed: MltSeed | null =
+      anchorSeed && forResult.media
+        ? { ...anchorSeed, tmdbKind: forResult.media.kind, tmdbId: forResult.media.id ?? null }
+        : anchorSeed;
     void fetchChainSet(
       {
         kind: "reroll",
@@ -1602,12 +1617,15 @@ const RekSnapResults: React.FC<Props> = ({
         clientId: getAnonymousClientId(),
         // S2 — the anchor's attestation; verified server-side first.
         anchorToken: forResult.detected_item_token,
+        // S33 — a Movies/TV/Books title re-rolled: standalone lines.
+        ...(seed ? { standalone: true } : {}),
       },
       mode,
       wipe.restoreList,
       "chain",
-      // S32 — a re-roll is back on the anchor's line: no chained title.
-      null
+      // S33 — the re-rolled title is the More like this seed ("Compare to
+      // [Title]" unchecked); null for any other anchor.
+      seed
     );
   };
 

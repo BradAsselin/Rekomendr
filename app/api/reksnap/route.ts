@@ -813,6 +813,16 @@ const buildStandaloneChainSteerPrompt = (mode: string) => {
   return base.replace(REFERENT_OVERRIDE, "").replace(DIFFERENTIATOR_VOICE, STANDALONE_DIFFERENTIATOR_VOICE);
 };
 
+// S33 (Brad, 2026-10-31) — the re-roll ("+ More like this" on the snapped
+// or typed title itself) follows the same rule for Movies/TV/Books: the
+// same MEDIA sentence-3 swap, nothing else (the re-roll has no referent
+// override to drop).
+const buildStandaloneChainRerollPrompt = (mode: string) => {
+  const base = buildChainRerollPrompt(mode);
+  if (!base.includes(DIFFERENTIATOR_VOICE)) throw new Error("reksnap: standalone re-roll prompt drifted");
+  return base.replace(DIFFERENTIATOR_VOICE, STANDALONE_DIFFERENTIATOR_VOICE);
+};
+
 const buildChainRerollPrompt = (mode: string) => {
   const voice = mode === "uses" ? USES_VOICE : DIFFERENTIATOR_VOICE;
   return (
@@ -990,32 +1000,55 @@ async function handleChain(chain: any): Promise<Response> {
   // S32 — a media card's "+ More like this" (the client says so): the
   // standalone lines. Never for uses-mode (its own grammar) or a chain
   // that isn't pursuing a Movies/TV/Books title.
+  // S33 — and the re-roll on a Movies/TV/Books title.
   const standalone =
-    kind === "steer" &&
     chain?.standalone === true &&
     mode !== "uses" &&
-    goToCategoryFor(chainedCategory || category) !== null;
+    goToCategoryFor(kind === "steer" ? chainedCategory || category : category) !== null;
 
-  const completion = await llmCall({
-    step: "snap",
-    temperature: 0.7,
-    // Five cards at the backfill card budget.
-    maxTokens: 1500,
-    system:
-      kind === "steer"
-        ? standalone
-          ? buildStandaloneChainSteerPrompt(mode)
-          : buildChainSteerPrompt(mode)
-        : buildChainRerollPrompt(mode),
-    user: userContent,
-  });
+  const system =
+    kind === "steer"
+      ? standalone
+        ? buildStandaloneChainSteerPrompt(mode)
+        : buildChainSteerPrompt(mode)
+      : standalone
+      ? buildStandaloneChainRerollPrompt(mode)
+      : buildChainRerollPrompt(mode);
 
-  const text = jsonText(completion.text);
+  // S33 (Brad, 2026-10-31) — a reply that doesn't parse is retried once,
+  // silently; only a second miss shows the failure line. Both attempts
+  // are logged.
+  const CHAIN_ATTEMPTS = 2;
   let parsed: any = null;
-  try {
-    parsed = JSON.parse(text);
-  } catch {
-    return Response.json({ error: "Chain failed" }, { status: 502 });
+  for (let attempt = 1; attempt <= CHAIN_ATTEMPTS; attempt++) {
+    const completion = await llmCall({
+      step: "snap",
+      temperature: 0.7,
+      // Five cards at the backfill card budget.
+      maxTokens: 1500,
+      system,
+      user: userContent,
+    });
+    try {
+      parsed = JSON.parse(jsonText(completion.text));
+      if (attempt > 1) console.info("[chain] parse retry succeeded", { kind, attempt });
+      break;
+    } catch (err) {
+      const detail = {
+        kind,
+        attempt,
+        of: CHAIN_ATTEMPTS,
+        chars: completion.text.length,
+        finishReason: completion.finishReason,
+        error: err instanceof Error ? err.message : String(err),
+      };
+      if (attempt < CHAIN_ATTEMPTS) {
+        console.warn("[chain] parse failed — retrying", detail);
+      } else {
+        console.error("[chain] parse failed — giving up", detail);
+        return Response.json({ error: "Chain failed" }, { status: 502 });
+      }
+    }
   }
 
   const normalize = (s: string) => s.trim().toLowerCase();
@@ -1055,7 +1088,7 @@ async function handleChain(chain: any): Promise<Response> {
   // A card with nothing left doesn't ship either.
   if (standalone) {
     for (let i = reks.length - 1; i >= 0; i--) {
-      const a = dropComparingSentences(reks[i].description, chained.name);
+      const a = dropComparingSentences(reks[i].description, kind === "steer" ? chained.name : item.name);
       const b = dropComparingSentences(a.text, item.name);
       const dropped = [...a.dropped, ...b.dropped];
       if (!dropped.length) continue;
@@ -1063,7 +1096,7 @@ async function handleChain(chain: any): Promise<Response> {
       if (b.text) reks[i].description = b.text;
       else reks.splice(i, 1);
     }
-    console.info("[chain] standalone", { chained: chained.name, reks: reks.length });
+    console.info("[chain] standalone", { kind, seed: kind === "steer" ? chained.name : item.name, reks: reks.length });
   }
 
   if (reks.length === 0) {
