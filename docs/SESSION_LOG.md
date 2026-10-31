@@ -3399,3 +3399,32 @@ Promote `main → release/v2` (yours). There are no env, SQL or migration change
 Promote `main → release/v2` (yours). There are no env, SQL or migration changes. Revert: `git revert -m 1 6f35b26`.
 
 **§0 check: consistent.** Picks still follow what the person loved. Comparison is now their choice, not imposed. Nothing new is stored or sent.
+
+## Session 32 — Snap-lane "+ More like this": standalone lines, Compare to [Title] unchecked — 2026-10-31 — branch auto/s32-snap-chain-mlt
+
+**Brief (Brad, in chat; S31 call 1 approved):** "+ More like this" on a card under a snapped or typed title follows the same rule: standalone lines, Compare to [Title] unchecked. Change only the instruction that makes those lines comparative; leave the rest of the snap voice as it is.
+
+### SHIPPED
+**#112 → 77358a0**
+- **Prompt:** `/api/reksnap` chain steer with `standalone`, for a Movies/TV/Books pursuit only. It drops the referent override and swaps the MEDIA clause's sentence 3 (placement against the anchor → the title's own register) plus its two examples. The rest of DIFFERENTIATOR_VOICE and the chain prompt is byte-identical. Wine, consumables, products and uses-mode chains are unchanged.
+- **Backstop:** sentences that compare or name either title are removed, and a card with nothing left doesn't ship. `standaloneLine.ts` also now catches "further … than" and "than the source/original…" (from a live leak), which tightens S31 too.
+- **Client:** the chained card becomes the Compare to seed once its set lands. An anchor re-roll or a new snap ends it, a second chain names the new card unchecked, and the seed never gets a line against itself.
+
+### TESTS
+- New `validate-s32`: 26/26. 54 suites, tsc, lint and build pass.
+- New `pw-s32-snap-chain`: 19/19 locally and on the preview. Also on the preview: S31 32/32, S26b 42/42, S26a 41/41, S29 53/53, S30 35/35.
+- **Live (Heat, 3 chains):**
+  - The first prompt version made 13/15 third sentences open "It plays as…", copying its example. I removed the example and the next run varied.
+  - All lines were standalone after the guard. It removed one "trades" sentence; one "further … than the source" slipped through and is now caught.
+  - One chain returned 502: the model's JSON didn't parse. That is the existing failure path, and the user sees the existing failure line.
+
+### PHONE CHECKLIST (after promotion)
+1. Type a movie (e.g. Heat) and tap "+ More like this" on a card. The new five carry no comparison, and "Compare to [that card]" shows unchecked.
+2. Check it. Each card gets "vs. [card]:" and the picks don't change. Uncheck it and the lines go.
+3. Chain again. The row names the new card, unchecked.
+4. Wine or a scotch snap: "+ More like this" on a card behaves as before.
+
+### PROMOTION
+Promote `main → release/v2` (yours). There are no env, SQL or migration changes. Revert: `git revert -m 1 77358a0`.
+
+**§0 check: consistent.** Picks still follow the direction the person chose, and comparing is opt-in. Nothing new is stored or sent.
