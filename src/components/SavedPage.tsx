@@ -9,21 +9,24 @@
 //               removes one (every save row of that title, /api/signals/undo).
 //   Watched   → watched rows (/api/saved); the lit check un-watches (S16's route).
 //   Favorites → go-tos (the S12 mirror) + wine's one go-to (S8); the lit
-//               star un-stars. S21 — each tile has "+ More like this" (the
-//               home screen's go-tos bar is gone; this is its home).
+//               star un-stars. S21 gave each tile "+ More like this"; S30
+//               removed it (Brad, 2026-10-31): a tap opens the card, which
+//               has More like this.
 //   Recent    → this device's last opened/shared/saved/marked cards (S24a).
 //   Tap a title → its card opens on the page (the go-to open path).
+//   S30 — every tab with rows opens on one approved hint line, and each
+//   row ends in a small gray › (tapping it opens the card too).
 // The posters switch moved to the top bar's ⋯ menu (S24b).
 //
 // No new words beyond the approved ones: the controls are the cards' own
 // (bookmark, check, star) with the cards' own labels.
 
 import React, { useCallback, useEffect, useState } from "react";
-import { Bookmark, CircleCheck, RotateCcw, Star, X, type LucideIcon } from "lucide-react";
+import { Bookmark, ChevronRight, CircleCheck, RotateCcw, Star, X, type LucideIcon } from "lucide-react";
 
 import { WatchedButton } from "./WatchedControl";
 import GoToStar from "./GoToStar";
-import { MoreLikeThisButton, type GoToTarget } from "./GoTosList";
+import type { GoToTarget } from "./GoTosList";
 import { BAR_CATEGORY, goToCategoryFor } from "../lib/goToCategory";
 import { getGoTos, onGoTosChange, type GoTo } from "../lib/goTos";
 import { getWineFavorite, onWineFavoriteChange, setWineFavorite } from "../lib/wineVisit";
@@ -65,6 +68,16 @@ const EMPTY: Partial<Record<Tab, string>> = {
   Watched: "Nothing marked watched yet.",
   Favorites: "No favorites yet. Tap ☆ on a card you love.",
 };
+
+// S30 — the one hint at the top of every list (Brad-approved, 2026-10-31).
+const LIST_HINT = "Tap any title for more like it, or to share it.";
+
+// S30 — the row's › : decorative, and tapping it opens the card like the title.
+const Chevron: React.FC<{ onClick?: () => void }> = ({ onClick }) => (
+  <span aria-hidden="true" onClick={onClick} data-testid="saved-chevron" className="flex h-11 w-5 shrink-0 cursor-pointer items-center justify-end text-gray-400">
+    <ChevronRight size={16} strokeWidth={2} />
+  </span>
+);
 
 const targetFor = (category: SavedCategory, name: string, goTo?: GoTo): GoToTarget => {
   if (category === "Wine") return { category: "wine", name };
@@ -167,10 +180,9 @@ const SavedPage: React.FC = () => {
     name: string,
     year: number | null,
     control: React.ReactNode,
-    goTo?: GoTo,
-    more?: boolean
+    goTo?: GoTo
   ) => (
-    <li key={key} className="flex items-center justify-between gap-3 py-1">
+    <li key={key} className="flex items-center justify-between gap-2 py-1">
       <button
         type="button"
         onClick={() => openItem(targetFor(category, name, goTo))}
@@ -182,8 +194,8 @@ const SavedPage: React.FC = () => {
           {year ? <span className="text-gray-500"> ({year})</span> : null}
         </span>
       </button>
-      {more && <MoreLikeThisButton onClick={() => openItem(targetFor(category, name, goTo), true)} />}
       <span className="flex h-11 w-11 shrink-0 items-center justify-center">{control}</span>
+      <Chevron onClick={() => openItem(targetFor(category, name, goTo))} />
     </li>
   );
 
@@ -272,6 +284,11 @@ const SavedPage: React.FC = () => {
                 {EMPTY[tab]}
               </p>
             )}
+            {tabCount[tab] > 0 && (
+              <p data-testid="saved-hint" className="pt-3 text-[13px] text-gray-500">
+                {LIST_HINT}
+              </p>
+            )}
             {tab === "Saved" &&
               grouped(saved, (s, i) =>
                 row(
@@ -306,8 +323,7 @@ const SavedPage: React.FC = () => {
                       <Star size={20} strokeWidth={1.8} className="fill-amber-400 text-amber-500" />
                     </button>
                   ),
-                  f.goTo,
-                  true
+                  f.goTo
                 )
               )}
             {/* S24a — Recent: newest first, every category, this device only. */}
@@ -319,14 +335,17 @@ const SavedPage: React.FC = () => {
                       <button
                         type="button"
                         onClick={() => openItem(targetFor(r.category, r.title))}
-                        className="w-full py-2 text-left"
+                        className="flex w-full items-center gap-2 py-2 text-left"
                         data-testid="saved-item"
                       >
-                        <span className="line-clamp-2 text-[15px] text-gray-900">
-                          {r.title}
-                          {r.year ? <span className="text-gray-500"> ({r.year})</span> : null}
+                        <span className="min-w-0 flex-1">
+                          <span className="line-clamp-2 text-[15px] text-gray-900">
+                            {r.title}
+                            {r.year ? <span className="text-gray-500"> ({r.year})</span> : null}
+                          </span>
+                          <span className="block text-[12px] font-medium uppercase tracking-wide text-gray-400">{r.category}</span>
                         </span>
-                        <span className="block text-[12px] font-medium uppercase tracking-wide text-gray-400">{r.category}</span>
+                        <Chevron />
                       </button>
                     </li>
                   ))}

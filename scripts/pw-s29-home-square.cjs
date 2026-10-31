@@ -47,8 +47,14 @@ async function newPage(browser, viewport, { clock = false } = {}) {
   });
   await ctx.addInitScript(FAKE_SPEECH);
   const page = await ctx.newPage();
-  if (clock) await page.clock.install();
-  await page.goto(BASE + "/", { waitUntil: clock ? "load" : "networkidle", timeout: 120000 });
+  // The fake clock is paused before the page loads, so a slow load (a
+  // preview) can't let the 5s interval run before the checks start.
+  if (clock) {
+    const t0 = new Date("2026-10-31T12:00:00Z");
+    await page.clock.install({ time: t0 });
+    await page.clock.pauseAt(new Date(t0.getTime() + 1000));
+  }
+  await page.goto(BASE + "/", { waitUntil: "networkidle", timeout: 120000 });
   if (clock) await page.getByTestId("say-snap-square").waitFor({ timeout: 60000 });
   else await page.waitForTimeout(800);
   return { ctx, page };
