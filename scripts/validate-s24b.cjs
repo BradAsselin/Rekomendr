@@ -66,9 +66,11 @@ check("the pair replaces the RekSnap button", /<SayOrSnap onSay=\{\(\) => micRef
 check("always on home, phone only", /<div className="flex flex-1 flex-col sm:hidden">\s*<SayOrSnap/.test(page) && !/hasSnapped/.test(page.replace(/\/\/.*$/gm, "")), true);
 check("Say it = the search box's own mic start", /registerMic=\{\(fn\) => \{\s*micRef\.current = fn;\s*\}\}/.test(page) && /registerMic\?\.\(\(\) => tapMicRef\.current\(\)\);/.test(bar) && /tapMicRef\.current = tapMic;/.test(bar), true);
 check("the search box keeps its mic and camera", /<Mic size=\{20\}/.test(bar) && /<Camera size=\{20\}/.test(bar), true);
-check("two equal buttons side by side", /grid-cols-2/.test(pair) && (pair.match(/className=\{BIG\}/g) || []).length === 2, true);
-check("Say it: mic + hint", /<Mic [^>]*\/>\s*<span[^>]*>Say it<\/span>/.test(pair) && pair.includes(">Something fun and funny<"), true);
-check("Snap it: camera + hint", /<Camera [^>]*\/>\s*<span[^>]*>Snap it<\/span>/.test(pair) && pair.includes(">A poster, a shelf, the TV<"), true);
+// S29 — one square split in two halves (each its own button); the
+// per-button hints are gone (Brad, 2026-10-31).
+check("two equal halves side by side", /grid-cols-2/.test(pair) && (pair.match(/className=\{HALF\}/g) || []).length === 2, true);
+check("Say it: mic, no hint", /<Mic [^>]*\/>\s*<span[^>]*>Say it<\/span>/.test(pair) && !pair.includes("Something fun and funny"), true);
+check("Snap it: camera, no hint", /<Camera [^>]*\/>\s*<span[^>]*>Snap it<\/span>/.test(pair) && !pair.includes("A poster, a shelf, the TV"), true);
 // S26a — Brad's S25 brief (item 8): the rotating snap tips leave home.
 check("the snap tips are gone from under the pair (S26a)", /SnapTips/.test(strip(pair)), false);
 
@@ -86,7 +88,8 @@ const jsxText = (src) =>
   );
 const menuWords = [...new Set([...jsxText(menu), ...(menu.match(/"(Hide posters|Show posters)"/g) || []).map((m) => m.slice(1, -1))])];
 check("menu strings", menuWords.filter((w) => !["Share", "Hide posters", "Show posters", "More options"].includes(w)), []);
-check("pair strings", [...new Set(jsxText(pair))].filter((w) => !["Say it", "Snap it", "Something fun and funny", "A poster, a shelf, the TV", "powered by Reks Ray™"].includes(w)), []);
+// S29 — the nudge lines live in NUDGES (pinned in validate-s29).
+check("pair strings", [...new Set(jsxText(pair))].filter((w) => !["Say it", "Snap it", "powered by Reks Ray™"].includes(w)), []);
 check("pill strings", [...new Set([...jsxText(watched), ...(watched.match(/"(Watched it|Watched)"/g) || []).map((m) => m.slice(1, -1))])].filter((w) => !["Watched", "Watched it", "Watched ·", "Undo"].includes(w)), []);
 check("auth strings unchanged from S2b", ["Sign in", "Sign out", "Check your email — the sign-in link is on its way.", "you@email.com", "Sending...", "Send sign-in link", "Couldn’t send the link — give it another go."].every((t) => auth.includes(t)), true);
 // S25 — Brad's word for it.
