@@ -3313,3 +3313,33 @@ The S26a one-screen change did not cause this. The cause was the old `hasSnapped
 Promote `main → release/v2` (yours). There are no env, SQL or migration changes. Revert: `git revert -m 1 47bc3a2`.
 
 **§0 check: consistent.** It restores the two fastest starts (say or snap) to the home screen. Nothing new is sent or stored.
+
+## Session 29 — Say it / Snap it square + rotating nudge — 2026-10-31 — branch auto/s29-home-square
+
+**Brief (Brad, in chat):** replace the two pillars with one split square and add a rotating nudge line, using four approved lines. Keep the header exactly as it is.
+
+### SHIPPED
+**#104 → e30b817**
+- **Square:** one centered square, 260px at 390×844 and 200px on screens ≤700px high. 34px corners, #2D5AB5, a soft shadow, and a 1px white/35% divider inset 18% from the top and bottom. Each half is its own button: Say it starts the mic, Snap it opens the camera picker.
+- **Placement:** 48px under the chip row, top-aligned. The margin accounts for the bar's 11px progress strip.
+- **Nudge:** the per-button hints are gone. One 14px gray line rotates every 5s through the four approved lines (`NUDGES` in `SayOrSnap.tsx`), with dots under it. powered by Reks Ray™ stays at the bottom.
+- **Header:** untouched (checked against the S28c positions).
+
+### TESTS
+- New `validate-s29`: 10/10. `validate-s24b` was updated for the removed hints. All 51 suites, tsc, lint and build pass.
+- New `pw-s29-home-square`: 53/53 locally and on the preview. The others also passed on the preview: `pw-s28c-home` 154/154, `pw-s26a-home` 41/41, `pw-s26b-shelf` 42/42.
+
+### YOUR CALLS
+- **Dots:** the brief said three dots, but there are four lines. I used one dot per line, so the lit dot shows which line is up. Switching to three is one line.
+- **Nudge timing:** the nudge keeps rotating with reduced-motion on. It changes text only, with no animation.
+
+### PHONE CHECKLIST (after promotion)
+1. Home: one blue square, centered, with a fine line down the middle. Mic + Say it on the left, camera + Snap it on the right.
+2. Tap Say it and the mic starts. Tap Snap it and the camera opens.
+3. The gray line under it changes every 5 seconds, and the lit dot moves.
+4. Nothing scrolls, including on Wine, TV and Books.
+
+### PROMOTION
+Promote `main → release/v2` (yours). There are no env, SQL or migration changes. Revert: `git revert -m 1 e30b817`.
+
+**§0 check: consistent.** The nudges show people the fastest ways to a choice (say a mood, snap a shelf). There is no urgency or nagging, and nothing new is sent or stored.
