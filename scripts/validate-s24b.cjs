@@ -93,7 +93,7 @@ check("the ⋯ button reads More options to a screen reader", /aria-label="More 
 console.log("\n7. Untouched");
 const diff = (files) => {
   try {
-    return execSync(`git diff main -- ${files}`, { cwd: root }).toString();
+    return execSync(`git diff f698584~1 f698584 -- ${files}`, { cwd: root }).toString(); // S26b: S24b's own merge (wine changes on purpose in S26b)
   } catch {
     return "git diff failed";
   }

@@ -48,6 +48,7 @@ import {
   isPriceChip,
   isWineCategory,
   matchShelf,
+  referenceTaste,
   sameProducer,
   sameWine,
   stripPairingSentence,
@@ -56,6 +57,7 @@ import {
   type ShelfBottle,
   type WineAnchorInfo,
   type WineFavorite,
+  type WineReference,
   type WineRekOut,
 } from "../../../src/lib/wineShelf";
 import {
@@ -1275,11 +1277,16 @@ async function classifyTypedWine(raw: unknown): Promise<string | null> {
 // ---------------------------------------------------------------------------
 
 // What the client sends about the visit: names shown so far, names
-// thumbed down, the starred favorite, the chosen price chip.
+// thumbed down, the comparison reference, the chosen price chip.
+// S26b — `favorite` is the reference the person chose in Compare to (or
+// none: wine never auto-picks one from Favorites); `goTo` is the starred
+// go-to's name, used only for "Your X is here" and to keep it off the
+// picks, as before.
 type WineInput = {
   seen: string[];
   rejected: string[];
   favorite: WineFavorite | null;
+  goTo: string | null;
   chip: PriceChip | null;
 };
 
@@ -1309,6 +1316,7 @@ function cleanWineInput(raw: unknown): WineInput {
             body: tasteOf(f.body),
           }
         : null,
+    goTo: typeof r.goTo === "string" && r.goTo.trim() ? r.goTo.trim().slice(0, 120) : null,
     chip: isPriceChip(r.chip) ? r.chip : null,
   };
 }
@@ -1360,6 +1368,9 @@ type WineSetResult = {
   reks: WineRekOut[];
   anchorInfo: WineAnchorInfo;
   band: PriceBand | null;
+  // S26b — the reference the lines were written against, with its taste
+  // position (the orange ring). Null with no reference.
+  reference: WineReference | null;
 };
 
 async function runWineSet(args: {
@@ -1377,7 +1388,12 @@ async function runWineSet(args: {
 }): Promise<WineSetResult> {
   const { anchor, input } = args;
   const disliked = [...input.rejected, ...(await raceWineDislikes(args.clientId))];
-  const seen = [...input.seen, ...(args.chained ? [args.chained.name] : [])];
+  // S26b — the go-to stays off the picks (it used to ride as `favorite`).
+  const seen = [
+    ...input.seen,
+    ...(args.chained ? [args.chained.name] : []),
+    ...(input.goTo ? [input.goTo] : []),
+  ];
   const presetBand = bandFor(args.anchorPrice, input.chip);
   // The shelf the model may still pick from: nothing shown, disliked, the
   // anchor or the favorite, and no tag outside the price range.
@@ -1421,6 +1437,13 @@ async function runWineSet(args: {
     anchorInfo.priceSource = args.anchorPriceSource;
   }
   const band = presetBand ?? bandFor(anchorInfo.price, null);
+  // S26b — the reference's taste: the snapped bottle's is the anchor's;
+  // anything else is what the client knew, else the model's go_to.
+  const reference: WineReference | null = input.favorite
+    ? sameWine(input.favorite.name, anchor.name)
+      ? { name: input.favorite.name, dry: anchorInfo.dry, body: anchorInfo.body }
+      : referenceTaste(input.favorite, gen.goTo)
+    : null;
   const { reks, log } = finishWineReks(gen.reks, {
     anchorName: anchor.name,
     anchorCategory: anchor.category,
@@ -1441,12 +1464,21 @@ async function runWineSet(args: {
     seen: seen.length,
     disliked: disliked.length,
     favorite: !!input.favorite,
+    // S26b — which bottle the "vs." lines measure against, and whether
+    // its ring position is known (tuning the reference path).
+    reference: reference
+      ? {
+          name: reference.name,
+          self: sameWine(reference.name, anchor.name),
+          taste: reference.dry != null || reference.body != null,
+        }
+      : null,
     ...log,
   });
   if (reks.length < args.need) {
     console.warn("[wine] short set after guarantees", { kind: args.kind, out: reks.length, need: args.need });
   }
-  return { reks, anchorInfo, band };
+  return { reks, anchorInfo, band, reference };
 }
 
 // S8b — the text-only wine branch: price chip, replacement, More like this
@@ -1508,6 +1540,7 @@ async function handleWine(w: any): Promise<Response> {
       reks: signed,
       band: set.band,
       anchor: set.anchorInfo,
+      reference: set.reference,
       ...(signed.length === 0 ? { notice: WINE_NONE_LEFT } : {}),
     },
     { status: 200 }
@@ -2048,7 +2081,17 @@ ${priorBlock}` : "");
       const ws = await (wineP ??
         startWine({ name: detected.name, description: detected.description, category: anchorCategory }));
       if (ws && ws.scene === "haul") {
-        wineOut = { scene: "haul", shelfSnap: false, shelf: ws.shelf, anchor: null, band: null, favoriteHere: null };
+        wineOut = {
+          scene: "haul",
+          shelfSnap: false,
+          shelf: ws.shelf,
+          anchor: null,
+          band: null,
+          favoriteHere: null,
+          anchorPick: null,
+          reference: null,
+          autoRef: false,
+        };
       } else {
         let picks = ws?.reks ?? [];
         if (!ws || picks.length === 0) {
@@ -2078,6 +2121,9 @@ ${priorBlock}` : "");
               anchor: ws.anchor,
               band: ws.band,
               favoriteHere: ws.favoriteHere,
+              anchorPick: ws.anchorPick,
+              reference: ws.reference,
+              autoRef: ws.autoRef,
             }
           : null;
         // A shelf is a choosing context: Similar leads.
@@ -2197,6 +2243,14 @@ type WineSnap = {
   band: PriceBand | null;
   reks: WineRekOut[];
   favoriteHere: { name: string; price: number | null } | null;
+  // S26b — the shelf's top card: the bottle the read anchored on (the
+  // vision read's main bottle) and where it stands in the shelf read, so
+  // the pick can be tuned. Null off a shelf.
+  anchorPick: { name: string; shelfIndex: number | null; by: "vision" } | null;
+  // S26b — the reference the first set's lines measure against; autoRef =
+  // the snapped bottle itself (a single-bottle snap).
+  reference: WineReference | null;
+  autoRef: boolean;
 };
 
 type WineResponse = Omit<WineSnap, "reks" | "anchor"> & { anchor: WineAnchorInfo | null };
@@ -2211,10 +2265,11 @@ async function wineSnap(args: {
   const read = args.shelfP ? await args.shelfP : null;
   const scene = read?.scene ?? (args.typed ? "single" : "other");
   const shelf = read?.bottles ?? [];
+  // S26b — the starred go-to, by name (not the comparison reference).
   const favoriteHere = (() => {
-    const fav = args.input.favorite;
-    const b = fav ? matchShelf(fav.name, shelf) : null;
-    return fav && b ? { name: fav.name, price: b.price } : null;
+    const goTo = args.input.goTo;
+    const b = goTo ? matchShelf(goTo, shelf) : null;
+    return goTo && b ? { name: goTo, price: b.price } : null;
   })();
   if (scene === "haul") {
     return {
@@ -2225,11 +2280,36 @@ async function wineSnap(args: {
       band: null,
       reks: [],
       favoriteHere: null,
+      anchorPick: null,
+      reference: null,
+      autoRef: false,
     };
   }
   // A shelf: the read says so, or it found several different bottles.
   const shelfSnap = (scene === "shelf" && shelf.length >= 2) || shelf.length >= 4;
   const tag = matchShelf(args.anchor.name, shelf)?.price ?? read?.anchorPrice ?? null;
+  // S26b — a single-bottle snap compares to the snapped bottle itself
+  // (Brad's S25 brief, item 4: the one automatic reference). Anything else
+  // is neutral unless the person chose a reference.
+  const autoRef = !shelfSnap && scene === "single" && !args.input.favorite;
+  const input: WineInput = autoRef
+    ? {
+        ...args.input,
+        favorite: { name: args.anchor.name, description: args.anchor.description, dry: null, body: null },
+      }
+    : args.input;
+  let anchorPick: WineSnap["anchorPick"] = null;
+  if (shelfSnap) {
+    const i = shelf.findIndex((b) => sameWine(b.name, args.anchor.name));
+    anchorPick = { name: args.anchor.name, shelfIndex: i >= 0 ? i : null, by: "vision" };
+    console.info("[wine] shelf anchor", {
+      ...anchorPick,
+      bottles: shelf.length,
+      tag: i >= 0 ? shelf[i].price : null,
+      talker: i >= 0 ? shelf[i].talkerPoints : null,
+      staffPick: i >= 0 ? shelf[i].staffPick : false,
+    });
+  }
   const set = await runWineSet({
     kind: "set",
     need: 5,
@@ -2238,7 +2318,7 @@ async function wineSnap(args: {
     anchorPriceSource: tag != null ? "tag" : null,
     shelf: shelf.length ? shelf : null,
     shelfSnap,
-    input: args.input,
+    input,
     chained: null,
     kept: [],
     clientId: args.clientId,
@@ -2251,6 +2331,9 @@ async function wineSnap(args: {
     band: set.band,
     reks: set.reks,
     favoriteHere,
+    anchorPick,
+    reference: set.reference,
+    autoRef,
   };
 }
 

@@ -26,8 +26,9 @@ import { MAX_REFS, type CompareCategory, type CompareRef } from "../lib/compareT
 /* ------------------------------------------------------------------
    The header
 ------------------------------------------------------------------- */
+// S26b — wine passes its references by name too ({ name } is all it reads).
 export const CompareHeader: React.FC<{
-  refs: CompareRef[];
+  refs: Pick<CompareRef, "name">[];
   onOpen: () => void;
   onRemove: (name: string) => void;
 }> = ({ refs, onOpen, onRemove }) =>

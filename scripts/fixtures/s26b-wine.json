@@ -1,0 +1,89 @@
+{
+  "_about": "S26b — a stored shelf snap (the NDJSON the route streams: the shelf read, then the final body), a Compare to re-run against a shelf bottle, and a single-bottle snap. Names are real store wines; prices and taste positions are illustrative. Used by scripts/pw-s26b-shelf.cjs.",
+  "shelf": [
+    { "name": "Kim Crawford Sauvignon Blanc", "price": 14.99 },
+    { "name": "Oyster Bay Sauvignon Blanc", "price": 12.99 },
+    { "name": "Whitehaven Sauvignon Blanc", "price": 16.99 },
+    { "name": "Matua Sauvignon Blanc", "price": 10.99 },
+    { "name": "Nobilo Sauvignon Blanc", "price": 11.99 },
+    { "name": "Brancott Estate Sauvignon Blanc", "price": 11.49 },
+    { "name": "Villa Maria Private Bin Sauvignon Blanc", "price": 13.99 },
+    { "name": "Cloudy Bay Sauvignon Blanc", "price": 32.99 },
+    { "name": "Starborough Sauvignon Blanc", "price": 12.49 },
+    { "name": "Giesen Sauvignon Blanc", "price": 11.99 },
+    { "name": "Dashwood Sauvignon Blanc", "price": 13.49 },
+    { "name": "Monkey Bay Sauvignon Blanc", "price": 9.99 },
+    { "name": "Babich Black Label Sauvignon Blanc", "price": 18.99 },
+    { "name": "Mohua Sauvignon Blanc", "price": 15.99 }
+  ],
+  "shelfFinal": {
+    "detected_item": {
+      "name": "Kim Crawford Sauvignon Blanc",
+      "description": "Dry and zesty — grapefruit and cut grass with a sharp, mouthwatering finish. Most of this shelf runs in the same bright Marlborough lane.",
+      "category": "wine"
+    },
+    "mode": "similar",
+    "results": {
+      "similar": [
+        { "name": "Whitehaven Sauvignon Blanc", "description": "Similarly dry, a touch riper. The passionfruit sits up front and the acid follows close behind. Keeps the zing and adds a little fruit.", "category": "wine", "rank": 1, "wine": { "price": 16.99, "priceSource": "tag", "onShelf": true, "offShelf": false, "talkerPoints": null, "talkerSource": null, "staffPick": false, "dry": 2, "body": 2, "vsFavorite": null } },
+        { "name": "Matua Sauvignon Blanc", "description": "Similarly dry, lighter on its feet. Lime and green pepper, then a quick clean finish. Trades depth for snap.", "category": "wine", "rank": 2, "wine": { "price": 10.99, "priceSource": "tag", "onShelf": true, "offShelf": false, "talkerPoints": null, "talkerSource": null, "staffPick": false, "dry": 1, "body": 1, "vsFavorite": null } },
+        { "name": "Villa Maria Private Bin Sauvignon Blanc", "description": "A shade softer. Tropical fruit leads and the herbs stay quiet. Rounds off the edges.", "category": "wine", "rank": 3, "wine": { "price": 13.99, "priceSource": "tag", "onShelf": true, "offShelf": false, "talkerPoints": null, "talkerSource": null, "staffPick": false, "dry": 2, "body": 3, "vsFavorite": null } },
+        { "name": "Nobilo Sauvignon Blanc", "description": "Similarly dry, more herbal. Grass and gooseberry carry it, with a chalky finish. Doubles down on the green notes.", "category": "wine", "rank": 4, "wine": { "price": 11.99, "priceSource": "tag", "onShelf": true, "offShelf": false, "talkerPoints": null, "talkerSource": null, "staffPick": false, "dry": 1, "body": 2, "vsFavorite": null } },
+        { "name": "Dashwood Sauvignon Blanc", "description": "Slightly fuller. Citrus up front, a little weight through the middle. Keeps the brightness with more body.", "category": "wine", "rank": 5, "wine": { "price": 13.49, "priceSource": "tag", "onShelf": true, "offShelf": false, "talkerPoints": null, "talkerSource": null, "staffPick": false, "dry": 2, "body": 3, "vsFavorite": null } }
+      ],
+      "uses": [],
+      "alternatives": []
+    },
+    "wine": {
+      "scene": "shelf",
+      "shelfSnap": true,
+      "shelf": [],
+      "anchor": { "price": 14.99, "priceSource": "tag", "dry": 2, "body": 2, "talkerPoints": null, "talkerSource": null, "staffPick": false },
+      "band": { "min": 10, "max": 20, "chip": null },
+      "favoriteHere": null,
+      "anchorPick": { "name": "Kim Crawford Sauvignon Blanc", "shelfIndex": 0, "by": "vision" },
+      "reference": null,
+      "autoRef": false
+    }
+  },
+  "compare": {
+    "reks": [
+      { "name": "Starborough Sauvignon Blanc", "description": "Similarly dry, brighter. Lime zest and a flinty edge. Keeps the snap.", "category": "wine", "wine": { "price": 12.49, "priceSource": "tag", "onShelf": true, "offShelf": false, "talkerPoints": null, "talkerSource": null, "staffPick": false, "dry": 2, "body": 2, "vsFavorite": "a touch drier, more lime, similar body" } },
+      { "name": "Matua Sauvignon Blanc", "description": "Similarly dry, lighter on its feet. Lime and green pepper, then a quick clean finish. Trades depth for snap.", "category": "wine", "wine": { "price": 10.99, "priceSource": "tag", "onShelf": true, "offShelf": false, "talkerPoints": null, "talkerSource": null, "staffPick": false, "dry": 1, "body": 1, "vsFavorite": "drier, lighter, more green pepper" } },
+      { "name": "Giesen Sauvignon Blanc", "description": "Similar weight, rounder fruit. Peach and passionfruit, soft finish. Rounds it off.", "category": "wine", "wine": { "price": 11.99, "priceSource": "tag", "onShelf": true, "offShelf": false, "talkerPoints": null, "talkerSource": null, "staffPick": false, "dry": 3, "body": 3, "vsFavorite": "similar, a little riper" } },
+      { "name": "Whitehaven Sauvignon Blanc", "description": "Similarly dry, a touch riper. The passionfruit sits up front and the acid follows close behind. Keeps the zing and adds a little fruit.", "category": "wine", "wine": { "price": 16.99, "priceSource": "tag", "onShelf": true, "offShelf": false, "talkerPoints": null, "talkerSource": null, "staffPick": false, "dry": 2, "body": 2, "vsFavorite": "drier, more passionfruit, similar body" } },
+      { "name": "Nobilo Sauvignon Blanc", "description": "Similarly dry, more herbal. Grass and gooseberry carry it, with a chalky finish. Doubles down on the green notes.", "category": "wine", "wine": { "price": 11.99, "priceSource": "tag", "onShelf": true, "offShelf": false, "talkerPoints": null, "talkerSource": null, "staffPick": false, "dry": 1, "body": 2, "vsFavorite": "drier, more herbal, lighter" } }
+    ],
+    "band": { "min": 10, "max": 20, "chip": null },
+    "anchor": { "price": 14.99, "priceSource": "tag", "dry": 2, "body": 2, "talkerPoints": null, "talkerSource": null, "staffPick": false },
+    "reference": { "name": "Oyster Bay Sauvignon Blanc", "dry": 3, "body": 3 }
+  },
+  "singleFinal": {
+    "detected_item": {
+      "name": "Kendall-Jackson Vintner's Reserve Chardonnay",
+      "description": "Off-dry leaning and buttery — baked apple and vanilla over a creamy middle.",
+      "category": "wine"
+    },
+    "mode": "similar",
+    "results": {
+      "similar": [
+        { "name": "La Crema Sonoma Coast Chardonnay", "description": "Drier and brighter. Citrus leads before the oak. Trades butter for lift.", "category": "wine", "rank": 1, "wine": { "price": 21, "priceSource": "estimate", "onShelf": false, "offShelf": false, "talkerPoints": null, "talkerSource": null, "staffPick": false, "dry": 2, "body": 3, "vsFavorite": "drier, less butter, similar body" } },
+        { "name": "Josh Cellars Chardonnay", "description": "Similarly soft. Pear and vanilla, gentle finish. Keeps the roundness.", "category": "wine", "rank": 2, "wine": { "price": 14, "priceSource": "estimate", "onShelf": false, "offShelf": false, "talkerPoints": null, "talkerSource": null, "staffPick": false, "dry": 3, "body": 3, "vsFavorite": "similar, a little lighter" } },
+        { "name": "Bogle Chardonnay", "description": "Similarly buttery. Toasted oak up front. Doubles down on the oak.", "category": "wine", "rank": 3, "wine": { "price": 11, "priceSource": "estimate", "onShelf": false, "offShelf": false, "talkerPoints": null, "talkerSource": null, "staffPick": false, "dry": 3, "body": 4, "vsFavorite": "more oak, fuller" } }
+      ],
+      "uses": [],
+      "alternatives": []
+    },
+    "wine": {
+      "scene": "single",
+      "shelfSnap": false,
+      "shelf": [],
+      "anchor": { "price": 17, "priceSource": "estimate", "dry": 3, "body": 4, "talkerPoints": null, "talkerSource": null, "staffPick": false },
+      "band": { "min": 11, "max": 23, "chip": null },
+      "favoriteHere": null,
+      "anchorPick": null,
+      "reference": { "name": "Kendall-Jackson Vintner's Reserve Chardonnay", "dry": 3, "body": 4 },
+      "autoRef": true
+    }
+  }
+}

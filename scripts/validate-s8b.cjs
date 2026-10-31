@@ -234,7 +234,7 @@ const IMG = "data:image/jpeg;base64,AAAA";
   const seen = [];
   const sets = [];
   for (let i = 0; i < 3; i++) {
-    const r = await post({ image: IMG, clientId: ME, category: "Wine", wineVisit: { seen, rejected: ["Decoy Red Blend"], favorite: { name: "Bonanza Cabernet", dry: 2, body: 4 } } });
+    const r = await post({ image: IMG, clientId: ME, category: "Wine", wineVisit: { seen, rejected: ["Decoy Red Blend"], goTo: "Bonanza Cabernet", favorite: { name: "Bonanza Cabernet", dry: 2, body: 4 } } }); // S26b: the go-to rides as goTo; favorite = a chosen reference
     sets.push(r.json);
     seen.push(r.json.detected_item.name, ...r.json.results.similar.map((x) => x.name));
   }

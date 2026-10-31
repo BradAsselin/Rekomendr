@@ -240,7 +240,7 @@ const ref = (name) => ({ name, tmdbKind: "movie", tmdbId: REF_BUNDLES[name].id, 
   console.log("\n10. Untouched");
   const diff = (files) => {
     try {
-      return execSync(`git diff main -- ${files}`, { cwd: root }).toString();
+      return execSync(`git diff 6677258~1 6677258 -- ${files}`, { cwd: root }).toString(); // S26b: S24a's own merge (wine changes on purpose in S26b)
     } catch {
       return "git diff failed";
     }

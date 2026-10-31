@@ -147,6 +147,11 @@ export type WineAnchorInfo = {
 };
 
 // The favorite as the client holds it (localStorage mirror of wine_marks).
+// S26b — on the wire this is the COMPARISON REFERENCE (what "vs." lines
+// and the orange ring measure against): a bottle the person picked in
+// Compare to, or the snapped bottle itself on a single-bottle snap. The
+// starred go-to no longer rides here by default (Brad's S25 brief, item
+// 4); it travels as `goTo`, a name only.
 export type WineFavorite = {
   name: string;
   description?: string | null;
@@ -496,6 +501,32 @@ export function finishWineReks(
   log.onShelf = out.filter((k) => k.wine.onShelf).length;
   log.out = out.length;
   return { reks: out, log };
+}
+
+// S26b — the reference's own taste position, for the orange ring: what the
+// client already knew, else the model's go_to estimate, else nothing.
+export type WineReference = { name: string; dry: number | null; body: number | null };
+
+export function referenceTaste(
+  fav: { name: string; dry?: number | null; body?: number | null },
+  modelGoTo: unknown
+): WineReference {
+  const g = (modelGoTo ?? {}) as Record<string, unknown>;
+  return {
+    name: fav.name,
+    dry: fav.dry ?? taste(g.dry_sweet),
+    body: fav.body ?? taste(g.light_bold),
+  };
+}
+
+// S26b — a reference whose taste the client doesn't know (a shelf bottle,
+// a Recent or Saved wine) asks the model for it; the snapped bottle never
+// does (the anchor's own position comes back anyway).
+export function needsReferenceTaste(
+  fav: { name: string; dry?: number | null; body?: number | null } | null,
+  anchorName: string
+): boolean {
+  return !!fav && fav.dry == null && fav.body == null && !sameWine(fav.name, anchorName);
 }
 
 export function cleanAnchorInfo(

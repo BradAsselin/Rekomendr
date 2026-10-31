@@ -25,6 +25,7 @@ import {
   bandText,
   cleanShelfRead,
   formatPrice,
+  needsReferenceTaste,
   type PriceBand,
   type RawWineRek,
   type ShelfBottle,
@@ -176,6 +177,15 @@ export function buildWineReksPrompt(voice: string, ctx: WineGenContext): string 
       ""
     );
   }
+  // S26b — conditional, so every other request stays byte-identical: only
+  // a reference whose taste the client doesn't know asks for it.
+  const askGoTo = needsReferenceTaste(ctx.favorite, ctx.anchor.name);
+  if (askGoTo) {
+    lines.push(
+      `Also return go_to, at the top level beside "anchor": { "dry_sweet": number, "light_bold": number } — the go-to wine's own approximate taste position on the same two scales.`,
+      ""
+    );
+  }
   if (ctx.kind === "steer" && ctx.chained) {
     lines.push(
       `DIRECTION: the user tapped "+ More like this" on ${ctx.chained.name}. The anchor is where they started; ${ctx.chained.name} is where they walked. Continue that line beyond ${ctx.chained.name} — never back toward the anchor. REFERENT OVERRIDE: descriptions compare against ${ctx.chained.name} (implicit — do not repeat its name), not the anchor.`,
@@ -240,7 +250,7 @@ export function buildWineReksUser(ctx: WineGenContext): string {
 export async function generateWineReks(
   voice: string,
   ctx: WineGenContext
-): Promise<{ anchor: unknown; reks: RawWineRek[] }> {
+): Promise<{ anchor: unknown; goTo: unknown; reks: RawWineRek[] }> {
   const completion = await llmCall({
     step: "wine",
     temperature: 0.7,
@@ -251,6 +261,7 @@ export async function generateWineReks(
   const parsed = JSON.parse(jsonText(completion.text));
   return {
     anchor: parsed?.anchor ?? null,
+    goTo: parsed?.go_to ?? null,
     reks: Array.isArray(parsed?.reks) ? parsed.reks : [],
   };
 }

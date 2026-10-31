@@ -99,7 +99,7 @@ const items = [
   check("the anchor is named a book in the user message", /const kindWord = anchor\.kind === "movie" \? "movie" : anchor\.kind === "book" \? "book" : "TV show";/.test(mr), true);
   const diff = (files) => {
     try {
-      return execSync(`git diff main -- ${files}`, { cwd: root }).toString();
+      return execSync(`git diff 2b0e546~1 2b0e546 -- ${files}`, { cwd: root }).toString(); // S26b: S25's own merge (wine changes on purpose in S26b)
     } catch {
       return "git diff failed";
     }

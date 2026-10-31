@@ -39,7 +39,8 @@ console.log("2. Snap the shelf");
 const btn = src.indexOf("Snap the shelf");
 check("button exists once", btn > 0 && src.indexOf("Snap the shelf", btn + 1) === -1, true);
 const block = src.slice(src.lastIndexOf("{anchorIsWine && !limitReached", btn), btn);
-check("wine only, hidden at the snap limit and on a checkout snap", block.includes('{anchorIsWine && !limitReached && wineMeta?.scene !== "haul" && ('), true);
+// S26b — and on a shelf snap (the photo already is the shelf).
+check("wine only, hidden at the snap limit, on a checkout snap and on a shelf", block.includes('{anchorIsWine && !limitReached && wineMeta?.scene !== "haul" && !shelfTop && ('), true);
 check("opens the same camera as Snap another", block.includes("onClick={() => onSnapAgain?.()}"), true);
 const anchorEnd = src.indexOf("{anchorShareable && (");
 const trail = src.indexOf("{trail.length > 0 && (");
