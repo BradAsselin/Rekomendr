@@ -58,6 +58,8 @@ const R = load("src/lib/mediaReks.ts", {
   "./llm": { llmCall: async () => ({ text: "{}" }), jsonText: (s) => s },
   "./tmdbVerify": { normalizeTitle: (s) => String(s ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim(), logFakeTitles: () => {} },
   "./tmdbMedia": { mediaCategoryFor: (k) => (k === "movie" ? "movies" : "tv"), resolveExactTitle: async () => null },
+  // S31 — the shared standalone-line check (no imports of its own).
+  "./standaloneLine": load("src/lib/standaloneLine.ts", {}),
 });
 
 (async () => {
