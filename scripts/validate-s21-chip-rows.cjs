@@ -239,8 +239,9 @@ for (const level of ["warn", "info", "error"]) console[level] = () => {};
   // S24b — the RekSnap button split into Say it / Snap it.
   check("home: Say it / Snap it stays", /<SayOrSnap/.test(page), true);
   const sp = read("src/components/SavedPage.tsx");
-  check("Favorites tiles have + More like this (wine included)", /more && <MoreLikeThisButton/.test(sp) && /f\.goTo,\s*true\s*\)/.test(sp), true);
-  check("…and it counts as a go-to more", /openItem\(targetFor\(category, name, goTo\), true\)/.test(sp), true);
+  // S30 (Brad, 2026-10-31) — "+ More like this" left Favorites rows; a
+  // tap opens the card, which has it.
+  check("Favorites rows no longer carry + More like this", /MoreLikeThisButton/.test(sp), false);
   const layout = read("app/layout.tsx");
   // S24b — Share is in the ⋯ menu.
   check("Saved + the ⋯ menu stay at the top", /<SavedPage \/>/.test(layout) && /<MoreMenu attribution=\{<Attribution \/>\} \/>/.test(layout), true);
