@@ -133,7 +133,8 @@ export type SnapResult = {
     favoriteHere: { name: string; price: number | null } | null;
     // S26b — the shelf's top-card pick (logged for tuning), and the
     // reference the first set compares to (autoRef: the snapped bottle).
-    anchorPick?: { name: string; shelfIndex: number | null; by: string } | null;
+    // S27: by "shelf-read" = the read's most popular bottle, with its reason.
+    anchorPick?: { name: string; shelfIndex: number | null; by: string; reason?: string | null; visionName?: string } | null;
     reference?: WineReference | null;
     autoRef?: boolean;
   };

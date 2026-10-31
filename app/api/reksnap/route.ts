@@ -2096,7 +2096,7 @@ ${priorBlock}` : "");
         let picks = ws?.reks ?? [];
         if (!ws || picks.length === 0) {
           picks = finishWineReks(similar, {
-            anchorName: detected.name,
+            anchorName: ws?.topAnchor.name ?? detected.name,
             anchorCategory,
             shelf: ws?.shelf ?? null,
             shelfSnap: false,
@@ -2128,6 +2128,14 @@ ${priorBlock}` : "");
           : null;
         // A shelf is a choosing context: Similar leads.
         if (ws?.shelfSnap) parsed.mode = "similar";
+        // S27 — the shelf's top card is the read's most popular bottle,
+        // not the one the photo centers on: the anchor the response ships,
+        // the token signs and Show details expands is that bottle. The
+        // vision read's text describes the other bottle, so it is dropped.
+        if (ws && ws.topAnchor.name !== detected.name) {
+          detected.name = ws.topAnchor.name;
+          detected.description = ws.topAnchor.description;
+        }
       }
     }
 
@@ -2243,17 +2251,28 @@ type WineSnap = {
   band: PriceBand | null;
   reks: WineRekOut[];
   favoriteHere: { name: string; price: number | null } | null;
-  // S26b — the shelf's top card: the bottle the read anchored on (the
-  // vision read's main bottle) and where it stands in the shelf read, so
-  // the pick can be tuned. Null off a shelf.
-  anchorPick: { name: string; shelfIndex: number | null; by: "vision" } | null;
+  // S26b — the shelf's top card: the bottle the set anchored on and where
+  // it stands in the shelf read, so the pick can be tuned. S27: by
+  // "shelf-read" = the read's most popular bottle (with its reason),
+  // "vision" = the vision read's main bottle (the read named none it
+  // listed). visionName = the bottle the photo centers on. Null off a shelf.
+  anchorPick: {
+    name: string;
+    shelfIndex: number | null;
+    by: "shelf-read" | "vision";
+    reason: string | null;
+    visionName: string;
+  } | null;
+  // S27 — the anchor the set ran on (the vision read's, or the shelf's
+  // most popular bottle). Server-side only: handlePost ships it.
+  topAnchor: { name: string; description: string };
   // S26b — the reference the first set's lines measure against; autoRef =
   // the snapped bottle itself (a single-bottle snap).
   reference: WineReference | null;
   autoRef: boolean;
 };
 
-type WineResponse = Omit<WineSnap, "reks" | "anchor"> & { anchor: WineAnchorInfo | null };
+type WineResponse = Omit<WineSnap, "reks" | "anchor" | "topAnchor"> & { anchor: WineAnchorInfo | null };
 
 async function wineSnap(args: {
   anchor: { name: string; description: string; category: string };
@@ -2283,11 +2302,24 @@ async function wineSnap(args: {
       anchorPick: null,
       reference: null,
       autoRef: false,
+      topAnchor: { name: args.anchor.name, description: args.anchor.description },
     };
   }
   // A shelf: the read says so, or it found several different bottles.
   const shelfSnap = (scene === "shelf" && shelf.length >= 2) || shelf.length >= 4;
-  const tag = matchShelf(args.anchor.name, shelf)?.price ?? read?.anchorPrice ?? null;
+  // S27 — on a shelf the top card is the read's most popular bottle (Brad,
+  // 2026-10-30): the best-known, most widely available one, not the one
+  // the photo centers on. It becomes the anchor the set runs on, so the
+  // five picks never repeat it and their lines stand beside it. The vision
+  // read's description is of the other bottle: the swapped anchor has none.
+  const pickName = read?.anchorName ?? null;
+  const swap =
+    shelfSnap && !!pickName && !sameWine(pickName, args.anchor.name) && !healthLabelFromName(pickName);
+  const anchor = swap ? { ...args.anchor, name: pickName!, description: "" } : args.anchor;
+  // The read's anchor_price is the most popular bottle's tag: it prices
+  // this anchor only when that is the bottle (or the read named none).
+  const readPrice = !pickName || sameWine(pickName, anchor.name) ? read?.anchorPrice ?? null : null;
+  const tag = matchShelf(anchor.name, shelf)?.price ?? readPrice;
   // S26b — a single-bottle snap compares to the snapped bottle itself
   // (Brad's S25 brief, item 4: the one automatic reference). Anything else
   // is neutral unless the person chose a reference.
@@ -2295,13 +2327,20 @@ async function wineSnap(args: {
   const input: WineInput = autoRef
     ? {
         ...args.input,
-        favorite: { name: args.anchor.name, description: args.anchor.description, dry: null, body: null },
+        favorite: { name: anchor.name, description: anchor.description, dry: null, body: null },
       }
     : args.input;
   let anchorPick: WineSnap["anchorPick"] = null;
   if (shelfSnap) {
-    const i = shelf.findIndex((b) => sameWine(b.name, args.anchor.name));
-    anchorPick = { name: args.anchor.name, shelfIndex: i >= 0 ? i : null, by: "vision" };
+    const i = shelf.findIndex((b) => sameWine(b.name, anchor.name));
+    const byRead = !!pickName && sameWine(pickName, anchor.name);
+    anchorPick = {
+      name: anchor.name,
+      shelfIndex: i >= 0 ? i : null,
+      by: byRead ? "shelf-read" : "vision",
+      reason: byRead ? read?.anchorReason ?? null : null,
+      visionName: args.anchor.name,
+    };
     console.info("[wine] shelf anchor", {
       ...anchorPick,
       bottles: shelf.length,
@@ -2313,7 +2352,7 @@ async function wineSnap(args: {
   const set = await runWineSet({
     kind: "set",
     need: 5,
-    anchor: args.anchor,
+    anchor,
     anchorPrice: tag,
     anchorPriceSource: tag != null ? "tag" : null,
     shelf: shelf.length ? shelf : null,
@@ -2334,6 +2373,7 @@ async function wineSnap(args: {
     anchorPick,
     reference: set.reference,
     autoRef,
+    topAnchor: { name: anchor.name, description: anchor.description },
   };
 }
 

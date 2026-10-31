@@ -339,6 +339,8 @@ export function cleanShelfRead(raw: unknown): {
   scene: WineScene;
   bottles: ShelfBottle[];
   anchorPrice: number | null;
+  anchorName: string | null;
+  anchorReason: string | null;
 } {
   const r = (raw ?? {}) as Record<string, unknown>;
   const scene: WineScene =
@@ -367,7 +369,17 @@ export function cleanShelfRead(raw: unknown): {
     });
     if (bottles.length >= 40) break;
   }
-  return { scene, bottles, anchorPrice: cleanPrice(r.anchor_price) };
+  // S27 — the most popular pick counts only when it is a bottle the read
+  // listed; it takes that listing's spelling.
+  const pickName = text(r.anchor_name, 120);
+  const listed = pickName ? bottles.find((b) => sameWine(b.name, pickName)) : undefined;
+  return {
+    scene,
+    bottles,
+    anchorPrice: cleanPrice(r.anchor_price),
+    anchorName: listed ? listed.name : null,
+    anchorReason: listed ? text(r.anchor_reason, 120) : null,
+  };
 }
 
 export type RawWineRek = {

@@ -178,7 +178,7 @@ const returnLine = (p) => p.split("\n").find((l) => l.startsWith("Return JSON on
   check("no vs. lines on the five", shelf.json.results.similar.every((r) => r.wine.vsFavorite === null), true);
   check("the go-to is still flagged on the shelf, with its tag", sw.favoriteHere, { name: "Dr. Loosen Dr. L Riesling", price: 13.99 });
   check("…and kept off the picks", shelf.json.results.similar.some((r) => /Loosen/.test(r.name)), false);
-  check("the top-card pick returned (the vision read's bottle, its shelf index)", sw.anchorPick, { name: "Kim Crawford Sauvignon Blanc", shelfIndex: 1, by: "vision" });
+  check("the top-card pick returned (the vision read's bottle, its shelf index)", sw.anchorPick, { name: "Kim Crawford Sauvignon Blanc", shelfIndex: 1, by: "vision", reason: null, visionName: "Kim Crawford Sauvignon Blanc" });
   check("…and logged for tuning", logs.some((a) => a[0] === "[wine] shelf anchor" && a[1].shelfIndex === 1 && a[1].bottles === 5 && a[1].tag === 14.99), true);
   check("every bottle read rides back for the This shelf tab", sw.shelf.map((b) => b.name), shelfReply.bottles.map((b) => b.name));
 
