@@ -61,7 +61,9 @@ check("page no longer mounts AuthControl", /AuthControl/.test(strip(page)), fals
 
 console.log("\n4. Home: Say it / Snap it");
 check("the pair replaces the RekSnap button", /<SayOrSnap onSay=\{\(\) => micRef\.current\?\.\(\)\} onSnap=\{openSnapPicker\} category=\{barCategory\} \/>/.test(page) && !exists("src/components/RekSnapButton.tsx"), true);
-check("same visibility as before (no snap yet, phone only)", /\{!hasSnapped && \(\s*<div className="sm:hidden">\s*<SayOrSnap/.test(page), true);
+// S28c — the "no snap yet" gate is gone (it hid the pair after any snap
+// this session, reloads included); phone only stays.
+check("always on home, phone only", /<div className="flex flex-1 flex-col sm:hidden">\s*<SayOrSnap/.test(page) && !/hasSnapped/.test(page.replace(/\/\/.*$/gm, "")), true);
 check("Say it = the search box's own mic start", /registerMic=\{\(fn\) => \{\s*micRef\.current = fn;\s*\}\}/.test(page) && /registerMic\?\.\(\(\) => tapMicRef\.current\(\)\);/.test(bar) && /tapMicRef\.current = tapMic;/.test(bar), true);
 check("the search box keeps its mic and camera", /<Mic size=\{20\}/.test(bar) && /<Camera size=\{20\}/.test(bar), true);
 check("two equal buttons side by side", /grid-cols-2/.test(pair) && (pair.match(/className=\{BIG\}/g) || []).length === 2, true);

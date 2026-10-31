@@ -4,6 +4,8 @@
 // only home affordance, as the big centered one was: on the home route it
 // asks the page to reset (the page owns that state), anywhere else it
 // navigates home.
+// S28c — centered on its own row under ⋯, at the original centered logo's
+// weight and blue, about 34px (26px on a short screen).
 
 import React from "react";
 
@@ -19,9 +21,9 @@ export default function HomeWordmark() {
       }}
       aria-label="Back to home"
       data-testid="home-wordmark"
-      className="text-[22px] font-bold tracking-tight text-[#3B6BD4]"
+      className="text-[34px] leading-tight font-bold tracking-tight text-[#2D5AB5] [@media(max-height:700px)]:text-[26px]"
     >
-      Rekomendr<span className="text-[#3B6BD4]/70">.AI</span>
+      Rekomendr<span className="text-[#2D5AB5]/70">.AI</span>
     </button>
   );
 }

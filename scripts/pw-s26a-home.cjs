@@ -100,8 +100,9 @@ const pickCategory = async (page, c) => {
     const tiles = await page.getByTestId("topbar-tiles").boundingBox();
     const form = await page.locator("form").first().boundingBox();
     const chips = await page.getByTestId("genre-row").boundingBox();
-    check("row 1: wordmark left-aligned", logo.x < 40, true);
-    check("row 1: ⋯ on the right, level with the wordmark", [more.x > 300, Math.abs(more.y + more.height / 2 - (logo.y + logo.height / 2)) < 12], [true, true]);
+    // S28c — ⋯ alone on row 1, the wordmark centered under it.
+    check("row 1: ⋯ alone on the right", more.x > 300, true);
+    check("wordmark centered under ⋯", [Math.abs(logo.x + logo.width / 2 - 195) <= 4, logo.y >= more.y + more.height - 2], [true, true]);
     check("⋯ is labeled More options", await page.getByTestId("more-menu").getAttribute("aria-label"), "More options");
     check("row 2: the four tiles under the wordmark", tiles.y >= logo.y + logo.height - 2, true);
     check("tiles in order", await page.locator("[data-testid^=topbar-]:not([data-testid=topbar-tiles])").evaluateAll((els) => els.map((e) => e.textContent.replace(/\d+/g, "").trim())), ["Favorites", "Watched", "Recent", "Saved"]);
