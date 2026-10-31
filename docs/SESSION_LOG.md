@@ -3369,3 +3369,33 @@ Promote `main → release/v2` (yours). There are no env, SQL or migration change
 Promote `main → release/v2` (yours). There are no env, SQL or migration changes. Revert: `git revert -m 1 ed77b2f`.
 
 **§0 check: consistent.** One plain line tells people what a tap does. It's fewer buttons, not more. Nothing new is sent or stored.
+
+## Session 31 — More like this: standalone lines, Compare to [Title] unchecked — 2026-10-31 — branch auto/s31-mlt-compare
+
+**Brief (Brad, in chat):** More like this picks stay seeded on the tapped title. Each card's line stands alone (no "Same…, but…", "Trades X for Y" or "instead of…"). A "Compare to [Title] ☐" row starts unchecked. Checking it adds "vs. [Title]:" lines with no re-ranking; unchecking removes them; "+" works as now. The choice holds until the category changes or a new search starts. Wine follows the same rule. Change only the prompt instruction that made the lines comparative.
+
+### SHIPPED
+**#110 → 6f35b26**
+- **Prompts:** Movies/TV chooser: `STANDALONE_CHOOSER_PROMPT` (six lines swapped) used only when `/api/anchor` reks gets `mlt: true`. `CHOOSER_PROMPT` is unchanged for every other path. Search-lane engine: `placeAgainstSeed` gates the line-writing branches, so Movies/TV/Books seeded sets get the no-seed sentence rules plus the pick line and the seed's name. Wine's seeded verdict grammar is untouched (§2.3).
+- **Guarantee:** `src/lib/standaloneLine.ts` catches comparative phrasing or the seed's name. The chooser falls back to the synopsis's first sentence; the search lane drops the sentence (and the card if nothing is left). Both log.
+- **Row:** `MltCompare.tsx` (`useMltCompare`), shared by ResultsV4 and RekSnapResults. `CompareHeader` gains `pendingName`. Lines come from the existing `/api/slots` lines action. Stored Compare to refs don't steer or line a More like this set. The choice clears on a new search, a snap, home, or a category change.
+- **Wine:** More like this starts with no reference (blue dots only). Checking it shows the server's vs. lines and the orange rings, with no re-run. A typed bottle still auto-compares (S26b).
+- **Not changed:** the snap-lane chain ("+ More like this" under a snapped or typed title). Its lines are the locked snap voice.
+
+### TESTS
+- New `validate-s31`: 26/26. 53 suites, tsc, lint and build pass.
+- New `pw-s31-mlt`: 32/32 locally and on the preview. On the preview, `pw-s26b-shelf` 42/42, `pw-s26a-home` 41/41, `pw-s29-home-square` 53/53 and `pw-s30-list-hints` 35/35.
+- Live model check: Movies More like this lines came back standalone with no fallback. One seeded Books set had the guard remove a comparing sentence.
+
+### PHONE CHECKLIST (after promotion)
+1. Favorites → tap a movie. The results show "Compare to [Title]" unchecked, and the lines don't mention or compare to it.
+2. Check it. Each card gains "vs. [Title]:" (or "vs. your [Title]:" if starred), and the picks don't change. Uncheck it and the lines go away.
+3. Tap "+" and the Compare to sheet opens as before.
+4. Card "+ More like this" (search results) shows the row naming that card.
+5. Start a new typed search or change the category, and the row is gone.
+6. Wine: Bought → More. You see blue dots only and an unchecked row. Check it and the lines and orange rings appear.
+
+### PROMOTION
+Promote `main → release/v2` (yours). There are no env, SQL or migration changes. Revert: `git revert -m 1 6f35b26`.
+
+**§0 check: consistent.** Picks still follow what the person loved. Comparison is now their choice, not imposed. Nothing new is stored or sent.
