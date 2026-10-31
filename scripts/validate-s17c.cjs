@@ -120,8 +120,9 @@ for (const level of ["log", "warn", "info", "error"]) console[level] = () => {};
   const sp = read("src/components/SavedPage.tsx");
   const layout = read("app/layout.tsx");
   const page = read("app/page.tsx");
-  // S24b — the four buttons, then the ⋯ menu (Share lives in it).
-  check("top bar: the Saved buttons sit left of the ⋯ menu", layout.indexOf("<SavedPage />") > 0 && layout.indexOf("<SavedPage />") < layout.indexOf("<MoreMenu "), true);
+  // S24b — the four buttons and the ⋯ menu (Share lives in it). S26a:
+  // row 1 is the wordmark and ⋯, row 2 the four tiles.
+  check("top bar: wordmark + ⋯ row, then the Saved tiles", layout.indexOf("<HomeWordmark />") > 0 && layout.indexOf("<HomeWordmark />") < layout.indexOf("<MoreMenu ") && layout.indexOf("<MoreMenu ") < layout.indexOf("<SavedPage />"), true);
   check("tabs Favorites · Watched · Recent · Saved", /const TABS: Tab\[\] = \["Favorites", "Watched", "Recent", "Saved"\];/.test(sp), true);
   check("groups Movies · TV Shows · Books · Wine", /const GROUPS: SavedCategory\[\] = \["Movies", "TV Shows", "Books", "Wine"\];/.test(sp), true);
   check("remove = every save row, every spelling", /item\.rawCategories\.map\(\(category\) => undoSignal\(\{ category, title: item\.title, action: "save", remove: true \}\)\)/.test(sp), true);

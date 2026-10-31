@@ -4,6 +4,7 @@ import React, { useEffect, useRef, useState } from "react";
 import SearchBar, { type VoiceAnswer } from "../src/components/SearchBar";
 import ResultsV4 from "../src/components/ResultsV4";
 import SayOrSnap from "../src/components/SayOrSnap";
+import { HOME_EVENT } from "../src/components/HomeWordmark";
 import RekSnapResults, {
   type SnapRek,
   type SnapResult,
@@ -675,6 +676,13 @@ export default function Page() {
   const busyRef = useRef(false);
   busyRef.current = loading || snapLoading || reksPending;
   const resetToHomeRef = useRef<() => void>(() => {});
+  // S26a — the wordmark lives in the layout's top bar now; it asks the
+  // page to come home.
+  useEffect(() => {
+    const goHome = () => resetToHomeRef.current();
+    window.addEventListener(HOME_EVENT, goHome);
+    return () => window.removeEventListener(HOME_EVENT, goHome);
+  }, []);
   useEffect(() => {
     const maybeReset = () => {
       const ageMs = Date.now() - lastActivityRef.current;
@@ -1595,20 +1603,10 @@ export default function Page() {
     ) : null;
 
   return (
-    <main className="min-h-screen w-full flex justify-center px-4 py-6">
+    <main className="w-full flex justify-center px-4 pt-1 pb-6">
       <div className="w-full max-w-xl">
-        {/* The wordmark is the app's only home affordance — no separate
-            button. S24b: Sign in moved to the top bar's ⋯ menu. */}
-        <div className="relative mb-6 text-center">
-          <button
-            type="button"
-            onClick={resetToHome}
-            aria-label="Back to home"
-            className="text-3xl font-bold tracking-tight text-[#2D5AB5]"
-          >
-            Rekomendr<span className="text-[#2D5AB5]/70">.AI</span>
-          </button>
-        </div>
+        {/* S26a — the wordmark moved to the top bar (HomeWordmark), left-
+            aligned beside ⋯; it is still the only home affordance. */}
         <SearchBar
           key={searchBarKey}
           onSearch={handleSearch}

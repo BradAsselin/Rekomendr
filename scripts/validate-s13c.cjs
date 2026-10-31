@@ -203,7 +203,8 @@ const noGoTos = { movies: [], tv: [], wine: null };
     );
   };
   const added = [...strings(bar)].filter((x) => !strings(base).has(x));
-  check("approved wording only: the two hints", added.sort(), ['"Say what you’re in the mood for"', '"Tap the keyboard mic to speak"'].sort());
+  // S26a — plus "Go", the button Brad's S25 brief names (item 3).
+  check("approved wording only: the two hints (+ S26a Go)", added.sort(), ['"Say what you’re in the mood for"', '"Tap the keyboard mic to speak"', "> Go <"].sort());
   check("mic sits right before the camera, one tap target", bar.indexOf('data-testid="voice-mic"') < bar.indexOf('aria-label="Snap"') && (bar.match(/onClick=\{tapMic\}/g) || []).length, 1);
   check("no API → focus the box with the fallback hint", /if \(!speechSupported\(\)\) \{\s*fallBack\(\);/.test(bar) && /setHint\(FALLBACK_HINT\);\s*inputRef\.current\?\.focus\(\);/.test(bar), true);
   check("tap again stops", /if \(listening\) \{\s*listenerRef\.current\?\.stop\(\);/.test(bar), true);

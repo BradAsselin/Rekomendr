@@ -1,5 +1,12 @@
 "use client";
 
+// S26a — Go (Brad's S25 brief, item 3): a Go button sits inside the field,
+// right side, whenever the box holds text — typed or streamed in by the
+// mic. Tapping it runs the search at once; while listening it stops the
+// mic and runs the spoken words without waiting for the pause. Enter
+// still submits. The chip rows' scroll indicator is clipped (iOS drew it
+// as a stray bar under the chips).
+//
 // S21 — chip rows (docs/s21-chip-rows-plan.md): genres are ONE horizontal
 // scrolling row (no scrollbar; it runs to the screen edge, so the last
 // visible chip is cut off — the hint that it scrolls). Vibes are a second
@@ -335,6 +342,21 @@ const SearchBar: React.FC<SearchBarProps> = ({
 
   useEffect(() => () => listenerRef.current?.stop(), []);
 
+  // S26a — Go. Not listening: the typed path (Enter's). Listening: the
+  // words already in the box run now, down the same spoken-mood path the
+  // pause would take; the epoch bump makes the listener's own end a no-op.
+  const tapGo = () => {
+    if (!listening) return; // the form's submit handles the typed path
+    const heard = (heardRef.current || input).trim();
+    const epoch = ++voiceEpoch.current;
+    listenerRef.current?.stop();
+    listenerRef.current = null;
+    setListening(false);
+    setHint(null);
+    if (heard) void runVoice(heard, epoch);
+  };
+  const showGo = input.trim() !== "";
+
   const chips = chipOrder
     ? [
         ...chipOrder
@@ -357,8 +379,8 @@ const SearchBar: React.FC<SearchBarProps> = ({
 
   return (
     <div className="w-full relative">
-      {/* SEARCH FIELD — one row: category ▾ · text · mic · camera. The
-          keyboard's Search key submits (no GO button). */}
+      {/* SEARCH FIELD — one row: category ▾ · text · Go · mic · camera.
+          The keyboard's Search key submits too; Go shows only with text. */}
       <form
         onSubmit={handleSubmit}
         className="flex items-center gap-2 pl-4 pr-2 py-2 rounded-2xl
@@ -393,6 +415,20 @@ const SearchBar: React.FC<SearchBarProps> = ({
           className="min-w-0 flex-grow bg-transparent outline-none text-black placeholder-gray-500 text-base [&::-webkit-search-cancel-button]:hidden"
         />
 
+        {/* GO (S26a) — only while the box holds text. A submit button, so
+            the typed path is the form's own; while listening it runs the
+            spoken words instead. */}
+        {showGo && (
+          <button
+            type={listening ? "button" : "submit"}
+            onClick={listening ? tapGo : undefined}
+            data-testid="search-go"
+            className="h-9 shrink-0 rounded-full bg-[#3B6BD4] px-3.5 text-[15px] font-semibold text-white active:scale-95"
+          >
+            Go
+          </button>
+        )}
+
         {/* MIC (S13c) — speak a mood; the words show in the box. Where the
             browser can't listen, the box takes focus and the keyboard's own
             dictation does it. 44px touch targets. */}
@@ -426,8 +462,12 @@ const SearchBar: React.FC<SearchBarProps> = ({
           once a genre is picked. Both rows bleed to the screen edge (the
           page's 16px gutter is undone with -mx-4/px-4) so a cut-off chip
           shows there's more; desktop's column keeps its own edges. */}
+      {/* S26a — the row scrolls inside a clip: its bottom padding (where
+          iOS draws the scroll indicator) sits outside the wrapper, so no
+          bar shows under the chips. */}
+      <div className="mt-3 -mx-4 overflow-hidden sm:mx-0">
       <div
-        className="mt-3 -mx-4 flex gap-2 overflow-x-auto overscroll-x-contain px-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:mx-0 sm:px-0"
+        className="-mb-4 flex gap-2 overflow-x-auto overscroll-x-contain px-4 pb-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:px-0"
         aria-label="Moods"
         data-testid="genre-row"
       >
@@ -444,9 +484,11 @@ const SearchBar: React.FC<SearchBarProps> = ({
           </button>
         ))}
       </div>
+      </div>
       {activeChip && (
+        <div className="vibe-row mt-2 -mx-4 overflow-hidden sm:mx-0">
         <div
-          className="vibe-row mt-2 -mx-4 flex gap-2 overflow-x-auto overscroll-x-contain px-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:mx-0 sm:px-0"
+          className="-mb-4 flex gap-2 overflow-x-auto overscroll-x-contain px-4 pb-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:px-0"
           aria-label="Refine"
           data-testid="vibe-row"
         >
@@ -461,6 +503,7 @@ const SearchBar: React.FC<SearchBarProps> = ({
               {r.label}
             </button>
           ))}
+        </div>
         </div>
       )}
 
