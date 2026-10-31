@@ -161,7 +161,9 @@ async function parseTypedMood(text: string, bar: string): Promise<any | null> {
 
 // S8b — what every wine call carries: the visit's shown/rejected names and
 // the starred go-to (the server holds the no-repeat guarantee with it).
-const wineVisitPayload = () => ({ ...wineVisit(), favorite: getWineFavorite() });
+// S26b — the go-to rides as a name only (`goTo`): wine never compares to
+// it unless the person picks it in Compare to (Brad's S25 brief, item 4).
+const wineVisitPayload = () => ({ ...wineVisit(), goTo: getWineFavorite()?.name ?? null });
 
 export type Category = "Movies" | "TV Shows" | "Books" | "Wine";
 
@@ -1651,6 +1653,7 @@ export default function Page() {
               reksPending={reksPending}
               lateReks={lateReks}
               shelfPreview={shelfPreview}
+              barCategory={barCategory}
               onHaulSaved={() => void refreshWineState(false)}
               onWatchedChange={handleWatchedChange}
             />
