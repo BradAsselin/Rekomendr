@@ -33,7 +33,7 @@ import { CompareHeader } from "./CompareSheet";
 import { useMltCompare, vsLeadFor, type MltSeed } from "./MltCompare";
 import { refPayload, sameRef, type WineRef } from "../lib/wineCompare";
 import GoToStar from "./GoToStar";
-import { goToCategoryFor } from "../lib/goToCategory";
+import { BAR_CATEGORY, goToCategoryFor } from "../lib/goToCategory";
 import { WatchedButton, WatchedToast, UndoToast, type UndoToastLabel } from "./WatchedControl";
 import { useWatchedMarks, watchedCategory, type WatchedItem, TOAST_MS } from "../lib/useWatchedMarks";
 import PosterThumb from "./PosterThumb";
@@ -197,6 +197,24 @@ const isD2Category = (raw: unknown) => {
   return c === "movies" || c === "tv";
 };
 
+// S32 — "+ More like this" on a Movies/TV/Books card under a snapped or
+// typed title: the chained card becomes the More like this seed (S31's
+// rule — standalone lines, "Compare to [Title]" unchecked). Null for
+// every other chain (wine, consumables, products, uses-mode), which keep
+// the snap voice as it was.
+const chainSeedFor = (rek: SnapRek, anchorCategory: unknown, mode: SnapMode): MltSeed | null => {
+  if (mode === "uses" || rek.wine) return null;
+  const c = goToCategoryFor(rek.category || anchorCategory);
+  if (!c) return null;
+  return {
+    category: BAR_CATEGORY[c],
+    name: rek.name,
+    year: rek.year ?? null,
+    tmdbKind: c === "movies" ? "movie" : c === "tv" ? "tv" : null,
+    tmdbId: null,
+  };
+};
+
 // One failure voice, shared verbatim with the search lane's AI misses.
 // Chain failures only; auto-dismissed on the next successful chain.
 const CHAIN_FAILED_MSG =
@@ -235,6 +253,8 @@ const RekSnapResults: React.FC<Props> = ({
   // S31 — wine More like this: the bottle the set came from, offered
   // unchecked as "Compare to [Bottle]" (the server already wrote its lines).
   const [winePending, setWinePending] = useState<WineRef | null>(null);
+  // S32 — the card a chain pursued, when it is a Movies/TV/Books title.
+  const [chainSeed, setChainSeed] = useState<MltSeed | null>(null);
   // Thumb marks and saves are independent per item name (a card can be
   // thumbed-up AND saved). Thumbs are one-active-within-thumbs and toggle on
   // repeat tap — same grammar as the search lane.
@@ -535,6 +555,7 @@ const RekSnapResults: React.FC<Props> = ({
       // unchecked, in the Compare to row.
       const startOff = mltWineRef.current && autoRef.length > 0;
       setWinePending(startOff ? autoRef[0] : null);
+      setChainSeed(null);
       wineRefsRef.current = startOff ? [] : autoRef;
       setWineRefs(startOff ? [] : autoRef);
       preCompareRef.current = null;
@@ -1284,10 +1305,13 @@ const RekSnapResults: React.FC<Props> = ({
     depth: number;
     mode: SnapMode;
     trailEntries: TrailEntry[];
+    // S32 — a Movies/TV/Books title pursued: standalone lines.
+    standalone?: boolean;
   }) => {
     const forResult = resultRef.current!;
     return {
       kind: "steer",
+      ...(args.standalone ? { standalone: true } : {}),
       detectedItem: forResult.detected_item,
       mode: args.mode,
       chained: {
@@ -1323,7 +1347,10 @@ const RekSnapResults: React.FC<Props> = ({
     mode: SnapMode,
     restoreList: SnapRek[],
     // S8b — "wine" sends the payload to the shelf engine's branch.
-    branch: "chain" | "wine" = "chain"
+    branch: "chain" | "wine" = "chain",
+    // S32 — the More like this seed once the set lands (null ends it;
+    // undefined leaves it as it is).
+    seedAfter?: MltSeed | null
   ) => {
     const forResult = resultRef.current;
     if (!forResult) return;
@@ -1399,6 +1426,7 @@ const RekSnapResults: React.FC<Props> = ({
       cleaned.forEach((r) => everShownRef.current.add(r.name));
       if (branch === "wine") noteWineShown(cleaned.map((r) => r.name), forResult.detected_item.name);
       setLists((prev) => (prev ? { ...prev, [mode]: cleaned } : prev));
+      if (seedAfter !== undefined) setChainSeed(seedAfter);
       setChainError(null);
     } catch (err) {
       console.error("RekSnap chain failed:", err);
@@ -1448,6 +1476,7 @@ const RekSnapResults: React.FC<Props> = ({
         prev[rek.name] === "like" ? prev : { ...prev, [rek.name]: "like" }
       );
       const wipe = commitChainWipe({ mode, chainedRek: rek });
+      const seed = chainSeedFor(rek, forResult.detected_item.category, mode);
       if (!wipe) {
         chainBusyRef.current = false;
         return;
@@ -1465,10 +1494,12 @@ const RekSnapResults: React.FC<Props> = ({
               depth,
               mode,
               trailEntries: wipe.trailForPrompt,
+              standalone: !!seed,
             }),
         mode,
         wipe.restoreList,
-        wineList(forResult, mode) ? "wine" : "chain"
+        wineList(forResult, mode) ? "wine" : "chain",
+        wineList(forResult, mode) ? undefined : seed
       );
     }, 250);
   };
@@ -1498,6 +1529,7 @@ const RekSnapResults: React.FC<Props> = ({
 
     setActiveMode(mode);
     const wipe = commitChainWipe({ mode });
+    const seed = chainSeedFor(entry.rek, forResult.detected_item.category, mode);
     if (!wipe) {
       chainBusyRef.current = false;
       return;
@@ -1515,10 +1547,12 @@ const RekSnapResults: React.FC<Props> = ({
             depth,
             mode,
             trailEntries: wipe.trailForPrompt,
+            standalone: !!seed,
           }),
       mode,
       wipe.restoreList,
-      wineList(forResult, mode) ? "wine" : "chain"
+      wineList(forResult, mode) ? "wine" : "chain",
+      wineList(forResult, mode) ? undefined : seed
     );
   };
 
@@ -1570,7 +1604,10 @@ const RekSnapResults: React.FC<Props> = ({
         anchorToken: forResult.detected_item_token,
       },
       mode,
-      wipe.restoreList
+      wipe.restoreList,
+      "chain",
+      // S32 — a re-roll is back on the anchor's line: no chained title.
+      null
     );
   };
 
@@ -1875,15 +1912,17 @@ const RekSnapResults: React.FC<Props> = ({
   // S31 — Movies/TV More like this: the tapped title, unchecked, over
   // the five; checked, each card carries the "vs." line for it.
   const mediaCat = result?.media ? (result.media.kind === "movie" ? "Movies" : "TV Shows") : null;
+  // S32 — a chained Movies/TV/Books card is the seed once its set lands.
+  const activeSeed = chainSeed ?? (mltSeed && mediaCat && mltSeed.category === mediaCat ? mltSeed : null);
   const mediaMlt = useMltCompare(
-    mltSeed && mediaCat && mltSeed.category === mediaCat ? mltSeed : null,
+    activeSeed,
     [...trail.map((e) => e.rek), ...(lists?.[activeMode] ?? [])].map((r) => ({ title: r.name, year: r.year ?? null }))
   );
   const mltLine = (name: string) => (mediaMlt.on ? mediaMlt.lineFor(name) : null);
   const mltShort = (r: SnapRek) => mltLine(r.name)?.short ?? r.description;
   const mltLead = (r: SnapRek) => {
     const l = mltLine(r.name);
-    return l && mediaCat ? vsLeadFor(mediaCat, l.vsGoTo) : undefined;
+    return l && activeSeed ? vsLeadFor(activeSeed.category, l.vsGoTo) : undefined;
   };
 
   if (loading) {

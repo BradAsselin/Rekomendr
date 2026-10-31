@@ -39,6 +39,8 @@ import {
 import { chooseMediaReks, guardTaste } from "../../../src/lib/mediaReks";
 import { normalizeTitle } from "../../../src/lib/tmdbVerify";
 import { withRekTokens } from "../../../src/lib/rekTokens";
+import { goToCategoryFor } from "../../../src/lib/goToCategory";
+import { dropComparingSentences } from "../../../src/lib/standaloneLine";
 import {
   bandFor,
   cleanAnchorInfo,
@@ -773,6 +775,44 @@ const buildChainSteerPrompt = (mode: string) => {
   );
 };
 
+// S32 (Brad, 2026-10-31) — "+ More like this" on a card under a snapped
+// or typed title (Movies/TV/Books) follows S31's More like this rule: the
+// picks stay seeded on the tapped title, the lines stand alone. Only the
+// instruction that made the lines comparative changes — the referent
+// override is left out and the MEDIA clause's sentence-3 placement is
+// swapped; the rest of the snap voice is byte-identical. Conditional:
+// every other chain (wine, consumables, products, uses) keeps
+// buildChainSteerPrompt exactly as it was.
+const STANDALONE_MEDIA_SWAPS: [string, string][] = [
+  [
+    "Media anchor and media reks share one grammar — the anchor places against its CATEGORY, the reks place against the ANCHOR.",
+    "Media anchor and media reks share one grammar — the anchor places against its CATEGORY; here each rek stands on its own and places against no other title.",
+  ],
+  [
+    "Media sentence 3 — the comparative placement against the snapped item: its DEFAULT shape is the BARE comparative — it OPENS on the comparative adjective and names NO referent ('Quieter and more introspective, with a focus on the clash of fame and normalcy.'). The anchor sits directly above; the referent is implicit. Never echo the anchor's name. 'than the one you snapped' is the marked EXCEPTION: at most ONE card per set may use it, and only where the comparison would be ambiguous without it. If in doubt, omit it — a set with ZERO referent phrases is fully correct.\n",
+    "Media sentence 3 — its register: the tone, pace, or texture of this title alone, as if it were the only title on the page, opening on that quality itself. It names no other title.\n",
+  ],
+  [
+    "Faster and funnier, with the legal stakes played for screwball momentum.'",
+    "Screwball from the first scene, with the legal stakes driving the momentum.'",
+  ],
+  ["Warmer and more nostalgic in tone.'", "Warm and nostalgic in tone.'"],
+];
+const STANDALONE_DIFFERENTIATOR_VOICE = STANDALONE_MEDIA_SWAPS.reduce((p, [from, to]) => {
+  if (!p.includes(from)) throw new Error(`reksnap: standalone swap missing: ${from.slice(0, 40)}`);
+  return p.replace(from, to);
+}, DIFFERENTIATOR_VOICE);
+const REFERENT_OVERRIDE =
+  "REFERENT OVERRIDE for this task: comparisons are ALWAYS against the CHAINED ITEM — the direction being pursued — not the detected item. The chained item is the implicit referent; do NOT repeat its name.\n\n";
+
+const buildStandaloneChainSteerPrompt = (mode: string) => {
+  const base = buildChainSteerPrompt(mode);
+  if (!base.includes(REFERENT_OVERRIDE) || !base.includes(DIFFERENTIATOR_VOICE)) {
+    throw new Error("reksnap: standalone chain prompt drifted");
+  }
+  return base.replace(REFERENT_OVERRIDE, "").replace(DIFFERENTIATOR_VOICE, STANDALONE_DIFFERENTIATOR_VOICE);
+};
+
 const buildChainRerollPrompt = (mode: string) => {
   const voice = mode === "uses" ? USES_VOICE : DIFFERENTIATOR_VOICE;
   return (
@@ -947,6 +987,15 @@ async function handleChain(chain: any): Promise<Response> {
         (category ? `Category: ${category}\n` : "") +
         commonTail;
 
+  // S32 — a media card's "+ More like this" (the client says so): the
+  // standalone lines. Never for uses-mode (its own grammar) or a chain
+  // that isn't pursuing a Movies/TV/Books title.
+  const standalone =
+    kind === "steer" &&
+    chain?.standalone === true &&
+    mode !== "uses" &&
+    goToCategoryFor(chainedCategory || category) !== null;
+
   const completion = await llmCall({
     step: "snap",
     temperature: 0.7,
@@ -954,7 +1003,9 @@ async function handleChain(chain: any): Promise<Response> {
     maxTokens: 1500,
     system:
       kind === "steer"
-        ? buildChainSteerPrompt(mode)
+        ? standalone
+          ? buildStandaloneChainSteerPrompt(mode)
+          : buildChainSteerPrompt(mode)
         : buildChainRerollPrompt(mode),
     user: userContent,
   });
@@ -997,6 +1048,22 @@ async function handleChain(chain: any): Promise<Response> {
         undefined,
     });
     if (reks.length === 5) break;
+  }
+
+  // S32 — THE GUARANTEE (the prompt is pressure): a sentence that still
+  // compares, or names the tapped title or the snapped one, never ships.
+  // A card with nothing left doesn't ship either.
+  if (standalone) {
+    for (let i = reks.length - 1; i >= 0; i--) {
+      const a = dropComparingSentences(reks[i].description, chained.name);
+      const b = dropComparingSentences(a.text, item.name);
+      const dropped = [...a.dropped, ...b.dropped];
+      if (!dropped.length) continue;
+      console.warn("[chain] standalone: comparing sentences removed", { name: reks[i].name, dropped, kept: !!b.text });
+      if (b.text) reks[i].description = b.text;
+      else reks.splice(i, 1);
+    }
+    console.info("[chain] standalone", { chained: chained.name, reks: reks.length });
   }
 
   if (reks.length === 0) {
