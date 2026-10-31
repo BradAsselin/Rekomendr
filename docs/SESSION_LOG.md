@@ -3255,3 +3255,28 @@ Brad's brief `docs/S25_HOME_GO_AND_SHELF_COMPARE_LAUNCH_PROMPT.md`. It's logged 
 Promote `main → release/v2` (yours). There are no env, SQL or migration changes. Revert: `git revert -m 1 01fbc04`.
 
 **§0 check: consistent.** The top card is a fact about the shelf (its most popular bottle). It is labelled as such and not presented as a pick. Nothing new is sent or stored.
+
+## Session 28 — The shelf top card's own sentence — 2026-10-30 — branch auto/s28-shelf-line (local agent mode, §11)
+
+**Brief (Brad, approved prompt change):** add one prompt line so the shelf read writes one short sentence about the picked top-card bottle, in the same wine voice and length as the other card lines, and show it on the top card. Change nothing else in the prompt.
+
+### SHIPPED
+**#98 → b634c95**
+- **Prompt:** one added line in `SHELF_READ_PROMPT` asks for `anchor_line`. It opens on dry vs. sweet, then gives concrete signature notes, with no filler, rating, occasion or pairing; it is null without a pick. Nothing else in the prompt changed, including the Return line.
+- **Parse:** `cleanShelfRead.anchorLine` is kept only beside a listed pick and capped at 240 characters. It is logged in `[wine] shelf read`.
+- **Route:** a swapped top card's short is that line, pairing-cut like every wine anchor's. detected_item, the token and the picks' "Its signature profile" line all use it. With no line there is no short. With no swap, the vision read's text stays.
+- **Client:** no change. The top card already shows the first sentence of detected_item's description.
+
+### TESTS
+- `validate-s28`: 17/17. All 50 suites, tsc, lint and build pass.
+- Preview `pw-s26b-shelf`: 42/42.
+- The live shelf read is still untested here (no shelf photo in the repo).
+
+### PHONE CHECKLIST (after promotion)
+1. Snap a shelf where a famous bottle isn't in the center. The top card should be that bottle with one sentence under its name, opening on dry or sweet, with no pairing.
+2. If the famous bottle is the one in the center, the card reads as before.
+
+### PROMOTION
+Promote `main → release/v2` (yours). There are no env, SQL or migration changes. Revert: `git revert -m 1 b634c95`.
+
+**§0 check: consistent.** One plain sentence about a labelled shelf fact. Nothing new is sent or stored.
