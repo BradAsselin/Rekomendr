@@ -242,7 +242,8 @@ const resetEnv = () => { for (const k of ENV_KEYS) delete process.env[k]; delete
     check(`${f}: no prompt string line removed or changed`, changed, []);
   }
   const route = read("app/api/reksnap/route.ts");
-  check("the three snap reads still use SYSTEM_PROMPT", (route.match(/system: SYSTEM_PROMPT/g) || []).length, 3);
+  // S34 adds a fourth: the one silent re-read of an unparseable first read.
+  check("the three snap reads (+ the S34 re-read) still use SYSTEM_PROMPT", (route.match(/system: SYSTEM_PROMPT/g) || []).length, 4);
   check("no vision/shelf/wine/lines call left on the raw SDK", [
     /model: "gpt-4o",\s*temperature: 0\.7,\s*\/\/ Three lists/.test(route),
     /openai\.chat/.test(read("src/lib/wineReks.ts")),

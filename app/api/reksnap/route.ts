@@ -41,6 +41,7 @@ import { normalizeTitle } from "../../../src/lib/tmdbVerify";
 import { withRekTokens } from "../../../src/lib/rekTokens";
 import { goToCategoryFor } from "../../../src/lib/goToCategory";
 import { dropComparingSentences } from "../../../src/lib/standaloneLine";
+import { parseWithRetry } from "../../../src/lib/parseRetry";
 import {
   bandFor,
   cleanAnchorInfo,
@@ -1017,11 +1018,9 @@ async function handleChain(chain: any): Promise<Response> {
 
   // S33 (Brad, 2026-10-31) — a reply that doesn't parse is retried once,
   // silently; only a second miss shows the failure line. Both attempts
-  // are logged.
-  const CHAIN_ATTEMPTS = 2;
-  let parsed: any = null;
-  for (let attempt = 1; attempt <= CHAIN_ATTEMPTS; attempt++) {
-    const completion = await llmCall({
+  // are logged (src/lib/parseRetry.ts).
+  const chainCall = () =>
+    llmCall({
       step: "snap",
       temperature: 0.7,
       // Five cards at the backfill card budget.
@@ -1029,27 +1028,9 @@ async function handleChain(chain: any): Promise<Response> {
       system,
       user: userContent,
     });
-    try {
-      parsed = JSON.parse(jsonText(completion.text));
-      if (attempt > 1) console.info("[chain] parse retry succeeded", { kind, attempt });
-      break;
-    } catch (err) {
-      const detail = {
-        kind,
-        attempt,
-        of: CHAIN_ATTEMPTS,
-        chars: completion.text.length,
-        finishReason: completion.finishReason,
-        error: err instanceof Error ? err.message : String(err),
-      };
-      if (attempt < CHAIN_ATTEMPTS) {
-        console.warn("[chain] parse failed — retrying", detail);
-      } else {
-        console.error("[chain] parse failed — giving up", detail);
-        return Response.json({ error: "Chain failed" }, { status: 502 });
-      }
-    }
-  }
+  const chainRead = await parseWithRetry("chain", { kind }, chainCall, chainCall, (t) => JSON.parse(jsonText(t)));
+  if (!chainRead.ok) return Response.json({ error: "Chain failed" }, { status: 502 });
+  const parsed: any = chainRead.value;
 
   const normalize = (s: string) => s.trim().toLowerCase();
   // Belt-and-braces: the model was told, but never trust it. Violators are
@@ -1746,6 +1727,9 @@ async function handlePost(req: Request, hooks: SnapHooks = {}) {
     const priorBlock = buildPriorTasteBlock(prior ?? [], true);
 
     let text = "";
+    // S34 — what the first read was given, for the one silent re-read.
+    let readContent: VisionContent | null = null;
+    let readTemperature = 0.7;
     let usage: { prompt_tokens?: number; completion_tokens?: number } | null = null;
     let finishReason: string | null = null;
     let refusal = "";
@@ -1826,6 +1810,9 @@ async function handlePost(req: Request, hooks: SnapHooks = {}) {
             `No photo this time: the user typed a wine's name on the Wine bar instead — "${typedName}". Treat that named wine as the item in the photo. It is a wine: its category is wine, and every rek is a wine.` +
             (priorBlock ? `
 ${priorBlock}` : "");
+      readContent = typedUser;
+      // The typed path's own second read runs cooler; the re-read matches it.
+      readTemperature = 0.3;
       for (let attempt = 1; attempt <= 2; attempt++) {
         if (attempt === 1) {
           // S14 — the first read streams, with the photo path's wine cut
@@ -1891,16 +1878,17 @@ ${priorBlock}` : "");
     } else if (strips.length > 0) {
       // Not streamed and no media path: this only runs after a failed read,
       // and a strip set is a shelf, not a poster.
+      readContent = [
+        { type: "text", text: stripsNote(strips.length) },
+        ...strips.map((url) => ({ type: "image" as const, url, detail: "high" as const })),
+        ...(priorBlock ? [{ type: "text" as const, text: priorBlock }] : []),
+      ];
       const completion = await llmCall({
         step: "vision",
         temperature: 0.7,
         maxTokens: 4000,
         system: SYSTEM_PROMPT,
-        user: [
-          { type: "text", text: stripsNote(strips.length) },
-          ...strips.map((url) => ({ type: "image" as const, url, detail: "high" as const })),
-          ...(priorBlock ? [{ type: "text" as const, text: priorBlock }] : []),
-        ],
+        user: readContent,
       });
       text = jsonText(completion.text);
       usage = completion.usage;
@@ -1910,14 +1898,13 @@ ${priorBlock}` : "");
     } else {
       // S8a — detail "high" explicit (the default "auto" leaves the choice
       // to the API; a shelf of labels needs every pixel it can get).
-      const vision = await startVisionStream(
-        priorBlock
-          ? [
-              { type: "image", url: image, detail: "high" },
-              { type: "text", text: priorBlock },
-            ]
-          : [{ type: "image", url: image, detail: "high" }]
-      );
+      readContent = priorBlock
+        ? [
+            { type: "image", url: image, detail: "high" },
+            { type: "text", text: priorBlock },
+          ]
+        : [{ type: "image", url: image, detail: "high" }];
+      const vision = await startVisionStream(readContent);
       // S3.0 — a movie or TV snap takes the TMDb path the moment the
       // anchor is identified; the rest of the vision output is not needed.
       const early = await vision.detected;
@@ -1987,10 +1974,39 @@ ${priorBlock}` : "");
         { status: 502 }
       );
     };
-    try {
-      parsed = JSON.parse(text);
-    } catch {
-      return readFailed("unparseable");
+    // S34 (Brad, 2026-10-31) — the first read of a photo (shelf, bottle,
+    // poster, TV) or a typed bottle: a reply that doesn't parse is re-read
+    // once, silently (same input, not streamed); only a second miss is
+    // the failure line. Both attempts are logged (src/lib/parseRetry.ts).
+    const attemptKind = typed ? "typed" : strips.length > 0 ? "strips" : "photo";
+    const firstText = text;
+    const read = await parseWithRetry(
+      "snap-read",
+      { attempt: attemptKind },
+      async () => ({ text: firstText, finishReason }),
+      async () => {
+        const again = await llmCall({
+          step: "vision",
+          temperature: readTemperature,
+          maxTokens: 4000,
+          system: SYSTEM_PROMPT,
+          user: readContent ?? "",
+        });
+        text = jsonText(again.text);
+        usage = again.usage;
+        finishReason = again.finishReason;
+        refusal = again.refusal;
+        return { text, finishReason };
+      },
+      (t) => JSON.parse(t)
+    );
+    if (!read.ok) return readFailed("unparseable");
+    parsed = read.value;
+    // A re-read poster or TV screen still takes the TMDb path, as the
+    // first read would have once its anchor streamed.
+    if (read.attempt > 1 && !typed && strips.length === 0 && parsed?.detected_item && typeof parsed.detected_item === "object") {
+      const media = await tryMediaSnap(parsed.detected_item, clientId, () => {});
+      if (media) return media;
     }
 
     const detected = parsed?.detected_item;

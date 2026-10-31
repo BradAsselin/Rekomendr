@@ -21,6 +21,7 @@ if (typeof window !== "undefined") {
   throw new Error("wineReks.ts was imported in a browser bundle.");
 }
 import { jsonText, llmCall } from "./llm";
+import { parseWithRetry } from "./parseRetry";
 import {
   bandText,
   cleanShelfRead,
@@ -71,7 +72,7 @@ export type ShelfRead = {
 export async function readShelf(images: string[]): Promise<ShelfRead | null> {
   const started = Date.now();
   try {
-    const completion = await llmCall({
+    const shelfCall = () => llmCall({
       step: "shelf",
       temperature: 0,
       maxTokens: 2500,
@@ -88,7 +89,19 @@ export async function readShelf(images: string[]): Promise<ShelfRead | null> {
         ...images.map((url) => ({ type: "image" as const, url, detail: "high" as const })),
       ],
     });
-    const read = cleanShelfRead(JSON.parse(jsonText(completion.text)));
+    // S34 (Brad, 2026-10-31) — a reply that doesn't parse is re-read once,
+    // silently; both attempts logged (parseRetry.ts). A second miss lands
+    // in the fail-soft catch below, as before.
+    let completion = await shelfCall();
+    const shelfRead = await parseWithRetry(
+      "wine-shelf",
+      { strips: images.length > 1 ? images.length : 0 },
+      async () => completion,
+      async () => (completion = await shelfCall()),
+      (t) => cleanShelfRead(JSON.parse(jsonText(t)))
+    );
+    if (!shelfRead.ok) throw new Error(`shelf read unparseable twice: ${shelfRead.error}`);
+    const read = shelfRead.value!;
     console.info("[wine] shelf read", {
       scene: read.scene,
       bottles: read.bottles.length,
@@ -261,14 +274,21 @@ export async function generateWineReks(
   voice: string,
   ctx: WineGenContext
 ): Promise<{ anchor: unknown; goTo: unknown; reks: RawWineRek[] }> {
-  const completion = await llmCall({
-    step: "wine",
-    temperature: 0.7,
-    maxTokens: Math.min(4000, 400 + ctx.count * 260),
-    system: buildWineReksPrompt(voice, ctx),
-    user: buildWineReksUser(ctx),
-  });
-  const parsed = JSON.parse(jsonText(completion.text));
+  const wineCall = () =>
+    llmCall({
+      step: "wine",
+      temperature: 0.7,
+      maxTokens: Math.min(4000, 400 + ctx.count * 260),
+      system: buildWineReksPrompt(voice, ctx),
+      user: buildWineReksUser(ctx),
+    });
+  // S34 (Brad, 2026-10-31) — the wine picks (first set, price chip,
+  // replacement, card chain, re-roll): a reply that doesn't parse is
+  // retried once, silently; both attempts logged (parseRetry.ts). A second
+  // miss throws, as a single miss did before.
+  const wineRead = await parseWithRetry("wine", { kind: ctx.kind }, wineCall, wineCall, (t) => JSON.parse(jsonText(t)));
+  if (!wineRead.ok) throw new Error(`wine picks unparseable twice: ${wineRead.error}`);
+  const parsed: any = wineRead.value;
   return {
     anchor: parsed?.anchor ?? null,
     goTo: parsed?.go_to ?? null,
