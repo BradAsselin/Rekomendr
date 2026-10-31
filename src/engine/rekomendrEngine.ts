@@ -24,6 +24,7 @@ import { readServiceFailure, isAIServiceError } from "../lib/aiServiceError";
 import { getAnonymousClientId } from "../lib/clientId";
 import { shortSynopsis } from "../lib/synopsis";
 import { dropComparingSentences } from "../lib/standaloneLine";
+import { extractJsonArray } from "../lib/jsonArray";
 // S1.5 — the real-title guard. Movies/TV only; the lookup itself lives
 // server-side (TMDB_API_KEY never reaches the browser, and this engine
 // runs in the browser).
@@ -532,25 +533,6 @@ type GeneratedRekWire = {
   vibeTags?: string[];
   trailerUrl?: string;
 };
-
-function extractJsonArray(text: string): any[] | null {
-  try {
-    const direct = JSON.parse(text);
-    if (Array.isArray(direct)) return direct;
-    if (Array.isArray(direct?.results)) return direct.results;
-    if (Array.isArray(direct?.recommendations)) return direct.recommendations;
-  } catch {}
-
-  const match = text.match(/\[[\s\S]*\]/);
-  if (!match) return null;
-
-  try {
-    const parsed = JSON.parse(match[0]);
-    if (Array.isArray(parsed)) return parsed;
-  } catch {}
-
-  return null;
-}
 
 function sanitizeGeneratedRek(item: GeneratedRekWire, category: Category): Rek | null {
   let rawTitle = String(item?.title ?? "").trim();

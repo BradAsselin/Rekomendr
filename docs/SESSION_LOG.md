@@ -3488,3 +3488,35 @@ Backfill (one replacement card), Show details, the typed-wine classifier and the
 Promote `main → release/v2` (yours). There are no env, SQL or migration changes. Revert: `git revert -m 1 48f8109`.
 
 **§0 check: consistent.** A bad model reply is retried instead of shown, so there are fewer dead ends. Nothing new is stored or sent.
+
+## Session 35 — Silent retry on the last four calls; end of build round — 2026-10-31 — branch auto/s35-retry-rest
+
+**Brief (Brad, in chat; S34 call 1 approved):** extend the shared retry to the non-wine thumbs-down replacement, Show details, the typed-wine check and the search lane's picks. Merge when green. This ends the build round.
+
+### SHIPPED
+**#119 → 92aca22**
+- **New tags** on `parseWithRetry`, with the same three log lines as S34:
+  - `backfill` (with mode): a second miss is `Backfill failed` 502, as before.
+  - `detail` (Show details): a second miss is `Detail failed` 502, as before.
+  - `typed-wine`: a second miss logs the old non-JSON line, and the search runs as before.
+  - `search` (`/api/openai` prompt mode): it retries only when the engine's own reader finds no array. `extractJsonArray` moved verbatim to `src/lib/jsonArray.ts` and is shared by the engine and the route. A second miss returns the last reply unchanged, so the engine fails as before.
+- No wording, prompt, env or SQL changes.
+- Every model reply the snap route parses now goes through the helper.
+- `/api/openai`'s legacy `pick_from_candidates` mode has no caller and was left alone.
+
+### TESTS
+- New `validate-s35`: 26/26. `validate-s31` now accepts the verbatim move. 57 suites, tsc, lint and build pass; the build warning is the existing Supabase one.
+- On the preview: S26a 41/41, S26b 42/42, S28c 154/154, S29 53/53, S30 35/35, S31 32/32, S32 19/19, S33 9/9.
+- Live on the preview, one real call each: all returned 200.
+  - backfill (seeded from a typed Whispering Angel anchor)
+  - Show details
+  - the typed-wine check (a named bottle → anchor; a mood → search)
+  - search (5 items)
+
+### NOTES
+- A failed search-lane backfill now takes up to two model calls inside the client's 90s abort. Watch for aborts in the field.
+
+### PROMOTION
+Promote `main → release/v2` (yours). There are no env, SQL or migration changes. Revert: `git revert -m 1 92aca22`.
+
+**§0 check: consistent.** A bad model reply is retried instead of shown, on every lane. Nothing new is stored or sent.

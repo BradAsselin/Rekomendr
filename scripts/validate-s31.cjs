@@ -205,7 +205,9 @@ const PLAIN = [
   const eng = changed(diff("src/engine/rekomendrEngine.ts"));
   const removed = eng.filter((l) => l.startsWith("-")).map((l) => l.slice(1));
   const added = eng.filter((l) => l.startsWith("+")).map((l) => l.slice(1));
-  check("engine: every removed line comes back with only hasSeed → placeAgainstSeed (or the referent moved inside it)", removed.filter((l) => !added.includes(l.replace("hasSeed", "placeAgainstSeed")) && !/^Comparative referent|^the seed title, \$\{seedTitle\}|^\s*: ""$|^`$/.test(l.trim())), []);
+  // S35 moved the engine's extractJsonArray, verbatim, to src/lib/jsonArray.ts.
+  const movedS35 = fs.readFileSync(path.join(ROOT, "src/lib/jsonArray.ts"), "utf8").split(/\r?\n/).map((l) => l.trim().replace(/^export /, "")).filter(Boolean);
+  check("engine: every removed line comes back with only hasSeed → placeAgainstSeed (or the referent moved inside it)", removed.filter((l) => !added.includes(l.replace("hasSeed", "placeAgainstSeed")) && !(l.trim() && movedS35.includes(l.trim())) && !/^Comparative referent|^the seed title, \$\{seedTitle\}|^\s*: ""$|^`$/.test(l.trim())), []);
   check("engine: no prompt sentence was reworded", added.filter((l) => /^(- |  - )[A-Z]/.test(l.trim()) && !removed.includes(l)).length, 0);
   const med = changed(diff("src/lib/mediaReks.ts"));
   check("mediaReks: no line of CHOOSER_PROMPT itself changed", med.filter((l) => l.startsWith("-") && /^-\s+"/.test(l)), []);

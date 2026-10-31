@@ -5,6 +5,8 @@ import {
 } from "../../../src/lib/openaiFailure";
 import { capGate } from "../../../src/lib/apiUsage";
 import { jsonText, llmCall, withLlmContext } from "../../../src/lib/llm";
+import { parseWithRetry } from "../../../src/lib/parseRetry";
+import { extractJsonArray } from "../../../src/lib/jsonArray";
 
 export const runtime = "nodejs";
 
@@ -75,19 +77,35 @@ async function handle(req: Request): Promise<Response> {
 
       // The reply goes back as text; the engine's extractJsonArray finds
       // the array in a bare reply, an object, prose or a code fence.
-      const completion = await llmCall({
-        step: "search",
-        temperature,
-        json: useJson,
-        maxTokens: SEARCH_MAX_TOKENS,
-        system: "You are a recommendation engine. Return only valid JSON.",
-        user: body.prompt,
-      });
-      if (completion.refusal) {
-        console.error("[search] model refused", { model: completion.model });
-      }
+      // S35 — the route reads it the same way first: a reply with no array
+      // in it is asked again once, silently (src/lib/parseRetry.ts); a
+      // second miss goes back as it came, and the engine fails as before.
+      const searchCall = async () => {
+        const completion = await llmCall({
+          step: "search",
+          temperature,
+          json: useJson,
+          maxTokens: SEARCH_MAX_TOKENS,
+          system: "You are a recommendation engine. Return only valid JSON.",
+          user: body.prompt,
+        });
+        if (completion.refusal) {
+          console.error("[search] model refused", { model: completion.model });
+        }
+        return { text: completion.text, finishReason: completion.finishReason };
+      };
+      const searchRead = await parseWithRetry(
+        "search",
+        { jsonResponse: useJson },
+        searchCall,
+        searchCall,
+        (t) => {
+          if (!extractJsonArray(t)) throw new Error("no JSON array in the reply");
+          return true;
+        }
+      );
 
-      const text = completion.text;
+      const text = searchRead.last.text;
 
       return new Response(text, {
         status: 200,
