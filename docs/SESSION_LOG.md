@@ -3224,3 +3224,34 @@ Brad's brief `docs/S25_HOME_GO_AND_SHELF_COMPARE_LAUNCH_PROMPT.md`. It's logged 
 2. Revert: `git revert -m 1 e588f9e` (S26b) and/or `git revert -m 1 df51e38` (S26a).
 
 **§0 check: consistent.** Comparisons appear only for a bottle the person chose (or the bottle they just snapped), and each one names its reference. The home screen asks less effort (no scroll, Go never waits). The shelf list stays in the result on the device; nothing new is sent or stored.
+
+## Session 27 — Shelf top card = the shelf's most popular bottle — 2026-10-30 — branch auto/s27-shelf-popular (local agent mode, §11)
+
+**Brief (Brad, approved prompt change):** the shelf's top card is the best-known, most widely available bottle on the shelf, not the one the photo centers on. The label "This shelf · most popular" stays. Only that instruction changes. Log the pick and the reason in the result, add a test, and keep the go_to ring-taste line.
+
+### SHIPPED
+**#96 → 01fbc04**
+- **Prompt (`SHELF_READ_PROMPT`):** the `anchor_price` instruction becomes `anchor_name / anchor_reason / anchor_price`. It asks for the best-known, most widely available bottle the read listed, and allows general label knowledge for that pick alone. The Return line gains those two fields. Every other line is byte-identical, and the go_to line is kept.
+- **Parse:** `cleanShelfRead` keeps the pick only if it names a listed bottle, using the listing's spelling. The reason is capped at 120 characters.
+- **Route (`wineSnap`):** on a shelf snap the set anchors on the pick, so detected_item, the token, the tag price and the exclusion from the five all follow it. The vision read's sentence describes the other bottle, so the swapped card has no short line. There is no swap on single-bottle snaps or for health-side names. The read's `anchor_price` is used only for the bottle it belongs to.
+- **Result + log:** `wine.anchorPick = {name, shelfIndex, by: "shelf-read"|"vision", reason, visionName}` is in the response and in `[wine] shelf anchor`. `[wine] shelf read` also logs anchorName and anchorReason.
+
+### TESTS
+- `validate-s27`: 30/30.
+- All 49 suites pass, with s13a now measured over S13's own range and s26b expecting the new shape. tsc, lint and build pass.
+- Preview: `pw-s26b-shelf` 42/42, `pw-s26a-home` 41/41.
+- The live shelf read is untested here because the repo has no shelf photo. It is on the phone checklist.
+
+### YOUR CALLS
+- The swapped top card shows no short line, because the vision text describes another bottle. Options: leave it as is, or generate one line for the pick (that would be a new prompt line).
+
+### PHONE CHECKLIST (after promotion)
+1. Snap a shelf where a famous bottle (e.g. Kim Crawford, La Marca) isn't in the center. The top card should be the famous one, with name, price and taste dot but no sentence.
+2. The five picks never repeat the top card. The bottle in the center can appear as a pick.
+3. Vercel logs: `[wine] shelf anchor` shows `by: "shelf-read"` and the reason.
+4. A single bottle still compares to itself.
+
+### PROMOTION
+Promote `main → release/v2` (yours). There are no env, SQL or migration changes. Revert: `git revert -m 1 01fbc04`.
+
+**§0 check: consistent.** The top card is a fact about the shelf (its most popular bottle). It is labelled as such and not presented as a pick. Nothing new is sent or stored.
