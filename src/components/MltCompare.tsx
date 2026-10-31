@@ -74,7 +74,11 @@ export function useMltCompare(
   // of references; cards that arrive later (a backfill) get theirs too.
   useEffect(() => {
     if (!seed || !refs.length) return;
-    const need = items.filter((i) => !asked.current.has(`${refsKey}#${key(i.title)}`));
+    // The seed title itself never gets a line against itself (S32: the
+    // chained card sits in the trail).
+    const need = items.filter(
+      (i) => key(i.title) !== key(seed.name) && !asked.current.has(`${refsKey}#${key(i.title)}`)
+    );
     if (!need.length) return;
     need.forEach((i) => asked.current.add(`${refsKey}#${key(i.title)}`));
     const forKey = refsKey;

@@ -16,6 +16,10 @@ const COMPARATIVE: [string, RegExp][] = [
   // A comparative ("quieter than", "more dangerous than") — not a story's
   // own numbers ("less than 72 hours").
   ["comparative than", /\b\w+er than\b|\b(more|less)\s+\w+(\s+\w+)?\s+than\b/i],
+  // S32 — a stretched comparative ("goes further into minimalism than…")
+  // and a pointer at the seed ("than the source of the chain").
+  ["further than", /\b(further|farther)\b[^.!?]*\bthan\b/i],
+  ["than the seed", /\bthan (the|its) (one|source|original|first|chain|anchor|seed|title|film|movie|show|series|book|novel)\b/i],
 ];
 
 // Why a line compares (null when it stands alone). Naming the seed title
