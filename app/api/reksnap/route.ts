@@ -2131,7 +2131,8 @@ ${priorBlock}` : "");
         // S27 — the shelf's top card is the read's most popular bottle,
         // not the one the photo centers on: the anchor the response ships,
         // the token signs and Show details expands is that bottle. The
-        // vision read's text describes the other bottle, so it is dropped.
+        // vision read's text describes the other bottle, so the shelf
+        // read's line about the pick replaces it (S28).
         if (ws && ws.topAnchor.name !== detected.name) {
           detected.name = ws.topAnchor.name;
           detected.description = ws.topAnchor.description;
@@ -2311,11 +2312,15 @@ async function wineSnap(args: {
   // 2026-10-30): the best-known, most widely available one, not the one
   // the photo centers on. It becomes the anchor the set runs on, so the
   // five picks never repeat it and their lines stand beside it. The vision
-  // read's description is of the other bottle: the swapped anchor has none.
+  // read's description is of the other bottle: the swapped anchor carries
+  // the shelf read's own sentence about the pick (S28), pairing-cut like
+  // every wine anchor's, or none.
   const pickName = read?.anchorName ?? null;
   const swap =
     shelfSnap && !!pickName && !sameWine(pickName, args.anchor.name) && !healthLabelFromName(pickName);
-  const anchor = swap ? { ...args.anchor, name: pickName!, description: "" } : args.anchor;
+  const anchor = swap
+    ? { ...args.anchor, name: pickName!, description: stripPairingSentence(read?.anchorLine ?? "") }
+    : args.anchor;
   // The read's anchor_price is the most popular bottle's tag: it prices
   // this anchor only when that is the bottle (or the read named none).
   const readPrice = !pickName || sameWine(pickName, anchor.name) ? read?.anchorPrice ?? null : null;
