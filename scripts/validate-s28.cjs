@@ -147,11 +147,12 @@ wineReply = () => ({
 const snap = () => post({ image: IMG, clientId: ME, category: "Wine", wineVisit: { seen: [], rejected: [] } });
 
 const BASE = "024bd6b"; // main before S28
+const S28 = "e17ff25"; // the S28 prompt commit (later sessions may change prompts with approval)
 const LINE = "Dry and grassy — grapefruit and passionfruit over a flinty edge.";
 
 (async () => {
   out("1. The shelf-read prompt");
-  const d = execSync(`git diff ${BASE} -- src/lib/wineReks.ts`, { cwd: ROOT, encoding: "utf8" }).split("\n");
+  const d = execSync(`git diff ${BASE} ${S28} -- src/lib/wineReks.ts`, { cwd: ROOT, encoding: "utf8" }).split("\n");
   const removedStr = d.filter((l) => /^-\s*["'`]/.test(l) && !/^---/.test(l));
   const addedStr = d.filter((l) => /^\+\s*["'`]/.test(l) && !/^\+\+\+/.test(l));
   check("one prompt line added, none removed or changed", [addedStr.length, removedStr.length], [1, 0]);
