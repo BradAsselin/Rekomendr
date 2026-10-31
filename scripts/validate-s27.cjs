@@ -30,6 +30,7 @@ const CACHE = path.join(ROOT, "node_modules", ".cache");
 fs.mkdirSync(CACHE, { recursive: true });
 const OUT = fs.mkdtempSync(path.join(CACHE, "s27-validate-"));
 const BASE = "985a142"; // main before S27
+const S27 = "ec23de7"; // the S27 prompt commit (later sessions may change prompts with approval)
 
 console.log("Compiling /api/reksnap, wineShelf, wineReks from source…");
 execFileSync(
@@ -155,7 +156,7 @@ const snap = () => post({ image: IMG, clientId: ME, category: "Wine", wineVisit:
 
 (async () => {
   out("1. The shelf-read prompt");
-  const d = execSync(`git diff ${BASE} -- src/lib/wineReks.ts`, { cwd: ROOT, encoding: "utf8" }).split("\n");
+  const d = execSync(`git diff ${BASE} ${S27} -- src/lib/wineReks.ts`, { cwd: ROOT, encoding: "utf8" }).split("\n");
   const removedStr = d.filter((l) => /^-\s*["'`]/.test(l) && !/^---/.test(l));
   const addedStr = d.filter((l) => /^\+\s*["'`]/.test(l) && !/^\+\+\+/.test(l));
   check("exactly two prompt lines changed: the anchor instruction and the Return line", [removedStr.length, addedStr.length], [2, 2]);
