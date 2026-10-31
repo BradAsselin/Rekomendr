@@ -341,6 +341,7 @@ export function cleanShelfRead(raw: unknown): {
   anchorPrice: number | null;
   anchorName: string | null;
   anchorReason: string | null;
+  anchorLine: string | null;
 } {
   const r = (raw ?? {}) as Record<string, unknown>;
   const scene: WineScene =
@@ -379,6 +380,7 @@ export function cleanShelfRead(raw: unknown): {
     anchorPrice: cleanPrice(r.anchor_price),
     anchorName: listed ? listed.name : null,
     anchorReason: listed ? text(r.anchor_reason, 120) : null,
+    anchorLine: listed ? text(r.anchor_line, 240) : null,
   };
 }
 
