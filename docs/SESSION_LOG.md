@@ -3280,3 +3280,36 @@ Promote `main → release/v2` (yours). There are no env, SQL or migration change
 Promote `main → release/v2` (yours). There are no env, SQL or migration changes. Revert: `git revert -m 1 b634c95`.
 
 **§0 check: consistent.** One plain sentence about a labelled shelf fact. Nothing new is sent or stored.
+
+## Session 28c — Home balance fix — 2026-10-31 — branch auto/s28c-home-balance
+
+**Brief:** docs/S28_HOME_BALANCE_FIX.md. Brad's phone showed no Say it / Snap it under the chips, and the header felt crowded. No new wording.
+
+### CAUSE (the missing buttons)
+The S26a one-screen change did not cause this. The cause was the old `hasSnapped` gate in `app/page.tsx`. It hid the original hero snap button after the first snap in a session. S24b turned that hero into Say it / Snap it but kept the gate. The snap count lives in `sessionStorage`, so after any snap (for example, the S26b shelf test), every reload of the installed app came home with nothing under the chips. Tapping the logo would have brought them back; a reload would not. Reproduced in Playwright with `rekomendr.snap_count = 1`: the pair was missing before the fix and shows after it.
+
+### SHIPPED
+**#101 → 47bc3a2**
+- The gate is gone, so Say it / Snap it always show on home (phone only, as before).
+- Header: ⋯ alone in a 44px top-right row. The logo is centered on its own row at 34px, in the original logo's blue (#2D5AB5) and bold weight, with ~20px above and below. Then the tiles, then a 24px gap (was 12px) to search.
+- Say it / Snap it fill the remaining height, because the body and main are now flex columns. They are at least 150px tall on a tall phone and 120px tall at ≤740px high. On screens ≤700px high, the logo drops to 26px and its padding to ~12px.
+- `scripts/npx-shim.cjs` is committed: `node -r ./scripts/npx-shim.cjs scripts/validate-X.cjs` on Windows.
+
+### TESTS
+- New `pw-s28c-home`: 154/154 locally and on the preview. It covers Movies, TV, Books and Wine at 390×844 and 375×667, each with and without a prior snap: the pair is visible, inside the viewport and at least the minimum height, the logo is centered ±4px, and there is no page scroll. It also checks order, spacing and the logo size.
+- On the preview, `pw-s26a-home` passed 41/41 (Go: typed, Enter and spoken) and `pw-s26b-shelf` passed 42/42.
+- `validate-s17c`, `s24b` and `s26a` were updated for the new design. All 50 suites, tsc, lint and build pass.
+
+### YOUR CALLS
+- At 390×844 the pair fills ~414px of height (tall, narrow buttons), as the brief asks ("take up the remaining space"). As an installed app on an iPhone the visible height is smaller, so expect ~330px. If they look like pillars, a height cap is one line.
+
+### PHONE CHECKLIST (after promotion)
+1. Home: ⋯ top-right, then a big centered logo with space around it, the four tiles, a clear gap, search, then chips.
+2. Say it and Snap it are back, big and side by side, and nothing scrolls. Also try it after a snap followed by a reload.
+3. Type a word and Go appears. Tap Say it and the words appear with Go.
+4. Same on Wine, TV and Books.
+
+### PROMOTION
+Promote `main → release/v2` (yours). There are no env, SQL or migration changes. Revert: `git revert -m 1 47bc3a2`.
+
+**§0 check: consistent.** It restores the two fastest starts (say or snap) to the home screen. Nothing new is sent or stored.
