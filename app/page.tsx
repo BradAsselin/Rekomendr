@@ -28,6 +28,7 @@ import {
   type CompareRef,
 } from "../src/lib/compareTo";
 import CompareSheet, { CompareHeader } from "../src/components/CompareSheet";
+import type { MltSeed } from "../src/components/MltCompare";
 import { typedMoodGate } from "../src/lib/typedMoodGate";
 import { fetchScreen, type ScreenAnswer, type ScreenTitles } from "../src/lib/screenClient";
 import { noteSetShown, seedEngineFromVisit } from "../src/lib/screenVisit";
@@ -348,7 +349,9 @@ async function resolveTypedAnchor(text: string, category: Category): Promise<Sna
 
 async function fetchTypedReks(
   media: NonNullable<SnapResult["media"]>,
-  lane: string | null
+  lane: string | null,
+  // S31 — a More like this set: the chooser writes standalone lines.
+  mlt = false
 ): Promise<{ reks: SnapRek[]; notice?: string }> {
   try {
     const res = await fetch("/api/anchor", {
@@ -359,6 +362,7 @@ async function fetchTypedReks(
         kind: media.kind,
         id: media.id,
         lane,
+        ...(mlt ? { mlt: true } : {}),
         clientId: getAnonymousClientId(),
       }),
     });
@@ -581,6 +585,16 @@ export default function Page() {
   // S13b — early paint: the bottles a shelf snap read, shown while the
   // picks are still being written. Cleared when the snap lands or fails.
   const [shelfPreview, setShelfPreview] = useState<{ name: string; price: number | null }[] | null>(null);
+  // S31 — More like this (a Saved-page row, wine's Bought "More"): the
+  // tapped title, named unchecked over the set as "Compare to [Title]".
+  // It lives with this set: a new search, a snap, home, or a category
+  // change drops it. Wine has its own (the bottle the set came from).
+  const [mltSeed, setMltSeed] = useState<MltSeed | null>(null);
+  const [mltWine, setMltWine] = useState(false);
+  const clearMlt = () => {
+    setMltSeed(null);
+    setMltWine(false);
+  };
   // S28c — the hasSnapped gate is gone. It hid the old hero snap button
   // after a session's first snap; S24b made that hero Say it / Snap it and
   // kept the gate, and it lived in sessionStorage, so after any snap a
@@ -866,6 +880,14 @@ export default function Page() {
   // its name, said in the log.
   const openMediaGoTo = async (t: { category: "movies" | "tv"; name: string; tmdbKind: "movie" | "tv" | null; tmdbId: number | null }) => {
     const snapId = ++snapIdRef.current;
+    setMltWine(false);
+    setMltSeed({
+      category: BAR_CATEGORY[t.category] as MltSeed["category"],
+      name: t.name,
+      year: null,
+      tmdbKind: t.tmdbKind ?? (t.category === "movies" ? "movie" : "tv"),
+      tmdbId: t.tmdbId,
+    });
     searchIdRef.current++;
     lastActivityRef.current = Date.now();
     setSnapError(null);
@@ -898,13 +920,13 @@ export default function Page() {
     if (!anchor?.media) {
       console.warn("[go-to-open] fallback to the typed search", { category: t.category });
       setSnapLoading(false);
-      void handleSearch(`${BAR_CATEGORY[t.category]}||||${t.name}||mode:ai`, BAR_CATEGORY[t.category]);
+      void handleSearch(`${BAR_CATEGORY[t.category]}||||${t.name}||mode:ai`, BAR_CATEGORY[t.category], undefined, undefined, undefined, undefined, { mlt: true });
       return;
     }
     setSnapResult(anchor);
     setSnapLoading(false);
     setReksPending(true);
-    const late = await fetchTypedReks(anchor.media, null);
+    const late = await fetchTypedReks(anchor.media, null, true);
     if (snapId !== snapIdRef.current) return;
     setLateReks(late);
     setReksPending(false);
@@ -921,8 +943,16 @@ export default function Page() {
     // Books → a search seeded on the book (its name as the typed text);
     // wine → the typed-wine anchor: that bottle's style and price band.
     const bar = t.category === "wine" ? "Wine" : BAR_CATEGORY[t.category];
+    // S31 — the set this opens names the tapped title, unchecked.
+    if (t.category === "wine") {
+      setMltSeed(null);
+      setMltWine(true);
+    } else {
+      setMltWine(false);
+      setMltSeed({ category: bar as MltSeed["category"], name: t.name, year: null, tmdbKind: null, tmdbId: null });
+    }
     setBarCategoryHint((h) => ({ value: bar, n: h.n + 1 }));
-    void handleSearch(`${bar}||||${t.name}||mode:ai`, bar);
+    void handleSearch(`${bar}||||${t.name}||mode:ai`, bar, undefined, undefined, undefined, undefined, { mlt: true });
   };
 
   // S17c — a title tapped on the Saved page opens its card here, by the
@@ -946,6 +976,7 @@ export default function Page() {
     if (!file) return;
 
     const snapId = ++snapIdRef.current;
+    clearMlt(); // S31 — a snap starts a new set
     lastActivityRef.current = Date.now();
     setSnapError(null);
     setSnapResult(null);
@@ -1142,9 +1173,14 @@ export default function Page() {
     // S19a — a spoken Movies/TV mood arrives already parsed (/api/mood):
     // it runs as the typed mood would, with no second parse and no title
     // check (a spoken title steers, as before).
-    parsedMood?: any
+    parsedMood?: any,
+    // S31 — a More like this set (the caller set its seed): stored
+    // Compare to references don't steer it or add lines; it starts off.
+    opts?: { mlt?: boolean }
   ) => {
     const searchId = ++searchIdRef.current;
+    const mlt = !!opts?.mlt;
+    if (!mlt) clearMlt(); // a new search drops the last set's choice
     if (!voice) clearVoiceSet();
     leaveScreen();
     lastActivityRef.current = Date.now();
@@ -1223,7 +1259,7 @@ export default function Page() {
         setLoading(false);
         if (needsReks && typedAnchor.media) {
           const lane = laneFromQuery(query);
-          const late = await fetchTypedReks(typedAnchor.media, lane);
+          const late = await fetchTypedReks(typedAnchor.media, lane, mlt);
           if (searchId !== searchIdRef.current || snapId !== snapIdRef.current) return;
           setLateReks(late);
           setReksPending(false);
@@ -1337,7 +1373,7 @@ export default function Page() {
       // search, placed against the first reference (TMDb doesn't know
       // books, so there's no web to pull from). S25: then each card gets
       // its "vs." line against that reference.
-      const bookRefs = nextCategory === "Books" ? refsFor("Books") : [];
+      const bookRefs = nextCategory === "Books" && !mlt ? refsFor("Books") : [];
       let next: { reks: Rek[]; notice?: string };
       if (bookRefs.length) {
         const seedNames = new Set(bookRefs.map((r) => r.name.trim().toLowerCase()));
@@ -1371,7 +1407,7 @@ export default function Page() {
       // else keeps the one Reks Ray failure voice.
       if (next.reks.length === 0) {
         setSearchError(next.notice ?? AI_SEARCH_FAILED_MSG);
-      } else if (nextCategory === "Movies" || nextCategory === "TV Shows") {
+      } else if ((nextCategory === "Movies" || nextCategory === "TV Shows") && !mlt) {
         // S24a — the words chose these five; Compare to adds the lines.
         setLoading(false);
         await addCompareLines(next.reks, nextCategory, searchId);
@@ -1562,6 +1598,7 @@ export default function Page() {
     setSnapLimitReached(false);
     setReksPending(false);
     setLateReks(null);
+    clearMlt();
     setActiveRecipe(null);
     setCategory("Movies");
     setPersistedLikedTitles([]);
@@ -1617,6 +1654,9 @@ export default function Page() {
           onCategoryChange={(c) => {
             barCategoryRef.current = c;
             setBarCategory(c);
+            // S31 — a category change drops the More like this choice.
+            setMltSeed((m) => (m && m.category !== c ? null : m));
+            if (c !== "Wine") setMltWine(false);
             // S24a — the person moved the bar to another category: the
             // Compare to set clears (a mount's first report doesn't count).
             if (lastBarCatRef.current !== null && lastBarCatRef.current !== c) clearIfCategoryChanged(c);
@@ -1652,6 +1692,8 @@ export default function Page() {
               lateReks={lateReks}
               shelfPreview={shelfPreview}
               barCategory={barCategory}
+              mltSeed={mltSeed}
+              mltWine={mltWine}
               onHaulSaved={() => void refreshWineState(false)}
               onWatchedChange={handleWatchedChange}
             />
@@ -1697,6 +1739,7 @@ export default function Page() {
                 shortlist={category === "Wine" ? shortlist : []}
                 header={resultsHeader}
                 headerRight={compareHeader}
+                mltSeed={mltSeed && mltSeed.category === category ? mltSeed : null}
                 onWatched={handleWatched}
                 onWatchedChange={handleWatchedChange}
                 linesPending={linesPending}

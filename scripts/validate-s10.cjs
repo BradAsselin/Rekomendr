@@ -55,7 +55,8 @@ check("media path still first", vision.indexOf("tryMediaSnap") < vision.indexOf(
 check("cut is logged", vision.includes('"[wine] vision cut after Similar"'), true);
 check("empty read still fails (strip retry intact)", /if \(\s*cleanedRaw\.similar\.length === 0 &&\s*cleanedRaw\.uses\.length === 0/.test(route), true);
 check("no new-to-me notice when wine picks ship", /alternatives\.length === 0 &&\s*cleaned\.similar\.length === 0;/.test(route), true);
-check("strips + typed branches untouched (still full reads)", (route.match(/(content|system): SYSTEM_PROMPT/g) || []).length, 3);
+// S34 adds a fourth: the one silent re-read of an unparseable first read.
+check("strips + typed branches untouched (still full reads)", (route.match(/(content|system): SYSTEM_PROMPT/g) || []).length, 4);
 
 console.log("\n3. Wine results: the bottom tip is gone (S11 also removed the camera-screen tip)");
 const results = read("src/components/RekSnapResults.tsx");

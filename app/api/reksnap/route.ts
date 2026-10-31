@@ -39,6 +39,9 @@ import {
 import { chooseMediaReks, guardTaste } from "../../../src/lib/mediaReks";
 import { normalizeTitle } from "../../../src/lib/tmdbVerify";
 import { withRekTokens } from "../../../src/lib/rekTokens";
+import { goToCategoryFor } from "../../../src/lib/goToCategory";
+import { dropComparingSentences } from "../../../src/lib/standaloneLine";
+import { parseWithRetry } from "../../../src/lib/parseRetry";
 import {
   bandFor,
   cleanAnchorInfo,
@@ -773,6 +776,54 @@ const buildChainSteerPrompt = (mode: string) => {
   );
 };
 
+// S32 (Brad, 2026-10-31) — "+ More like this" on a card under a snapped
+// or typed title (Movies/TV/Books) follows S31's More like this rule: the
+// picks stay seeded on the tapped title, the lines stand alone. Only the
+// instruction that made the lines comparative changes — the referent
+// override is left out and the MEDIA clause's sentence-3 placement is
+// swapped; the rest of the snap voice is byte-identical. Conditional:
+// every other chain (wine, consumables, products, uses) keeps
+// buildChainSteerPrompt exactly as it was.
+const STANDALONE_MEDIA_SWAPS: [string, string][] = [
+  [
+    "Media anchor and media reks share one grammar — the anchor places against its CATEGORY, the reks place against the ANCHOR.",
+    "Media anchor and media reks share one grammar — the anchor places against its CATEGORY; here each rek stands on its own and places against no other title.",
+  ],
+  [
+    "Media sentence 3 — the comparative placement against the snapped item: its DEFAULT shape is the BARE comparative — it OPENS on the comparative adjective and names NO referent ('Quieter and more introspective, with a focus on the clash of fame and normalcy.'). The anchor sits directly above; the referent is implicit. Never echo the anchor's name. 'than the one you snapped' is the marked EXCEPTION: at most ONE card per set may use it, and only where the comparison would be ambiguous without it. If in doubt, omit it — a set with ZERO referent phrases is fully correct.\n",
+    "Media sentence 3 — its register: the tone, pace, or texture of this title alone, as if it were the only title on the page, opening on that quality itself. It names no other title.\n",
+  ],
+  [
+    "Faster and funnier, with the legal stakes played for screwball momentum.'",
+    "Screwball from the first scene, with the legal stakes driving the momentum.'",
+  ],
+  ["Warmer and more nostalgic in tone.'", "Warm and nostalgic in tone.'"],
+];
+const STANDALONE_DIFFERENTIATOR_VOICE = STANDALONE_MEDIA_SWAPS.reduce((p, [from, to]) => {
+  if (!p.includes(from)) throw new Error(`reksnap: standalone swap missing: ${from.slice(0, 40)}`);
+  return p.replace(from, to);
+}, DIFFERENTIATOR_VOICE);
+const REFERENT_OVERRIDE =
+  "REFERENT OVERRIDE for this task: comparisons are ALWAYS against the CHAINED ITEM — the direction being pursued — not the detected item. The chained item is the implicit referent; do NOT repeat its name.\n\n";
+
+const buildStandaloneChainSteerPrompt = (mode: string) => {
+  const base = buildChainSteerPrompt(mode);
+  if (!base.includes(REFERENT_OVERRIDE) || !base.includes(DIFFERENTIATOR_VOICE)) {
+    throw new Error("reksnap: standalone chain prompt drifted");
+  }
+  return base.replace(REFERENT_OVERRIDE, "").replace(DIFFERENTIATOR_VOICE, STANDALONE_DIFFERENTIATOR_VOICE);
+};
+
+// S33 (Brad, 2026-10-31) — the re-roll ("+ More like this" on the snapped
+// or typed title itself) follows the same rule for Movies/TV/Books: the
+// same MEDIA sentence-3 swap, nothing else (the re-roll has no referent
+// override to drop).
+const buildStandaloneChainRerollPrompt = (mode: string) => {
+  const base = buildChainRerollPrompt(mode);
+  if (!base.includes(DIFFERENTIATOR_VOICE)) throw new Error("reksnap: standalone re-roll prompt drifted");
+  return base.replace(DIFFERENTIATOR_VOICE, STANDALONE_DIFFERENTIATOR_VOICE);
+};
+
 const buildChainRerollPrompt = (mode: string) => {
   const voice = mode === "uses" ? USES_VOICE : DIFFERENTIATOR_VOICE;
   return (
@@ -947,25 +998,39 @@ async function handleChain(chain: any): Promise<Response> {
         (category ? `Category: ${category}\n` : "") +
         commonTail;
 
-  const completion = await llmCall({
-    step: "snap",
-    temperature: 0.7,
-    // Five cards at the backfill card budget.
-    maxTokens: 1500,
-    system:
-      kind === "steer"
-        ? buildChainSteerPrompt(mode)
-        : buildChainRerollPrompt(mode),
-    user: userContent,
-  });
+  // S32 — a media card's "+ More like this" (the client says so): the
+  // standalone lines. Never for uses-mode (its own grammar) or a chain
+  // that isn't pursuing a Movies/TV/Books title.
+  // S33 — and the re-roll on a Movies/TV/Books title.
+  const standalone =
+    chain?.standalone === true &&
+    mode !== "uses" &&
+    goToCategoryFor(kind === "steer" ? chainedCategory || category : category) !== null;
 
-  const text = jsonText(completion.text);
-  let parsed: any = null;
-  try {
-    parsed = JSON.parse(text);
-  } catch {
-    return Response.json({ error: "Chain failed" }, { status: 502 });
-  }
+  const system =
+    kind === "steer"
+      ? standalone
+        ? buildStandaloneChainSteerPrompt(mode)
+        : buildChainSteerPrompt(mode)
+      : standalone
+      ? buildStandaloneChainRerollPrompt(mode)
+      : buildChainRerollPrompt(mode);
+
+  // S33 (Brad, 2026-10-31) — a reply that doesn't parse is retried once,
+  // silently; only a second miss shows the failure line. Both attempts
+  // are logged (src/lib/parseRetry.ts).
+  const chainCall = () =>
+    llmCall({
+      step: "snap",
+      temperature: 0.7,
+      // Five cards at the backfill card budget.
+      maxTokens: 1500,
+      system,
+      user: userContent,
+    });
+  const chainRead = await parseWithRetry("chain", { kind }, chainCall, chainCall, (t) => JSON.parse(jsonText(t)));
+  if (!chainRead.ok) return Response.json({ error: "Chain failed" }, { status: 502 });
+  const parsed: any = chainRead.value;
 
   const normalize = (s: string) => s.trim().toLowerCase();
   // Belt-and-braces: the model was told, but never trust it. Violators are
@@ -997,6 +1062,22 @@ async function handleChain(chain: any): Promise<Response> {
         undefined,
     });
     if (reks.length === 5) break;
+  }
+
+  // S32 — THE GUARANTEE (the prompt is pressure): a sentence that still
+  // compares, or names the tapped title or the snapped one, never ships.
+  // A card with nothing left doesn't ship either.
+  if (standalone) {
+    for (let i = reks.length - 1; i >= 0; i--) {
+      const a = dropComparingSentences(reks[i].description, kind === "steer" ? chained.name : item.name);
+      const b = dropComparingSentences(a.text, item.name);
+      const dropped = [...a.dropped, ...b.dropped];
+      if (!dropped.length) continue;
+      console.warn("[chain] standalone: comparing sentences removed", { name: reks[i].name, dropped, kept: !!b.text });
+      if (b.text) reks[i].description = b.text;
+      else reks.splice(i, 1);
+    }
+    console.info("[chain] standalone", { kind, seed: kind === "steer" ? chained.name : item.name, reks: reks.length });
   }
 
   if (reks.length === 0) {
@@ -1646,6 +1727,9 @@ async function handlePost(req: Request, hooks: SnapHooks = {}) {
     const priorBlock = buildPriorTasteBlock(prior ?? [], true);
 
     let text = "";
+    // S34 — what the first read was given, for the one silent re-read.
+    let readContent: VisionContent | null = null;
+    let readTemperature = 0.7;
     let usage: { prompt_tokens?: number; completion_tokens?: number } | null = null;
     let finishReason: string | null = null;
     let refusal = "";
@@ -1726,6 +1810,9 @@ async function handlePost(req: Request, hooks: SnapHooks = {}) {
             `No photo this time: the user typed a wine's name on the Wine bar instead — "${typedName}". Treat that named wine as the item in the photo. It is a wine: its category is wine, and every rek is a wine.` +
             (priorBlock ? `
 ${priorBlock}` : "");
+      readContent = typedUser;
+      // The typed path's own second read runs cooler; the re-read matches it.
+      readTemperature = 0.3;
       for (let attempt = 1; attempt <= 2; attempt++) {
         if (attempt === 1) {
           // S14 — the first read streams, with the photo path's wine cut
@@ -1791,16 +1878,17 @@ ${priorBlock}` : "");
     } else if (strips.length > 0) {
       // Not streamed and no media path: this only runs after a failed read,
       // and a strip set is a shelf, not a poster.
+      readContent = [
+        { type: "text", text: stripsNote(strips.length) },
+        ...strips.map((url) => ({ type: "image" as const, url, detail: "high" as const })),
+        ...(priorBlock ? [{ type: "text" as const, text: priorBlock }] : []),
+      ];
       const completion = await llmCall({
         step: "vision",
         temperature: 0.7,
         maxTokens: 4000,
         system: SYSTEM_PROMPT,
-        user: [
-          { type: "text", text: stripsNote(strips.length) },
-          ...strips.map((url) => ({ type: "image" as const, url, detail: "high" as const })),
-          ...(priorBlock ? [{ type: "text" as const, text: priorBlock }] : []),
-        ],
+        user: readContent,
       });
       text = jsonText(completion.text);
       usage = completion.usage;
@@ -1810,14 +1898,13 @@ ${priorBlock}` : "");
     } else {
       // S8a — detail "high" explicit (the default "auto" leaves the choice
       // to the API; a shelf of labels needs every pixel it can get).
-      const vision = await startVisionStream(
-        priorBlock
-          ? [
-              { type: "image", url: image, detail: "high" },
-              { type: "text", text: priorBlock },
-            ]
-          : [{ type: "image", url: image, detail: "high" }]
-      );
+      readContent = priorBlock
+        ? [
+            { type: "image", url: image, detail: "high" },
+            { type: "text", text: priorBlock },
+          ]
+        : [{ type: "image", url: image, detail: "high" }];
+      const vision = await startVisionStream(readContent);
       // S3.0 — a movie or TV snap takes the TMDb path the moment the
       // anchor is identified; the rest of the vision output is not needed.
       const early = await vision.detected;
@@ -1887,10 +1974,39 @@ ${priorBlock}` : "");
         { status: 502 }
       );
     };
-    try {
-      parsed = JSON.parse(text);
-    } catch {
-      return readFailed("unparseable");
+    // S34 (Brad, 2026-10-31) — the first read of a photo (shelf, bottle,
+    // poster, TV) or a typed bottle: a reply that doesn't parse is re-read
+    // once, silently (same input, not streamed); only a second miss is
+    // the failure line. Both attempts are logged (src/lib/parseRetry.ts).
+    const attemptKind = typed ? "typed" : strips.length > 0 ? "strips" : "photo";
+    const firstText = text;
+    const read = await parseWithRetry(
+      "snap-read",
+      { attempt: attemptKind },
+      async () => ({ text: firstText, finishReason }),
+      async () => {
+        const again = await llmCall({
+          step: "vision",
+          temperature: readTemperature,
+          maxTokens: 4000,
+          system: SYSTEM_PROMPT,
+          user: readContent ?? "",
+        });
+        text = jsonText(again.text);
+        usage = again.usage;
+        finishReason = again.finishReason;
+        refusal = again.refusal;
+        return { text, finishReason };
+      },
+      (t) => JSON.parse(t)
+    );
+    if (!read.ok) return readFailed("unparseable");
+    parsed = read.value;
+    // A re-read poster or TV screen still takes the TMDb path, as the
+    // first read would have once its anchor streamed.
+    if (read.attempt > 1 && !typed && strips.length === 0 && parsed?.detected_item && typeof parsed.detected_item === "object") {
+      const media = await tryMediaSnap(parsed.detected_item, clientId, () => {});
+      if (media) return media;
     }
 
     const detected = parsed?.detected_item;

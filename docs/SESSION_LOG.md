@@ -3369,3 +3369,122 @@ Promote `main → release/v2` (yours). There are no env, SQL or migration change
 Promote `main → release/v2` (yours). There are no env, SQL or migration changes. Revert: `git revert -m 1 ed77b2f`.
 
 **§0 check: consistent.** One plain line tells people what a tap does. It's fewer buttons, not more. Nothing new is sent or stored.
+
+## Session 31 — More like this: standalone lines, Compare to [Title] unchecked — 2026-10-31 — branch auto/s31-mlt-compare
+
+**Brief (Brad, in chat):** More like this picks stay seeded on the tapped title. Each card's line stands alone (no "Same…, but…", "Trades X for Y" or "instead of…"). A "Compare to [Title] ☐" row starts unchecked. Checking it adds "vs. [Title]:" lines with no re-ranking; unchecking removes them; "+" works as now. The choice holds until the category changes or a new search starts. Wine follows the same rule. Change only the prompt instruction that made the lines comparative.
+
+### SHIPPED
+**#110 → 6f35b26**
+- **Prompts:** Movies/TV chooser: `STANDALONE_CHOOSER_PROMPT` (six lines swapped) used only when `/api/anchor` reks gets `mlt: true`. `CHOOSER_PROMPT` is unchanged for every other path. Search-lane engine: `placeAgainstSeed` gates the line-writing branches, so Movies/TV/Books seeded sets get the no-seed sentence rules plus the pick line and the seed's name. Wine's seeded verdict grammar is untouched (§2.3).
+- **Guarantee:** `src/lib/standaloneLine.ts` catches comparative phrasing or the seed's name. The chooser falls back to the synopsis's first sentence; the search lane drops the sentence (and the card if nothing is left). Both log.
+- **Row:** `MltCompare.tsx` (`useMltCompare`), shared by ResultsV4 and RekSnapResults. `CompareHeader` gains `pendingName`. Lines come from the existing `/api/slots` lines action. Stored Compare to refs don't steer or line a More like this set. The choice clears on a new search, a snap, home, or a category change.
+- **Wine:** More like this starts with no reference (blue dots only). Checking it shows the server's vs. lines and the orange rings, with no re-run. A typed bottle still auto-compares (S26b).
+- **Not changed:** the snap-lane chain ("+ More like this" under a snapped or typed title). Its lines are the locked snap voice.
+
+### TESTS
+- New `validate-s31`: 26/26. 53 suites, tsc, lint and build pass.
+- New `pw-s31-mlt`: 32/32 locally and on the preview. On the preview, `pw-s26b-shelf` 42/42, `pw-s26a-home` 41/41, `pw-s29-home-square` 53/53 and `pw-s30-list-hints` 35/35.
+- Live model check: Movies More like this lines came back standalone with no fallback. One seeded Books set had the guard remove a comparing sentence.
+
+### PHONE CHECKLIST (after promotion)
+1. Favorites → tap a movie. The results show "Compare to [Title]" unchecked, and the lines don't mention or compare to it.
+2. Check it. Each card gains "vs. [Title]:" (or "vs. your [Title]:" if starred), and the picks don't change. Uncheck it and the lines go away.
+3. Tap "+" and the Compare to sheet opens as before.
+4. Card "+ More like this" (search results) shows the row naming that card.
+5. Start a new typed search or change the category, and the row is gone.
+6. Wine: Bought → More. You see blue dots only and an unchecked row. Check it and the lines and orange rings appear.
+
+### PROMOTION
+Promote `main → release/v2` (yours). There are no env, SQL or migration changes. Revert: `git revert -m 1 6f35b26`.
+
+**§0 check: consistent.** Picks still follow what the person loved. Comparison is now their choice, not imposed. Nothing new is stored or sent.
+
+## Session 32 — Snap-lane "+ More like this": standalone lines, Compare to [Title] unchecked — 2026-10-31 — branch auto/s32-snap-chain-mlt
+
+**Brief (Brad, in chat; S31 call 1 approved):** "+ More like this" on a card under a snapped or typed title follows the same rule: standalone lines, Compare to [Title] unchecked. Change only the instruction that makes those lines comparative; leave the rest of the snap voice as it is.
+
+### SHIPPED
+**#112 → 77358a0**
+- **Prompt:** `/api/reksnap` chain steer with `standalone`, for a Movies/TV/Books pursuit only. It drops the referent override and swaps the MEDIA clause's sentence 3 (placement against the anchor → the title's own register) plus its two examples. The rest of DIFFERENTIATOR_VOICE and the chain prompt is byte-identical. Wine, consumables, products and uses-mode chains are unchanged.
+- **Backstop:** sentences that compare or name either title are removed, and a card with nothing left doesn't ship. `standaloneLine.ts` also now catches "further … than" and "than the source/original…" (from a live leak), which tightens S31 too.
+- **Client:** the chained card becomes the Compare to seed once its set lands. An anchor re-roll or a new snap ends it, a second chain names the new card unchecked, and the seed never gets a line against itself.
+
+### TESTS
+- New `validate-s32`: 26/26. 54 suites, tsc, lint and build pass.
+- New `pw-s32-snap-chain`: 19/19 locally and on the preview. Also on the preview: S31 32/32, S26b 42/42, S26a 41/41, S29 53/53, S30 35/35.
+- **Live (Heat, 3 chains):**
+  - The first prompt version made 13/15 third sentences open "It plays as…", copying its example. I removed the example and the next run varied.
+  - All lines were standalone after the guard. It removed one "trades" sentence; one "further … than the source" slipped through and is now caught.
+  - One chain returned 502: the model's JSON didn't parse. That is the existing failure path, and the user sees the existing failure line.
+
+### PHONE CHECKLIST (after promotion)
+1. Type a movie (e.g. Heat) and tap "+ More like this" on a card. The new five carry no comparison, and "Compare to [that card]" shows unchecked.
+2. Check it. Each card gets "vs. [card]:" and the picks don't change. Uncheck it and the lines go.
+3. Chain again. The row names the new card, unchecked.
+4. Wine or a scotch snap: "+ More like this" on a card behaves as before.
+
+### PROMOTION
+Promote `main → release/v2` (yours). There are no env, SQL or migration changes. Revert: `git revert -m 1 77358a0`.
+
+**§0 check: consistent.** Picks still follow the direction the person chose, and comparing is opt-in. Nothing new is stored or sent.
+
+## Session 33 — Title re-roll standalone + silent retry on an unparsed chain reply — 2026-10-31 — branch auto/s33-reroll-retry
+
+**Brief (Brad, in chat; S32 call 1 approved):** the re-roll ("+ More like this" on the snapped or typed title itself) follows the standalone rule for Movies, TV and Books. Change only the instruction that makes those lines comparative, and leave wine and other products as they are. When the model's reply fails to parse, retry once silently before showing the failure line, and log both attempts.
+
+### SHIPPED
+**#114 → 8afdd4a**
+- **Re-roll:** `buildStandaloneChainRerollPrompt` applies S32's MEDIA sentence-3 swap and nothing else (the re-roll has no referent override). It runs only with `standalone`, outside uses-mode, for a Movies/TV/Books anchor. Wine, other products, uses-mode and unflagged calls are byte-identical. The guarantee strips sentences that compare or name the title. The client makes the title the Compare to seed (with its TMDb id), so "Compare to [Title]" shows unchecked.
+- **Retry:** `handleChain` (steer and re-roll, every category) makes up to 2 attempts when JSON.parse fails.
+  - Attempt 1 logs a warn (`[chain] parse failed — retrying`), with chars, finish reason and the error.
+  - A success on the retry logs an info line.
+  - Attempt 2 logs an error (`… giving up`), then the existing 502 and failure line.
+  - The wine branch and the vision call are not covered.
+
+### TESTS
+- New `validate-s33`: 31/31. `validate-s32` was updated for the re-roll seed. 55 suites, tsc, lint and build pass.
+- New `pw-s33-reroll`: 9/9 locally and on the preview. Also on the preview: S32 19/19, S31 32/32, S26b 42/42, S26a 41/41, S29 53/53, S30 35/35.
+- Live: three standalone re-rolls on Heat gave 15/15 standalone lines, with no guard hits and no parse failures.
+
+### PHONE CHECKLIST (after promotion)
+1. Star a movie, type it, then tap "+ More like this" on the title. The new five carry no comparison, and "Compare to [Title]" shows unchecked.
+2. Check it. Each card gets "vs. your [Title]:" and the picks don't change. Uncheck it and the lines go.
+3. On a wine bottle, tap "+ More like this" on the title. It behaves as before.
+
+### PROMOTION
+Promote `main → release/v2` (yours). There are no env, SQL or migration changes. Revert: `git revert -m 1 8afdd4a`.
+
+**§0 check: consistent.** Comparing is opt-in on every More like this, and a parse miss is retried instead of shown. Nothing new is stored or sent.
+
+## Session 34 — Silent retry on an unparsed reply: wine picks, shelf read, first photo read — 2026-10-31 — branch auto/s34-retry-wine-vision
+
+**Brief (Brad, in chat; S33 call 1 approved):** extend the silent one-time retry to wine's re-roll and card chain, and to the first read of a photo (shelf, bottle, poster, TV). Log the same way.
+
+### SHIPPED
+**#116 → 48f8109**
+- **Helper:** `src/lib/parseRetry.ts` (`parseWithRetry`) is used at every site.
+  - Attempt 1 logs a warn `[tag] parse failed — retrying`.
+  - A success on attempt 2 logs an info `[tag] parse retry succeeded`.
+  - A miss on attempt 2 logs an error `[tag] parse failed — giving up`.
+  - Each line carries attempt, of, chars, finishReason and the error. Only parse misses retry.
+- **Tags:**
+  - `chain` (S33, moved onto the helper; same lines).
+  - `wine`: every `generateWineReks` caller, which covers the card chain, re-roll, first set, price chip and replacement.
+  - `wine-shelf`: the shelf read. A second miss falls into the existing fail-soft.
+  - `snap-read`: the first read of a whole photo, strips or a typed bottle. The re-read is not streamed and uses the same input and prompt. A second miss gives the existing `[snap-read-fail]` and failure line.
+- A re-read poster or TV screen still takes the TMDb path.
+- `validate-s8a/s10/s13a` were updated for the re-read: there is now a fourth `SYSTEM_PROMPT` call, and the refusal fixtures refuse twice.
+
+### TESTS
+- New `validate-s34`: 28/28. 56 suites, tsc, lint and build pass.
+- On the preview: S33 9/9, S32 19/19, S31 32/32, S26b 42/42, S26a 41/41, S29 53/53, S30 35/35.
+- Live: a typed wine and a wine re-roll each made one call and logged no retries.
+
+### NOT COVERED
+Backfill (one replacement card), Show details, the typed-wine classifier and the search lane's /api/openai still fail on one bad reply.
+
+### PROMOTION
+Promote `main → release/v2` (yours). There are no env, SQL or migration changes. Revert: `git revert -m 1 48f8109`.
+
+**§0 check: consistent.** A bad model reply is retried instead of shown, so there are fewer dead ends. Nothing new is stored or sent.

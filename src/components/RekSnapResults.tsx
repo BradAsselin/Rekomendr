@@ -30,9 +30,10 @@ import WineFacts from "./WineFacts";
 import WineTopCard, { firstSentence } from "./WineTopCard";
 import WineCompareSheet from "./WineCompareSheet";
 import { CompareHeader } from "./CompareSheet";
+import { useMltCompare, vsLeadFor, type MltSeed } from "./MltCompare";
 import { refPayload, sameRef, type WineRef } from "../lib/wineCompare";
 import GoToStar from "./GoToStar";
-import { goToCategoryFor } from "../lib/goToCategory";
+import { BAR_CATEGORY, goToCategoryFor } from "../lib/goToCategory";
 import { WatchedButton, WatchedToast, UndoToast, type UndoToastLabel } from "./WatchedControl";
 import { useWatchedMarks, watchedCategory, type WatchedItem, TOAST_MS } from "../lib/useWatchedMarks";
 import PosterThumb from "./PosterThumb";
@@ -183,12 +184,35 @@ type Props = {
   // S16 — a card's "Watched" mark or undo; the page keeps its session
   // list, which every re-run excludes.
   onWatchedChange?: (item: WatchedItem, watched: boolean) => void;
+  // S31 — this set came from More like this: a Movies/TV title (named,
+  // unchecked, over the five) or, for wine, the bottle itself (its
+  // comparison starts off; checking it shows the lines and ring).
+  mltSeed?: MltSeed | null;
+  mltWine?: boolean;
 };
 
 // S18b — the D2 card is Movies/TV's (books and wine keep theirs).
 const isD2Category = (raw: unknown) => {
   const c = goToCategoryFor(raw);
   return c === "movies" || c === "tv";
+};
+
+// S32 — "+ More like this" on a Movies/TV/Books card under a snapped or
+// typed title: the chained card becomes the More like this seed (S31's
+// rule — standalone lines, "Compare to [Title]" unchecked). Null for
+// every other chain (wine, consumables, products, uses-mode), which keep
+// the snap voice as it was.
+const chainSeedFor = (rek: SnapRek, anchorCategory: unknown, mode: SnapMode): MltSeed | null => {
+  if (mode === "uses" || rek.wine) return null;
+  const c = goToCategoryFor(rek.category || anchorCategory);
+  if (!c) return null;
+  return {
+    category: BAR_CATEGORY[c],
+    name: rek.name,
+    year: rek.year ?? null,
+    tmdbKind: c === "movies" ? "movie" : c === "tv" ? "tv" : null,
+    tmdbId: null,
+  };
 };
 
 // One failure voice, shared verbatim with the search lane's AI misses.
@@ -221,7 +245,16 @@ const RekSnapResults: React.FC<Props> = ({
   shelfPreview,
   barCategory,
   onWatchedChange,
+  mltSeed = null,
+  mltWine = false,
 }) => {
+  const mltWineRef = useRef(mltWine);
+  mltWineRef.current = mltWine;
+  // S31 — wine More like this: the bottle the set came from, offered
+  // unchecked as "Compare to [Bottle]" (the server already wrote its lines).
+  const [winePending, setWinePending] = useState<WineRef | null>(null);
+  // S32 — the card a chain pursued, when it is a Movies/TV/Books title.
+  const [chainSeed, setChainSeed] = useState<MltSeed | null>(null);
   // Thumb marks and saves are independent per item name (a card can be
   // thumbed-up AND saved). Thumbs are one-active-within-thumbs and toggle on
   // repeat tap — same grammar as the search lane.
@@ -518,8 +551,13 @@ const RekSnapResults: React.FC<Props> = ({
               },
             ]
           : [];
-      wineRefsRef.current = autoRef;
-      setWineRefs(autoRef);
+      // S31 — a More like this wine set starts off: the bottle waits,
+      // unchecked, in the Compare to row.
+      const startOff = mltWineRef.current && autoRef.length > 0;
+      setWinePending(startOff ? autoRef[0] : null);
+      setChainSeed(null);
+      wineRefsRef.current = startOff ? [] : autoRef;
+      setWineRefs(startOff ? [] : autoRef);
       preCompareRef.current = null;
       setWineSheetOpen(false);
       tasteSeenRef.current = new Map();
@@ -1267,10 +1305,13 @@ const RekSnapResults: React.FC<Props> = ({
     depth: number;
     mode: SnapMode;
     trailEntries: TrailEntry[];
+    // S32 — a Movies/TV/Books title pursued: standalone lines.
+    standalone?: boolean;
   }) => {
     const forResult = resultRef.current!;
     return {
       kind: "steer",
+      ...(args.standalone ? { standalone: true } : {}),
       detectedItem: forResult.detected_item,
       mode: args.mode,
       chained: {
@@ -1306,7 +1347,10 @@ const RekSnapResults: React.FC<Props> = ({
     mode: SnapMode,
     restoreList: SnapRek[],
     // S8b — "wine" sends the payload to the shelf engine's branch.
-    branch: "chain" | "wine" = "chain"
+    branch: "chain" | "wine" = "chain",
+    // S32 — the More like this seed once the set lands (null ends it;
+    // undefined leaves it as it is).
+    seedAfter?: MltSeed | null
   ) => {
     const forResult = resultRef.current;
     if (!forResult) return;
@@ -1382,6 +1426,7 @@ const RekSnapResults: React.FC<Props> = ({
       cleaned.forEach((r) => everShownRef.current.add(r.name));
       if (branch === "wine") noteWineShown(cleaned.map((r) => r.name), forResult.detected_item.name);
       setLists((prev) => (prev ? { ...prev, [mode]: cleaned } : prev));
+      if (seedAfter !== undefined) setChainSeed(seedAfter);
       setChainError(null);
     } catch (err) {
       console.error("RekSnap chain failed:", err);
@@ -1431,6 +1476,7 @@ const RekSnapResults: React.FC<Props> = ({
         prev[rek.name] === "like" ? prev : { ...prev, [rek.name]: "like" }
       );
       const wipe = commitChainWipe({ mode, chainedRek: rek });
+      const seed = chainSeedFor(rek, forResult.detected_item.category, mode);
       if (!wipe) {
         chainBusyRef.current = false;
         return;
@@ -1448,10 +1494,12 @@ const RekSnapResults: React.FC<Props> = ({
               depth,
               mode,
               trailEntries: wipe.trailForPrompt,
+              standalone: !!seed,
             }),
         mode,
         wipe.restoreList,
-        wineList(forResult, mode) ? "wine" : "chain"
+        wineList(forResult, mode) ? "wine" : "chain",
+        wineList(forResult, mode) ? undefined : seed
       );
     }, 250);
   };
@@ -1481,6 +1529,7 @@ const RekSnapResults: React.FC<Props> = ({
 
     setActiveMode(mode);
     const wipe = commitChainWipe({ mode });
+    const seed = chainSeedFor(entry.rek, forResult.detected_item.category, mode);
     if (!wipe) {
       chainBusyRef.current = false;
       return;
@@ -1498,10 +1547,12 @@ const RekSnapResults: React.FC<Props> = ({
             depth,
             mode,
             trailEntries: wipe.trailForPrompt,
+            standalone: !!seed,
           }),
       mode,
       wipe.restoreList,
-      wineList(forResult, mode) ? "wine" : "chain"
+      wineList(forResult, mode) ? "wine" : "chain",
+      wineList(forResult, mode) ? undefined : seed
     );
   };
 
@@ -1536,6 +1587,21 @@ const RekSnapResults: React.FC<Props> = ({
       );
       return;
     }
+    const anchorSeed = chainSeedFor(
+      {
+        name: forResult.detected_item.name,
+        description: "",
+        category: forResult.detected_item.category,
+        rank: 0,
+        year: forResult.detected_item.year ?? null,
+      },
+      forResult.detected_item.category,
+      mode
+    );
+    const seed: MltSeed | null =
+      anchorSeed && forResult.media
+        ? { ...anchorSeed, tmdbKind: forResult.media.kind, tmdbId: forResult.media.id ?? null }
+        : anchorSeed;
     void fetchChainSet(
       {
         kind: "reroll",
@@ -1551,9 +1617,15 @@ const RekSnapResults: React.FC<Props> = ({
         clientId: getAnonymousClientId(),
         // S2 — the anchor's attestation; verified server-side first.
         anchorToken: forResult.detected_item_token,
+        // S33 — a Movies/TV/Books title re-rolled: standalone lines.
+        ...(seed ? { standalone: true } : {}),
       },
       mode,
-      wipe.restoreList
+      wipe.restoreList,
+      "chain",
+      // S33 — the re-rolled title is the More like this seed ("Compare to
+      // [Title]" unchecked); null for any other anchor.
+      seed
     );
   };
 
@@ -1853,6 +1925,22 @@ const RekSnapResults: React.FC<Props> = ({
       watched.undo(item);
       if (restore) setTimeout(restore, 260);
     });
+  };
+
+  // S31 — Movies/TV More like this: the tapped title, unchecked, over
+  // the five; checked, each card carries the "vs." line for it.
+  const mediaCat = result?.media ? (result.media.kind === "movie" ? "Movies" : "TV Shows") : null;
+  // S32 — a chained Movies/TV/Books card is the seed once its set lands.
+  const activeSeed = chainSeed ?? (mltSeed && mediaCat && mltSeed.category === mediaCat ? mltSeed : null);
+  const mediaMlt = useMltCompare(
+    activeSeed,
+    [...trail.map((e) => e.rek), ...(lists?.[activeMode] ?? [])].map((r) => ({ title: r.name, year: r.year ?? null }))
+  );
+  const mltLine = (name: string) => (mediaMlt.on ? mediaMlt.lineFor(name) : null);
+  const mltShort = (r: SnapRek) => mltLine(r.name)?.short ?? r.description;
+  const mltLead = (r: SnapRek) => {
+    const l = mltLine(r.name);
+    return l && activeSeed ? vsLeadFor(activeSeed.category, l.vsGoTo) : undefined;
   };
 
   if (loading) {
@@ -2469,7 +2557,7 @@ const RekSnapResults: React.FC<Props> = ({
               <TrailRow
                 key={entry.rek.name}
                 title={entry.rek.name}
-                hint={entry.rek.description}
+                hint={mltShort(entry.rek)}
                 thumbed={thumbSignals[entry.rek.name] === "like"}
                 saved={!!savedNames[entry.rek.name]}
                 titleHref={titleLinkFor(entry.rek.name, entry.rek.category)}
@@ -2495,7 +2583,7 @@ const RekSnapResults: React.FC<Props> = ({
                   factsLine={d2 ? factsLineFor(entry.rek.name) : undefined}
                   title={entry.rek.name}
                   year={entry.rek.year ?? undefined}
-                  short={entry.rek.description}
+                  short={mltShort(entry.rek)}
                   long={entry.rek.long || undefined}
                   detailsOpen={openRek === entry.rek.name}
                   onToggleDetails={() =>
@@ -2525,7 +2613,7 @@ const RekSnapResults: React.FC<Props> = ({
                   }
                   dimmed={watchedOn(entry.rek.name, entry.rek.category)}
                   infoSlot={wineFactsFor(entry.rek)}
-                  shortLead={wineLead(entry.rek)}
+                  shortLead={wineLead(entry.rek) ?? mltLead(entry.rek)}
                   starSlot={
                     entry.rek.wine || goToCategoryFor(entry.rek.category)
                       ? starFor(entry.rek.name, entry.rek.description, entry.rek.wine ?? null, entry.rek.category)
@@ -2633,6 +2721,17 @@ const RekSnapResults: React.FC<Props> = ({
           </div>
         )}
 
+        {/* S31 — Movies/TV More like this: "Compare to [Title] ☐". */}
+        {mediaMlt.active && !anchorIsHealthMedical && (
+          <div
+            className="mb-3 flex items-center gap-2"
+            data-testid="mlt-compare-row"
+            data-lines-pending={mediaMlt.pending || undefined}
+          >
+            {mediaMlt.row}
+          </div>
+        )}
+
         {/* S26b — wine's Compare to row (board W1): "Your 5 from this
             shelf" on a shelf snap, and the movie header's own button and
             chips on the right. */}
@@ -2643,8 +2742,17 @@ const RekSnapResults: React.FC<Props> = ({
             )}
             <CompareHeader
               refs={wineRefs.map((r) => ({ name: shortWineName(r.name) }))}
+              pendingName={!wineRefs.length && winePending ? shortWineName(winePending.name) : undefined}
               onOpen={() => {
-                if (!chainBusyRef.current) setWineSheetOpen(true);
+                if (chainBusyRef.current) return;
+                // S31 — checking the bottle turns on the lines the server
+                // already wrote against it: no re-run.
+                if (!wineRefs.length && winePending) {
+                  wineRefsRef.current = [winePending];
+                  setWineRefs([winePending]);
+                  return;
+                }
+                setWineSheetOpen(true);
               }}
               onRemove={(short) => applyWineRefs(wineRefs.filter((r) => shortWineName(r.name) !== short))}
             />
@@ -2688,7 +2796,7 @@ const RekSnapResults: React.FC<Props> = ({
                 title={rek.name}
                 year={rek.year ?? undefined}
                 rank={rek.rank}
-                short={rek.description}
+                short={mltShort(rek)}
                 long={rek.long || undefined}
                 detailsOpen={openRek === rek.name}
                 onToggleDetails={() =>
@@ -2711,7 +2819,7 @@ const RekSnapResults: React.FC<Props> = ({
                 }
                 dimmed={watchedOn(rek.name, rek.category)}
                 infoSlot={wineFactsFor(rek)}
-                shortLead={wineLead(rek)}
+                shortLead={wineLead(rek) ?? mltLead(rek)}
                 starSlot={
                   rek.wine || goToCategoryFor(rek.category)
                     ? starFor(rek.name, rek.description, rek.wine ?? null, rek.category)

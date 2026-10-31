@@ -247,6 +247,9 @@ async function reks(body: any): Promise<Response> {
     taste,
     lane,
     path: "typed",
+    // S31 — More like this: standalone lines (the picks are still chosen
+    // around this title).
+    standalone: body?.mlt === true,
   });
   // Honest-short (§2.4): nothing real to offer → say so, never pad.
   return Response.json(

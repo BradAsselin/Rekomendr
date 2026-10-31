@@ -27,20 +27,24 @@ import { MAX_REFS, type CompareCategory, type CompareRef } from "../lib/compareT
    The header
 ------------------------------------------------------------------- */
 // S26b — wine passes its references by name too ({ name } is all it reads).
+// S31 — `pendingName`: a More like this set names its tapped title on the
+// unchecked button ("Compare to Arrival ☐"); tapping it checks that title.
 export const CompareHeader: React.FC<{
   refs: Pick<CompareRef, "name">[];
   onOpen: () => void;
   onRemove: (name: string) => void;
-}> = ({ refs, onOpen, onRemove }) =>
+  pendingName?: string;
+}> = ({ refs, onOpen, onRemove, pendingName }) =>
   refs.length === 0 ? (
     <button
       type="button"
       onClick={onOpen}
       data-testid="compare-open"
-      className="ml-auto flex shrink-0 items-center gap-1.5 rounded-full border border-white/40 px-3 py-1.5 text-[13px] font-medium text-white active:scale-[0.98] sm:border-gray-300 sm:text-gray-800"
+      aria-pressed={pendingName ? false : undefined}
+      className="ml-auto flex min-w-0 max-w-full items-center gap-1.5 rounded-full border border-white/40 px-3 py-1.5 text-[13px] font-medium text-white active:scale-[0.98] sm:border-gray-300 sm:text-gray-800"
     >
-      Compare to
-      <Square size={14} strokeWidth={2} aria-hidden="true" />
+      <span className="truncate">{pendingName ? `Compare to ${pendingName}` : "Compare to"}</span>
+      <Square size={14} strokeWidth={2} aria-hidden="true" className="shrink-0" />
     </button>
   ) : (
     <div className="ml-auto flex flex-wrap items-center justify-end gap-1.5" data-testid="compare-chips">

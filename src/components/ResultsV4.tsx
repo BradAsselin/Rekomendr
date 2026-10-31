@@ -36,6 +36,7 @@ import { resurfacedMarker } from "../engine/rekomendrEngine";
 
 // Descriptor typing
 import type { RekCategory } from "../lib/descriptors";
+import { useMltCompare, type MltSeed } from "./MltCompare";
 
 // Media gate — same set the snap lane's anchor verbs use, so the two lanes
 // can never drift. "movies" and "tv shows" are exact members; Books/Wine
@@ -100,6 +101,9 @@ interface ResultsProps {
   header?: string | null;
   // S24a — the header row's right side (the page's "Compare to" control).
   headerRight?: React.ReactNode;
+  // S31 — this set came from More like this on a Saved-page row: the
+  // tapped title, for the unchecked "Compare to [Title]" row.
+  mltSeed?: MltSeed | null;
 }
 
 const ResultsV4: React.FC<ResultsProps> = ({
@@ -120,8 +124,12 @@ const ResultsV4: React.FC<ResultsProps> = ({
   linesPending,
   header,
   headerRight,
+  mltSeed = null,
 }) => {
   const [reks, setReks] = useState<Rek[]>([]);
+  // S31 — "+ More like this" on a card here: the tapped card seeds the
+  // new five and is the Compare to title named over them (unchecked).
+  const [cardSeed, setCardSeed] = useState<MltSeed | null>(null);
   // Mark state (graduation model, same as the snap lane): thumbs-up marks
   // a contender, Save marks a keeper — both toggle off on second tap.
   // Kept as full Reks so their titles keep flowing into likedTitles even
@@ -345,6 +353,7 @@ const ResultsV4: React.FC<ResultsProps> = ({
     // likedTitles — steer in the prompt, excluded from candidates by the
     // engine's avoid list and response drop-set.
     frontierEpochRef.current++; // in-flight backfills belong to the old view
+    setCardSeed(null); // S31 — a new set drops the card's More like this choice
     setTrail([]);
     setMigrating(null);
     setEntering(null);
@@ -474,6 +483,15 @@ const ResultsV4: React.FC<ResultsProps> = ({
    * ----------------------------- */
   const handleMoreLikeThis = async (rek: Rek) => {
     recordLike({ category, title: rek.title, year: rek.year, action: 'more_like_this' });
+    if (category === "Movies" || category === "TV Shows" || category === "Books") {
+      setCardSeed({
+        category,
+        name: rek.title,
+        year: rek.year || null,
+        tmdbKind: category === "Movies" ? "movie" : category === "TV Shows" ? "tv" : null,
+        tmdbId: null,
+      });
+    }
 
     // Chain-parity: the tapped card is a PURSUED KEEP — it marks as a
     // like locally and graduates to the trail with the wipe's flush
@@ -838,6 +856,23 @@ const ResultsV4: React.FC<ResultsProps> = ({
         : `vs. ${rek.vsGoTo}:`
       : undefined;
 
+  // S31 — a More like this set: lines stand alone until its Compare to
+  // row is checked; then each card carries the "vs." line for it.
+  const mlt = useMltCompare(
+    cardSeed ?? mltSeed,
+    [...trail, ...reks].map((r) => ({
+      title: r.title,
+      year: r.year || null,
+      ...(category === "Books" ? { overview: r.baseShort ?? (r.long || r.short || "") } : {}),
+    }))
+  );
+  const view = (r: Rek): Rek => {
+    if (!mlt.active) return r;
+    const line = mlt.lineFor(r.title);
+    if (line) return { ...r, short: line.short, vsGoTo: line.vsGoTo };
+    return r.vsGoTo ? { ...r, short: r.baseShort ?? r.short, vsGoTo: null } : r;
+  };
+
   // S16 — "Watched" on every Movies/TV/Books card (bottom-left, always
   // visible; replaces S1's expanded-only "Watched it"). Wine has its own
   // actions and gets none; the gate is the go-to allow-list.
@@ -959,7 +994,7 @@ const ResultsV4: React.FC<ResultsProps> = ({
           >
             {header}
           </div>
-          {headerRight}
+          {mlt.active ? mlt.row : headerRight}
         </div>
       )}
 
@@ -974,7 +1009,7 @@ const ResultsV4: React.FC<ResultsProps> = ({
           />
         </div>
       ) : (
-        <div className="w-full max-w-xl space-y-3" data-lines-pending={linesPending || undefined}>
+        <div className="w-full max-w-xl space-y-3" data-lines-pending={linesPending || mlt.pending || undefined}>
           {/* THE TRAIL — the user's decided keeps, compact, at the top of
               the results. Tapping a row expands it in place to a full
               RekCard. Trail cards never get `swipeable` (keep-protection
@@ -986,7 +1021,7 @@ const ResultsV4: React.FC<ResultsProps> = ({
                 <TrailRow
                   key={rek.id}
                   title={rek.title}
-                  hint={rek.short}
+                  hint={view(rek).short}
                   thumbed={contenders.some((c) => c.id === rek.id)}
                   saved={saved.some((s) => s.id === rek.id)}
                   /* Media titles link out — same gate as the media verbs. */
@@ -1007,7 +1042,7 @@ const ResultsV4: React.FC<ResultsProps> = ({
                     layout={d2 ? "d2" : "classic"}
                     poster={d2 ? posterFor(rek) : undefined}
                     factsLine={d2 ? factsOf(rek) : undefined}
-                    short={rek.short}
+                    short={view(rek).short}
                     long={rek.long}
                     watchedSlot={watchedFor(rek)}
                     dimmed={watched.isWatched(rek.title)}
@@ -1026,7 +1061,7 @@ const ResultsV4: React.FC<ResultsProps> = ({
                     onSave={() => handleSave(rek)}
                     shareSlot={shareFor(rek)}
                     starSlot={starFor(rek) ?? <GoToStar item={goToItem(rek)} />}
-                    shortLead={vsLead(rek)}
+                    shortLead={vsLead(view(rek))}
                     /* Media verbs stay expansion-gated in this lane; RIGHT
                        stays empty — no chaining from the trail. */
                     verbLeft={
@@ -1074,7 +1109,7 @@ const ResultsV4: React.FC<ResultsProps> = ({
                    is gone); the slot itself still runs. A screen set's
                    "Start with this one" stays — it's that set's answer. */
                 markerLine={d2 ? rek.screenNote : rek.resurfacedNote ?? rek.screenNote}
-                short={rek.short}
+                short={view(rek).short}
                 long={rek.long}
                 watchedSlot={watchedFor(rek, true)}
                 dimmed={!d2 && watched.isWatched(rek.title)}
@@ -1106,7 +1141,7 @@ const ResultsV4: React.FC<ResultsProps> = ({
                 shareSlot={shareFor(rek)}
                 starSlot={d2 ? <GoToStar item={goToItem(rek)} onStar={() => noteAct("star", rek)} /> : starFor(rek)}
                 markerSlot={d2 ? undefined : touchstoneLabel(rek)}
-                shortLead={vsLead(rek)}
+                shortLead={vsLead(view(rek))}
                 /* Media verbs stay expansion-gated in this lane (logic
                    unchanged, position only); MLT is the RIGHT chain verb —
                    search lane only, where its plumbing lives. */
