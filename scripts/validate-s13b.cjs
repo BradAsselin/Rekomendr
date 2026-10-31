@@ -211,7 +211,9 @@ const shelfOf = (names, scene = "shelf") => ({
   check("loading view: existing wording only", [...new Set(labels)], ["\"Reks Ray™ is finding your reks…\"", "\"Reks Ray™ is reading your photo…\""]);
   const base = require("child_process").execSync("git show 0a81a81:src/components/RekSnapResults.tsx", { cwd: ROOT, encoding: "utf8" });
   check("…both lines already in the app before S13", ["Reks Ray™ is finding your reks…", "Reks Ray™ is reading your photo…"].every((l) => base.includes(l)), true);
-  check("no aria/visible label added to the bottle list", /data-testid="shelf-preview">/.test(results) && !/aria-label="Bottles/.test(results), true);
+  // S26b — Brad's S25 brief, item 5: the bottle pills are gone; one quiet
+  // status line ("Reading the shelf…", then its count) stands in their place.
+  check("S26b: no bottle pill list; the approved status line instead", !/data-testid="shelf-preview"/.test(results) && results.includes('"Reading the shelf…"') && results.includes("`Reading the shelf… ${early.length} bottles found`"), true);
 
   out(`\n${pass} passed, ${fail} failed.`);
   process.exit(fail ? 1 : 0);

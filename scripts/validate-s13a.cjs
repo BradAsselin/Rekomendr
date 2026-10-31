@@ -13,6 +13,9 @@ const ts = require("typescript");
 const root = path.join(__dirname, "..");
 const read = (p) => fs.readFileSync(path.join(root, p), "utf8");
 const BASE = "0a81a81"; // main before S13
+// S27 — measured over S13's own range: later sessions change prompts with
+// Brad's approval (S27: the shelf read's most popular pick).
+const S13_END = "69e4b1b";
 
 let passed = 0;
 let failed = 0;
@@ -228,7 +231,7 @@ const resetEnv = () => { for (const k of ENV_KEYS) delete process.env[k]; delete
 
   console.log("\n8. Prompts byte-identical to main before S13 (no VOICE in this PR)");
   for (const f of ["app/api/reksnap/route.ts", "src/lib/wineReks.ts", "src/lib/mediaReks.ts", "src/lib/slotRecipe.ts"]) {
-    const d = execSync(`git diff ${BASE} -- ${f}`, { cwd: root, encoding: "utf8" });
+    const d = execSync(`git diff ${BASE} ${S13_END} -- ${f}`, { cwd: root, encoding: "utf8" });
     // A string line may move (re-indent) but never change: every removed
     // literal line must come back, trimmed, among the added lines.
     const lines = d.split("\n");

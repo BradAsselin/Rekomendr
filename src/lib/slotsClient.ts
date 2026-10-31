@@ -186,10 +186,11 @@ export const goToShortName = (name: string): string => {
 // S24a — compare lines for five already on screen (an AI search's set):
 // matched by title, written against each card's closest ref. Empty on any
 // failure — the cards keep their synopses, and the log says so.
+// S25 — Books too: a book card sends its own text (no TMDb synopsis).
 export async function fetchCompareLines(
-  category: "Movies" | "TV Shows",
+  category: "Movies" | "TV Shows" | "Books",
   refs: RefIn[],
-  items: { title: string; year: number | null }[]
+  items: { title: string; year: number | null; overview?: string }[]
 ): Promise<{ title: string; short: string; vsGoTo: string }[]> {
   if (!refs.length || !items.length) return [];
   const res = await fetch("/api/slots", {

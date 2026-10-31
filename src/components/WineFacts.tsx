@@ -31,6 +31,7 @@ const TasteBar: React.FC<BarProps> = ({ left, right, value, fav, favLabel }) => 
       <div className="absolute left-0 right-0 top-1/2 h-px -translate-y-1/2 bg-gray-300" />
       {fav != null && (
         <div
+          data-testid="taste-ring"
           className="absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-amber-500 bg-white"
           style={{ left: pos(fav) }}
           title={favLabel}
@@ -55,9 +56,12 @@ type Props = {
   favorite?: { name: string; dry?: number | null; body?: number | null } | null;
   // The favorite card itself shows no ring (it would sit on its own dot).
   isFavorite?: boolean;
+  // S26b — the ring is the Compare to reference; "your" only when that
+  // reference is the starred go-to (the movie rule). Default: your.
+  refIsGoTo?: boolean;
 };
 
-const WineFacts: React.FC<Props> = ({ info, favorite, isFavorite }) => {
+const WineFacts: React.FC<Props> = ({ info, favorite, isFavorite, refIsGoTo = true }) => {
   const price = formatPrice(info.price, info.priceSource);
   const priceLine = price
     ? info.priceSource === "tag"
@@ -76,7 +80,7 @@ const WineFacts: React.FC<Props> = ({ info, favorite, isFavorite }) => {
   const favDry = !isFavorite && favorite?.dry != null ? favorite.dry : null;
   const favBody = !isFavorite && favorite?.body != null ? favorite.body : null;
   const favShort = favorite ? shortWineName(favorite.name) : "";
-  const favLabel = favorite ? `Your ${favShort}` : undefined;
+  const favLabel = favorite ? (refIsGoTo ? `Your ${favShort}` : favShort) : undefined;
 
   if (!priceLine && !talker && !info.staffPick && !showBars) return null;
 
@@ -99,7 +103,7 @@ const WineFacts: React.FC<Props> = ({ info, favorite, isFavorite }) => {
               <>
                 {" · "}
                 <span className="inline-block h-2 w-2 rounded-full border-2 border-amber-500 align-middle" />{" "}
-                your {favShort}
+                {refIsGoTo ? `your ${favShort}` : favShort}
               </>
             )}
           </div>

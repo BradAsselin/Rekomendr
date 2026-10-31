@@ -3125,3 +3125,158 @@ Rows for `anon_agent_s24a_*` and `anon_agent_s24b_*` (likes, watched, api_usage)
 3. Revert: `git revert -m 1 f698584` (S24b) and/or `git revert -m 1 6677258` (S24a). Per-device localStorage keys (`rekomendr.compare_to`, `rekomendr.recent`) are harmless if left behind.
 
 **§0 check: consistent.** Picks come from the mood unless the person chooses what to compare against: no hidden steering. Every comparison names the title it's measured against. Recent never leaves the device (§0 rule 6). Wine is unchanged.
+
+## Session 25 — Block 5 check, S24 follow-ups — 2026-10-25 — branch auto/s25-followups (local agent mode, §11)
+
+Brad: promoted. Run the held Block 5 revoke (backup first) and confirm saving on production, then: Books "vs. your [Book]:" lines; approve the "Movie"/"TV"/"Book" labels; the ⋯ label is "More options"; remove the snap tips (WITHDRAWN mid-session, so the tips stay). Items 5–7 stay as built.
+
+### Block 5: already done, verified, not re-run
+- Block 5 ran in S23b (#86, backup `backups/2026-10-25-1554-s23-block5.sql`). Re-running a revoke that's already in effect changes nothing, so I took no new backup and ran no SQL.
+- **Read-only check:** `role_table_grants` shows 0 rows for anon/authenticated on public, and 0 usage grants. `has_table_privilege(INSERT)` is false/false/false/false on user_likes and reksnap_signals for both roles.
+- The public key's direct PostgREST insert into user_likes is refused (42501).
+
+### Production saving: confirmed on the S24 bundle
+- release/v2 is at b68cfcb (#90) and contains 6677258, f698584 and 46d0d46. The live chunks carry `topbar-`, `compare-open` and "Something fun and funny".
+- **API:** save (movies, books) and Watched each returned `{ok:true}` and read back through `/api/saved`; the undo removed each one (removed:1).
+- **Browser** (iPhone 13, www.rekomendr.ai): Comedy → bookmark → `/api/signals` 200. The top bar shows "1 Saved", the Saved tab lists the card, and un-saving empties it. 0 console errors.
+
+### SHIPPED: #91, merged as 2b0e546
+- **Books lines.** `/api/slots` `{action:"lines", category:"Books"}`.
+  - It uses the same chooser writer. The system prompt is byte-identical; the user message names the anchor a book. Each card's own text stands in for its synopsis.
+  - Capped and named-on-failure like the movie lines. Lines are written against the first reference (the seed of the Books five). "your" only for a starred favorite.
+- **⋯ label.** `aria-label="More options"`.
+- **Sheet labels.** "Movie" / "TV" / "Book" approved; no code change.
+- **Snap tips.** They stay under Say it / Snap it.
+
+### VALIDATION
+- New `validate-s25` 21/21. The s24a/s24b prompt checks now pin the prompt strings instead of an empty diff. All 46 suites green; tsc, lint and build clean.
+- **Live local** (real writer): 5/5 Books cards got `vs. your Gone Girl:` (starred), then `vs. Rebecca:` (Recent).
+- **Preview:** S25 9/9, S24b 30/30, S24a 31/31.
+
+### TEST RESIDUE
+`anon_agent_s24_prodcheck_*`, `anon_agent_s25_*` (removed saves leave api_usage rows only). `/api/stats` excludes `anon_agent*`.
+
+### PROMOTION
+1. Promote `main → release/v2`. No env changes, migrations or SQL.
+2. **Phone:** Books → Mystery → Compare to → a starred book → every card reads "vs. your [Book]: …" a beat after the cards. A Recent book reads "vs. [Book]: …". × → neutral.
+3. Revert: `git revert -m 1 2b0e546`.
+
+**§0 check: consistent.** Books comparisons appear only when the person chooses a reference, and every line names the book it's measured against. Nothing new leaves the device, and wine is unchanged.
+
+## Session 26 — Home fits one screen, Go, wine shelf Compare to — 2026-10-30 — branches auto/s26a-home-go, auto/s26b-shelf-compare (local agent mode, §11)
+
+Brad's brief `docs/S25_HOME_GO_AND_SHELF_COMPARE_LAUNCH_PROMPT.md`. It's logged as S26 because S25 was already used. It shipped as two PRs to main. Production and release/v2 were not touched; no env changes, no SQL.
+
+### SHIPPED
+- **S26a, #93, merged as df51e38.** Items 1–3 and 8.
+  - **Header.** The wordmark is top-left in the top bar with ⋯ on the right. The four list buttons are outlined tiles with colored icons (Favorites amber, Watched green, Recent gray, Saved blue). Search and chips follow.
+  - **One screen.** The scroll came from `main.min-h-screen` sitting under the 57px bar. Body is now `min-h-[100dvh]`. The chip rows scroll inside a clip, so iOS's indicator can't draw a bar under them.
+  - **Go.** It appears inside the field whenever the box has text. While listening, it stops the mic and runs the spoken words at once; the pause's own auto-run stays. Enter still works.
+  - **Snap tips** no longer render under Say it / Snap it.
+- **S26b, #94, merged as e588f9e.** Items 4–7.
+  - **Off by default.** Wine compares to nothing unless picked; the go-to rides as `goTo`, a name only. Exception: a single-bottle (or typed) wine compares to itself (`autoRef`), with × to undo.
+  - **Shelf reading.** "Reading the shelf…" then "… N bottles found", in place of the bottle pills.
+  - **Top card.** "This shelf · most popular": name, price, one line, blue-dot bars, and no star, save or thumbs. The pick is returned as `wine.anchorPick` and logged as `[wine] shelf anchor`.
+  - **Compare row and sheet.** "Your 5 from this shelf" sits beside Compare to. The sheet opens on "This shelf N": every bottle read, in shelf order, with the approved helper line.
+  - **Picking a bottle.** The five re-run against it and may re-rank. The top card becomes "Comparing to · from this shelf" (amber, ×). Each pick gets "vs. [Short]:" and the orange ring at the bottle's taste position. × restores the earlier five without lines or rings. Up to 3 references; the first drives the lines.
+  - **Prompt.** One conditional data line asks for `go_to` (the reference's taste) only when the client doesn't know it. Every existing line is byte-identical; the voice is untouched.
+
+### CALLS (Brad's to overrule)
+- **Wording not quoted in the brief:**
+  - "Go" (the brief's name for the button);
+  - "Comparing to" without "· from this shelf" for a Favorites/Recent/Saved reference;
+  - the bare short name in the ring legend when the reference isn't the starred go-to;
+  - the card's × screen-reader label reuses "vs. [Short] ×".
+- **"Most popular"** is the vision read's main bottle, the one the photo centers on. A true popularity pick needs the locked vision prompt (§2.3), so it's a joint session; the pick and its shelf index are logged for tuning.
+- **2–3 references:** the lines and ring measure against the first; the others ride as KEPT.
+- **Single-bottle snap:** the top card stays the normal anchor card; the reference shows as the chip.
+- **Shelf top card:** no Share row and no "Snap the shelf" button.
+- **Price chips** stay between the top card and the "Your 5" row.
+
+### VALIDATION
+- **Harnesses:** new `validate-s26a` 20/20 and `validate-s26b` 44/44 (the real route with stubbed models). 48/48 suites green.
+  - Updated: s13b, s13c, s17c, s24a/b, s25, s8b, s9. The s24a/s24b/s25 wine fences now diff their own merge commits.
+  - tsc, lint and build are clean.
+  - Note: the suites that shell out to `npx` need a shell on Windows. I ran them with a scratch preload shim that wasn't committed.
+- **Playwright on the previews:**
+  - `pw-s26a-home` 41/41: no scroll on all four categories at 390×844 and 375×667, the header order and colors, and Go for typed, Enter and spoken.
+  - `pw-s26b-shelf` 42/42, using the stored fixture `scripts/fixtures/s26b-wine.json`.
+- **Live model, preview:**
+  - Comedy → Feel-good gave five cards in two taps.
+  - A typed "Kim Crawford Sauvignon Blanc" auto-referenced, with 5/5 "vs. Kim Crawford:" lines and rings.
+  - A Recent pick (Cloudy Bay) re-ran with 5 "vs. Cloudy Bay:" lines and rings at its position.
+
+### TEST RESIDUE
+`anon_agent_s26a_*`, `anon_agent_s26b_*` (api_usage rows). `/api/stats` excludes `anon_agent*`.
+
+### PHONE CHECKLIST (iPhone, after promotion)
+1. Home: logo top-left, ⋯ top-right, four colored list tiles, then search. No scrolling, and no blue bar under the chips.
+2. Type a word: Go appears. Clear it: Go disappears. Say it: the words appear, Go appears, tap Go and the results come.
+3. Wine → snap a shelf (or use the stored shelf shot): "Reading the shelf…" with no pile of bubbles. The top card is the shelf's main bottle, with no star or thumbs on it. The five picks have no "vs." lines.
+4. Compare to → This shelf lists the bottles from the photo. Pick one you know.
+5. That bottle is now the top card with an amber outline. Each pick says "vs. [it]:" and shows the orange ring on its sliders.
+6. × goes back to step 3. The bottle is still in the This shelf list.
+7. Snap a single bottle: it's compared automatically.
+8. Movies still work: Comedy → Feel-good → five cards, two taps.
+
+### PROMOTION
+1. Promote `main → release/v2` (yours). No env changes, migrations or SQL.
+2. Revert: `git revert -m 1 e588f9e` (S26b) and/or `git revert -m 1 df51e38` (S26a).
+
+**§0 check: consistent.** Comparisons appear only for a bottle the person chose (or the bottle they just snapped), and each one names its reference. The home screen asks less effort (no scroll, Go never waits). The shelf list stays in the result on the device; nothing new is sent or stored.
+
+## Session 27 — Shelf top card = the shelf's most popular bottle — 2026-10-30 — branch auto/s27-shelf-popular (local agent mode, §11)
+
+**Brief (Brad, approved prompt change):** the shelf's top card is the best-known, most widely available bottle on the shelf, not the one the photo centers on. The label "This shelf · most popular" stays. Only that instruction changes. Log the pick and the reason in the result, add a test, and keep the go_to ring-taste line.
+
+### SHIPPED
+**#96 → 01fbc04**
+- **Prompt (`SHELF_READ_PROMPT`):** the `anchor_price` instruction becomes `anchor_name / anchor_reason / anchor_price`. It asks for the best-known, most widely available bottle the read listed, and allows general label knowledge for that pick alone. The Return line gains those two fields. Every other line is byte-identical, and the go_to line is kept.
+- **Parse:** `cleanShelfRead` keeps the pick only if it names a listed bottle, using the listing's spelling. The reason is capped at 120 characters.
+- **Route (`wineSnap`):** on a shelf snap the set anchors on the pick, so detected_item, the token, the tag price and the exclusion from the five all follow it. The vision read's sentence describes the other bottle, so the swapped card has no short line. There is no swap on single-bottle snaps or for health-side names. The read's `anchor_price` is used only for the bottle it belongs to.
+- **Result + log:** `wine.anchorPick = {name, shelfIndex, by: "shelf-read"|"vision", reason, visionName}` is in the response and in `[wine] shelf anchor`. `[wine] shelf read` also logs anchorName and anchorReason.
+
+### TESTS
+- `validate-s27`: 30/30.
+- All 49 suites pass, with s13a now measured over S13's own range and s26b expecting the new shape. tsc, lint and build pass.
+- Preview: `pw-s26b-shelf` 42/42, `pw-s26a-home` 41/41.
+- The live shelf read is untested here because the repo has no shelf photo. It is on the phone checklist.
+
+### YOUR CALLS
+- The swapped top card shows no short line, because the vision text describes another bottle. Options: leave it as is, or generate one line for the pick (that would be a new prompt line).
+
+### PHONE CHECKLIST (after promotion)
+1. Snap a shelf where a famous bottle (e.g. Kim Crawford, La Marca) isn't in the center. The top card should be the famous one, with name, price and taste dot but no sentence.
+2. The five picks never repeat the top card. The bottle in the center can appear as a pick.
+3. Vercel logs: `[wine] shelf anchor` shows `by: "shelf-read"` and the reason.
+4. A single bottle still compares to itself.
+
+### PROMOTION
+Promote `main → release/v2` (yours). There are no env, SQL or migration changes. Revert: `git revert -m 1 01fbc04`.
+
+**§0 check: consistent.** The top card is a fact about the shelf (its most popular bottle). It is labelled as such and not presented as a pick. Nothing new is sent or stored.
+
+## Session 28 — The shelf top card's own sentence — 2026-10-30 — branch auto/s28-shelf-line (local agent mode, §11)
+
+**Brief (Brad, approved prompt change):** add one prompt line so the shelf read writes one short sentence about the picked top-card bottle, in the same wine voice and length as the other card lines, and show it on the top card. Change nothing else in the prompt.
+
+### SHIPPED
+**#98 → b634c95**
+- **Prompt:** one added line in `SHELF_READ_PROMPT` asks for `anchor_line`. It opens on dry vs. sweet, then gives concrete signature notes, with no filler, rating, occasion or pairing; it is null without a pick. Nothing else in the prompt changed, including the Return line.
+- **Parse:** `cleanShelfRead.anchorLine` is kept only beside a listed pick and capped at 240 characters. It is logged in `[wine] shelf read`.
+- **Route:** a swapped top card's short is that line, pairing-cut like every wine anchor's. detected_item, the token and the picks' "Its signature profile" line all use it. With no line there is no short. With no swap, the vision read's text stays.
+- **Client:** no change. The top card already shows the first sentence of detected_item's description.
+
+### TESTS
+- `validate-s28`: 17/17. All 50 suites, tsc, lint and build pass.
+- Preview `pw-s26b-shelf`: 42/42.
+- The live shelf read is still untested here (no shelf photo in the repo).
+
+### PHONE CHECKLIST (after promotion)
+1. Snap a shelf where a famous bottle isn't in the center. The top card should be that bottle with one sentence under its name, opening on dry or sweet, with no pairing.
+2. If the famous bottle is the one in the center, the card reads as before.
+
+### PROMOTION
+Promote `main → release/v2` (yours). There are no env, SQL or migration changes. Revert: `git revert -m 1 b634c95`.
+
+**§0 check: consistent.** One plain sentence about a labelled shelf fact. Nothing new is sent or stored.

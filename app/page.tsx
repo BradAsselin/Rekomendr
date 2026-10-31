@@ -4,6 +4,7 @@ import React, { useEffect, useRef, useState } from "react";
 import SearchBar, { type VoiceAnswer } from "../src/components/SearchBar";
 import ResultsV4 from "../src/components/ResultsV4";
 import SayOrSnap from "../src/components/SayOrSnap";
+import { HOME_EVENT } from "../src/components/HomeWordmark";
 import RekSnapResults, {
   type SnapRek,
   type SnapResult,
@@ -160,7 +161,9 @@ async function parseTypedMood(text: string, bar: string): Promise<any | null> {
 
 // S8b — what every wine call carries: the visit's shown/rejected names and
 // the starred go-to (the server holds the no-repeat guarantee with it).
-const wineVisitPayload = () => ({ ...wineVisit(), favorite: getWineFavorite() });
+// S26b — the go-to rides as a name only (`goTo`): wine never compares to
+// it unless the person picks it in Compare to (Brad's S25 brief, item 4).
+const wineVisitPayload = () => ({ ...wineVisit(), goTo: getWineFavorite()?.name ?? null });
 
 export type Category = "Movies" | "TV Shows" | "Books" | "Wine";
 
@@ -675,6 +678,13 @@ export default function Page() {
   const busyRef = useRef(false);
   busyRef.current = loading || snapLoading || reksPending;
   const resetToHomeRef = useRef<() => void>(() => {});
+  // S26a — the wordmark lives in the layout's top bar now; it asks the
+  // page to come home.
+  useEffect(() => {
+    const goHome = () => resetToHomeRef.current();
+    window.addEventListener(HOME_EVENT, goHome);
+    return () => window.removeEventListener(HOME_EVENT, goHome);
+  }, []);
   useEffect(() => {
     const maybeReset = () => {
       const ageMs = Date.now() - lastActivityRef.current;
@@ -1070,14 +1080,20 @@ export default function Page() {
   // S24a — compare lines for an AI search's five (the words chose them;
   // the refs only add a line each). Same cards, merged in place; a card
   // keeps its own text in `baseShort` so clearing can put it back.
-  const addCompareLines = async (list: Rek[], cat: "Movies" | "TV Shows", searchId: number) => {
+  // S25 — Books get their lines the same way, each card's text standing
+  // in for a synopsis.
+  const addCompareLines = async (list: Rek[], cat: "Movies" | "TV Shows" | "Books", searchId: number) => {
     const refs = refsPayload(refsFor(cat));
     if (!refs.length || !list.length) return;
     setLinesPending(true);
     const lines = await fetchCompareLines(
       cat,
       refs,
-      list.map((r) => ({ title: r.title, year: r.year || null }))
+      list.map((r) => ({
+        title: r.title,
+        year: r.year || null,
+        ...(cat === "Books" ? { overview: r.long || r.short || "" } : {}),
+      }))
     );
     if (searchId !== searchIdRef.current) return;
     setLinesPending(false);
@@ -1322,7 +1338,8 @@ export default function Page() {
 
       // S24a — Books with a Compare to reference: the existing seeded
       // search, placed against the first reference (TMDb doesn't know
-      // books, so there's no web to pull from and no "vs." line).
+      // books, so there's no web to pull from). S25: then each card gets
+      // its "vs." line against that reference.
       const bookRefs = nextCategory === "Books" ? refsFor("Books") : [];
       let next: { reks: Rek[]; notice?: string };
       if (bookRefs.length) {
@@ -1361,6 +1378,9 @@ export default function Page() {
         // S24a — the words chose these five; Compare to adds the lines.
         setLoading(false);
         await addCompareLines(next.reks, nextCategory, searchId);
+      } else if (nextCategory === "Books" && bookRefs.length) {
+        setLoading(false);
+        await addCompareLines(next.reks, "Books", searchId);
       }
     } catch (err) {
       if (searchId !== searchIdRef.current) return;
@@ -1585,20 +1605,10 @@ export default function Page() {
     ) : null;
 
   return (
-    <main className="min-h-screen w-full flex justify-center px-4 py-6">
+    <main className="w-full flex justify-center px-4 pt-1 pb-6">
       <div className="w-full max-w-xl">
-        {/* The wordmark is the app's only home affordance — no separate
-            button. S24b: Sign in moved to the top bar's ⋯ menu. */}
-        <div className="relative mb-6 text-center">
-          <button
-            type="button"
-            onClick={resetToHome}
-            aria-label="Back to home"
-            className="text-3xl font-bold tracking-tight text-[#2D5AB5]"
-          >
-            Rekomendr<span className="text-[#2D5AB5]/70">.AI</span>
-          </button>
-        </div>
+        {/* S26a — the wordmark moved to the top bar (HomeWordmark), left-
+            aligned beside ⋯; it is still the only home affordance. */}
         <SearchBar
           key={searchBarKey}
           onSearch={handleSearch}
@@ -1643,6 +1653,7 @@ export default function Page() {
               reksPending={reksPending}
               lateReks={lateReks}
               shelfPreview={shelfPreview}
+              barCategory={barCategory}
               onHaulSaved={() => void refreshWineState(false)}
               onWatchedChange={handleWatchedChange}
             />

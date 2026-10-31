@@ -246,6 +246,50 @@ async function handleLines(body: any, clientId: string, kind: MediaKind): Promis
   return Response.json({ ok: true, lines: out }, { status: 200 });
 }
 
+// S25 — { action: "lines", category: "Books" }: compare lines for a Books
+// five against the first reference (the seed the five came from). No
+// TMDb for books: each card's own text stands in for its synopsis, and
+// the reference is named by its title. Same writer, same cap, same
+// named failure; a card without a line keeps its text.
+async function handleBookLines(body: any, clientId: string): Promise<Response> {
+  const started = Date.now();
+  const ref = goTosOf(body?.refs)[0];
+  const items: { title: string; year: number | null; overview: string }[] = (Array.isArray(body?.items) ? body.items : [])
+    .filter((t: any) => typeof t?.title === "string" && t.title.trim() && t.title.length <= 300)
+    .slice(0, 5)
+    .map((t: any) => ({
+      title: t.title.trim(),
+      year: Number.isInteger(t.year) ? t.year : null,
+      overview: typeof t.overview === "string" ? t.overview.slice(0, 600) : "",
+    }));
+  if (!ref || !items.length) return Response.json({ ok: false, reason: "bad_request" }, { status: 400 });
+  if (await capGate(clientId, "reksnap-text")) {
+    console.warn("[slots] over cap — synopses instead of compare lines", { ref: ref.name, kind: "book" });
+    return Response.json({ ok: true, lines: [] }, { status: 200 });
+  }
+  const cards = items.map((t, i) => ({ id: i + 1, title: t.title, year: t.year, overview: t.overview }));
+  let lines = new Map<number, string>();
+  try {
+    lines = await linesVsGoTo({
+      goTo: { title: ref.name, year: null, kind: "book", overview: "" },
+      candidates: cards,
+      taste: { liked: [], disliked: [], watched: [] },
+      lane: null,
+    });
+  } catch (err) {
+    console.error("[slots] compare lines failed — synopses shipped", {
+      ref: ref.name,
+      kind: "book",
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+  const out = cards
+    .filter((c) => lines.has(c.id))
+    .map((c) => ({ title: c.title, short: leadLine(lines.get(c.id)!), vsGoTo: ref.name }));
+  console.info("[slots] book lines for a set on screen", { asked: items.length, lines: out.length, ms: Date.now() - started });
+  return Response.json({ ok: true, lines: out }, { status: 200 });
+}
+
 async function handlePost(req: Request): Promise<Response> {
   const started = Date.now();
   let body: any = null;
@@ -255,6 +299,14 @@ async function handlePost(req: Request): Promise<Response> {
     return Response.json({ ok: false, reason: "bad_request" }, { status: 400 });
   }
   const clientId = cleanClientId(body?.clientId);
+  if (clientId && body?.action === "lines" && body?.category === "Books") {
+    try {
+      return await handleBookLines(body, clientId);
+    } catch (err) {
+      console.error("[slots] book lines failed", { error: err instanceof Error ? err.message : String(err) });
+      return Response.json({ ok: false, reason: "error" }, { status: 500 });
+    }
+  }
   const kind = kindFor(body?.category);
   if (!clientId || !kind)
     return Response.json({ ok: false, reason: "bad_request" }, { status: 400 });

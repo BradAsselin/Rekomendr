@@ -27,6 +27,10 @@ import RekSkeleton, { RekSkeletonCard } from "./RekSkeleton";
 import RekTrail, { TrailRow } from "./RekTrail";
 import QuietTip from "./QuietTip";
 import WineFacts from "./WineFacts";
+import WineTopCard, { firstSentence } from "./WineTopCard";
+import WineCompareSheet from "./WineCompareSheet";
+import { CompareHeader } from "./CompareSheet";
+import { refPayload, sameRef, type WineRef } from "../lib/wineCompare";
 import GoToStar from "./GoToStar";
 import { goToCategoryFor } from "../lib/goToCategory";
 import { WatchedButton, WatchedToast, UndoToast, type UndoToastLabel } from "./WatchedControl";
@@ -43,6 +47,7 @@ import {
   bottleImageUrl,
   formatPrice,
   isWineCategory,
+  sameWine,
   shortWineName,
   whereToBuyUrl as wineWhereToBuyUrl,
   type PriceBand,
@@ -50,6 +55,7 @@ import {
   type ShelfBottle,
   type WineAnchorInfo,
   type WineFavorite,
+  type WineReference,
   type WineRekInfo,
   type WineScene,
 } from "../lib/wineShelf";
@@ -125,6 +131,12 @@ export type SnapResult = {
     anchor: WineAnchorInfo | null;
     band: PriceBand | null;
     favoriteHere: { name: string; price: number | null } | null;
+    // S26b — the shelf's top-card pick (logged for tuning), and the
+    // reference the first set compares to (autoRef: the snapped bottle).
+    // S27: by "shelf-read" = the read's most popular bottle, with its reason.
+    anchorPick?: { name: string; shelfIndex: number | null; by: string; reason?: string | null; visionName?: string } | null;
+    reference?: WineReference | null;
+    autoRef?: boolean;
   };
 };
 
@@ -165,6 +177,9 @@ type Props = {
   // S13b — early paint: the bottles a shelf snap read, while the picks
   // are still being written. Names and tag prices only, no new words.
   shelfPreview?: { name: string; price: number | null }[] | null;
+  // S26b — the bar's category: on Wine a snap's wait reads "Reading the
+  // shelf…", and moving the bar off it clears the wine references.
+  barCategory?: string;
   // S16 — a card's "Watched" mark or undo; the page keeps its session
   // list, which every re-run excludes.
   onWatchedChange?: (item: WatchedItem, watched: boolean) => void;
@@ -204,6 +219,7 @@ const RekSnapResults: React.FC<Props> = ({
   lateReks,
   onHaulSaved,
   shelfPreview,
+  barCategory,
   onWatchedChange,
 }) => {
   // Thumb marks and saves are independent per item name (a card can be
@@ -344,6 +360,15 @@ const RekSnapResults: React.FC<Props> = ({
   // S8c — the haul confirm: open by itself on a cart/basket photo, or via
   // "I bought these" under a multi-bottle snap. Closed = the normal result.
   const [haulOpen, setHaulOpen] = useState(false);
+  // S26b — wine's Compare to (Brad's S25 brief, items 4–7): the references
+  // (≤3; the first is what "vs." lines and the orange ring measure
+  // against), the five as they stood before the first one (× brings them
+  // back), the sheet, and every taste position this result has seen.
+  const [wineRefs, setWineRefs] = useState<WineRef[]>([]);
+  const wineRefsRef = useRef<WineRef[]>([]);
+  const preCompareRef = useRef<SnapRek[] | null>(null);
+  const [wineSheetOpen, setWineSheetOpen] = useState(false);
+  const tasteSeenRef = useRef(new Map<string, { dry: number | null; body: number | null }>());
 
   // Which intent list is on screen. Defaults to the model's inferred mode;
   // all three lists are already loaded, so switching is instant (no API call).
@@ -478,6 +503,26 @@ const RekSnapResults: React.FC<Props> = ({
       toastTimer.current = null;
       setToast(null);
       setWineBand(result.wine?.band ?? null);
+      // S26b — a new snap starts neutral, except a single-bottle snap,
+      // which compares to the snapped bottle (the server wrote the lines).
+      const autoRef: WineRef[] =
+        result.wine?.autoRef && result.wine.scene !== "haul"
+          ? [
+              {
+                name: result.detected_item.name,
+                price: result.wine.anchor?.price ?? null,
+                priceSource: result.wine.anchor?.priceSource ?? null,
+                dry: result.wine.reference?.dry ?? result.wine.anchor?.dry ?? null,
+                body: result.wine.reference?.body ?? result.wine.anchor?.body ?? null,
+                from: "anchor",
+              },
+            ]
+          : [];
+      wineRefsRef.current = autoRef;
+      setWineRefs(autoRef);
+      preCompareRef.current = null;
+      setWineSheetOpen(false);
+      tasteSeenRef.current = new Map();
       // S8b — the visit remembers every wine it showed (no repeats).
       if (!health && isWineCategory(result.detected_item.category)) {
         noteWineShown(
@@ -618,7 +663,11 @@ const RekSnapResults: React.FC<Props> = ({
       chip: priceChipRef.current,
       seen: Array.from(new Set([...visit.seen, ...buildExcludeNames()])),
       rejected: Array.from(new Set([...visit.rejected, ...dismissedNamesRef.current])),
-      favorite: getWineFavorite(),
+      // S26b — the comparison reference (the first Compare to pick, or the
+      // snapped bottle on a single-bottle snap; none by default) and the
+      // starred go-to by name only.
+      favorite: refPayload(wineRefsRef.current[0], forResult.detected_item.description),
+      goTo: getWineFavorite()?.name ?? null,
       ...extra,
     };
   };
@@ -1303,6 +1352,17 @@ const RekSnapResults: React.FC<Props> = ({
         }));
       if (resultRef.current !== forResult) return; // new snap mid-flight
       if (branch === "wine" && data?.band !== undefined) setWineBand(data.band ?? null);
+      // S26b — the reference's taste position (the orange ring), when the
+      // client didn't know it.
+      if (branch === "wine" && data?.reference && typeof data.reference.name === "string") {
+        const ref = data.reference as WineReference;
+        const cur = wineRefsRef.current;
+        if (cur[0] && sameRef(cur[0], ref) && cur[0].dry == null && cur[0].body == null) {
+          const next = [{ ...cur[0], dry: ref.dry ?? null, body: ref.body ?? null }, ...cur.slice(1)];
+          wineRefsRef.current = next;
+          setWineRefs(next);
+        }
+      }
       if (cleaned.length === 0) {
         // S1.5 — the chain succeeded and the guard emptied it: every
         // title offered was fiction. That is not a chain FAILURE, so it
@@ -1500,6 +1560,68 @@ const RekSnapResults: React.FC<Props> = ({
   // S8b — a price chip: one tap re-runs the wine Similar list in that
   // range; tapping the lit chip clears it (back to the anchor's ±35%).
   // Same wipe + epoch machinery as the anchor re-roll (async lifespan).
+  // S26b — Compare to on a wine result. A new first reference re-runs the
+  // five against it (they may re-rank toward it; the five on screen may
+  // come back, so they leave the no-repeat list for this one call); the
+  // other references ride as KEPT pressure. Removing every reference puts
+  // the five from before back, without the lines and rings.
+  const applyWineRefs = (next: WineRef[]) => {
+    const forResult = resultRef.current;
+    if (!forResult || chainBusyRef.current) return;
+    const prev = wineRefsRef.current;
+    wineRefsRef.current = next;
+    setWineRefs(next);
+    setWineSheetOpen(false);
+    if (next.length === 0) {
+      const before = preCompareRef.current;
+      preCompareRef.current = null;
+      if (before) {
+        const gone = new Set([...trailRef.current.map((e) => e.rek.name), ...dismissedNamesRef.current]);
+        listEpochRef.current.similar += 1;
+        setPending((p) => ({ ...p, similar: 0 }));
+        setLists((l) =>
+          l ? { ...l, similar: before.filter((r) => !gone.has(r.name)).map((r, i) => ({ ...r, rank: i + 1 })) } : l
+        );
+      }
+      return;
+    }
+    const firstSame = !!prev[0] && sameRef(prev[0], next[0]);
+    const grew = next.some((r) => !prev.some((p) => sameRef(p, r)));
+    if (firstSame && !grew) return; // only a later reference left: nothing to re-run
+    if (prev.length === 0 && !preCompareRef.current) preCompareRef.current = listsRef.current?.similar ?? null;
+    chainBusyRef.current = true;
+    setChainError(null);
+    if (activeMode !== "similar") setActiveMode("similar");
+    const frontier = new Set((listsRef.current?.similar ?? []).map((r) => r.name));
+    const wipe = commitChainWipe({ mode: "similar" });
+    if (!wipe) {
+      chainBusyRef.current = false;
+      return;
+    }
+    const visit = wineVisit();
+    void fetchChainSet(
+      winePayload(forResult, {
+        kind: "set",
+        seen: Array.from(new Set([...visit.seen, ...buildExcludeNames()])).filter((n) => !frontier.has(n)),
+        kept: [...wipe.trailForPrompt.map((e) => e.rek.name), ...next.slice(1).map((r) => r.name)],
+      }),
+      "similar",
+      wipe.restoreList,
+      "wine"
+    );
+  };
+  const applyWineRefsRef = useRef(applyWineRefs);
+  applyWineRefsRef.current = applyWineRefs;
+
+  // S26b — moving the bar off Wine clears the references (the brief's
+  // "category change"); the bar mounting isn't a change.
+  const lastBarRef = useRef(barCategory);
+  useEffect(() => {
+    const was = lastBarRef.current;
+    lastBarRef.current = barCategory;
+    if (was !== undefined && was !== barCategory && wineRefsRef.current.length) applyWineRefsRef.current([]);
+  }, [barCategory]);
+
   const handlePriceChip = (chip: PriceChip) => {
     const forResult = resultRef.current;
     if (!forResult || chainBusyRef.current) return;
@@ -1734,26 +1856,17 @@ const RekSnapResults: React.FC<Props> = ({
   };
 
   if (loading) {
-    // S13b — once the shelf is read, its bottles show at once and the
-    // label moves on to the picks (both existing lines, no new wording).
+    // S13b — once the shelf is read the label moves on to the picks.
+    // S26b — no pile of bottle pills (Brad's S25 brief, item 5): one quiet
+    // status line, "Reading the shelf…", and its count once the read is in.
     const early = shelfPreview && shelfPreview.length > 0 ? shelfPreview : null;
     return (
       <div className="w-full flex flex-col items-center px-4 pt-2 pb-14 select-none">
         <div className="w-full max-w-xl">
-          {early && (
-            <ul className="mb-4 flex flex-wrap gap-2" data-testid="shelf-preview">
-              {early.map((b, i) => (
-                <li
-                  key={`${b.name}-${i}`}
-                  className="rounded-full border border-gray-300 bg-white px-3 py-1.5 text-[13px] text-gray-800"
-                >
-                  {b.name}
-                  {formatPrice(b.price, "tag") && (
-                    <span className="ml-1.5 text-gray-500">{formatPrice(b.price, "tag")}</span>
-                  )}
-                </li>
-              ))}
-            </ul>
+          {(early || barCategory === "Wine") && (
+            <div className="mb-3 px-1 text-[14px] text-gray-300 sm:text-gray-600" data-testid="shelf-status" aria-live="polite">
+              {early ? `Reading the shelf… ${early.length} bottles found` : "Reading the shelf…"}
+            </div>
           )}
           <RekSkeleton
             label={early ? "Reks Ray™ is finding your reks…" : "Reks Ray™ is reading your photo…"}
@@ -1979,14 +2092,38 @@ const RekSnapResults: React.FC<Props> = ({
         />
       </button>
     ) : undefined;
+  // S26b — "vs." lines and the orange ring measure against the Compare to
+  // reference (none by default); "your" only when it's the starred go-to.
+  const reference = anchorIsWine ? wineRefs[0] ?? null : null;
+  const refIsGoTo = !!reference && isFavoriteName(reference.name);
+  const isReferenceName = (name: string) => !!reference && sameWine(reference.name, name);
   const wineLead = (rek: SnapRek) =>
-    favorite && rek.wine?.vsFavorite && !isFavoriteName(rek.name)
-      ? `vs. your ${shortWineName(favorite.name)}: ${rek.wine.vsFavorite}.`
+    reference && rek.wine?.vsFavorite && !isReferenceName(rek.name)
+      ? `vs. ${refIsGoTo ? "your " : ""}${shortWineName(reference.name)}: ${rek.wine.vsFavorite}.`
       : undefined;
   const wineFactsFor = (rek: SnapRek) =>
     rek.wine ? (
-      <WineFacts info={rek.wine} favorite={favorite} isFavorite={isFavoriteName(rek.name)} />
+      <WineFacts info={rek.wine} favorite={reference} isFavorite={isReferenceName(rek.name)} refIsGoTo={refIsGoTo} />
     ) : undefined;
+  // Taste positions this result knows, for the sheet's rows.
+  [...(lists?.similar ?? []), ...trail.map((e) => e.rek)].forEach((r) => {
+    if (r.wine && (r.wine.dry != null || r.wine.body != null)) {
+      tasteSeenRef.current.set(r.name.trim().toLowerCase(), { dry: r.wine.dry, body: r.wine.body });
+    }
+  });
+  const tasteFor = (name: string) => {
+    if (sameWine(name, result.detected_item.name) && anchorWine) return { dry: anchorWine.dry, body: anchorWine.body };
+    const exact = tasteSeenRef.current.get(name.trim().toLowerCase());
+    if (exact) return exact;
+    for (const [k, v] of Array.from(tasteSeenRef.current.entries())) if (sameWine(k, name)) return v;
+    const ref = wineRefs.find((r) => sameRef(r, { name }) && (r.dry != null || r.body != null));
+    return ref ? { dry: ref.dry, body: ref.body } : null;
+  };
+  // The shelf's top card (board W1/W3) replaces the anchor card on a shelf
+  // snap; the compare row sits over the five on any wine Similar list.
+  const shelfTop = !!wineMeta?.shelfSnap && wineMeta.scene !== "haul";
+  const wineCompareOn = !!wineMeta && wineMeta.scene !== "haul" && activeMode === "similar";
+  const clearAllLabel = reference ? `vs. ${shortWineName(reference.name)} ×` : undefined;
 
   /* Recipe open lives ONLY on this button (not the whole card) so it
      won't collide with the swipe-to-dismiss gesture (frontier) or the
@@ -2075,6 +2212,35 @@ const RekSnapResults: React.FC<Props> = ({
       {/* Detected item — no label: top position and the accent treatment
           (blue edge bar + tint) carry the anchor's identity. */}
       <div className="w-full max-w-xl">
+        {shelfTop && anchorIsWine ? (
+          reference ? (
+            <WineTopCard
+              label={reference.from === "shelf" ? "Comparing to · from this shelf" : "Comparing to"}
+              name={reference.name}
+              titleHref={bottleImageUrl(reference.name)}
+              info={{
+                price: reference.price,
+                priceSource: reference.priceSource,
+                talkerPoints: null,
+                talkerSource: null,
+                staffPick: false,
+                dry: reference.dry,
+                body: reference.body,
+              }}
+              onClear={() => applyWineRefs([])}
+              clearLabel={clearAllLabel}
+            />
+          ) : (
+            <WineTopCard
+              label="This shelf · most popular"
+              name={result.detected_item.name}
+              titleHref={titleLinkFor(result.detected_item.name)}
+              short={firstSentence(result.detected_item.description)}
+              info={anchorWine}
+            />
+          )
+        ) : (
+        <>
         {/* The detected item is the anchor the whole result hangs off, so it
             is never dismissed — both thumbs mark in place (and toggle).
             Anchor richness (the lazy long tier + its expand affordance, and
@@ -2120,8 +2286,9 @@ const RekSnapResults: React.FC<Props> = ({
             ) : anchorWine ? (
               <WineFacts
                 info={anchorWine}
-                favorite={favorite}
-                isFavorite={isFavoriteName(result.detected_item.name)}
+                favorite={reference}
+                isFavorite={isReferenceName(result.detected_item.name)}
+                refIsGoTo={refIsGoTo}
               />
             ) : undefined
           }
@@ -2245,10 +2412,12 @@ const RekSnapResults: React.FC<Props> = ({
             showNameLink
           />
         )}
+        </>
+        )}
 
         {/* S9 — the shelf shot, one tap from the anchor. Opens the same
             camera as Snap another; the anchor stays where it is. */}
-        {anchorIsWine && !limitReached && wineMeta?.scene !== "haul" && (
+        {anchorIsWine && !limitReached && wineMeta?.scene !== "haul" && !shelfTop && (
           <div className="mt-3 flex justify-center">
             <button
               type="button"
@@ -2464,6 +2633,24 @@ const RekSnapResults: React.FC<Props> = ({
           </div>
         )}
 
+        {/* S26b — wine's Compare to row (board W1): "Your 5 from this
+            shelf" on a shelf snap, and the movie header's own button and
+            chips on the right. */}
+        {wineCompareOn && !anchorIsHealthMedical && (
+          <div className="mb-3 flex items-center gap-2" data-testid="wine-compare-row">
+            {shelfTop && (
+              <span className="text-[13px] font-medium text-gray-300 sm:text-gray-600">Your 5 from this shelf</span>
+            )}
+            <CompareHeader
+              refs={wineRefs.map((r) => ({ name: shortWineName(r.name) }))}
+              onOpen={() => {
+                if (!chainBusyRef.current) setWineSheetOpen(true);
+              }}
+              onRemove={(short) => applyWineRefs(wineRefs.filter((r) => shortWineName(r.name) !== short))}
+            />
+          </div>
+        )}
+
         <div className="space-y-3">
           {/* S1.5 — honest-short. The photo was read, the anchor is right
               above, and every neighbour the model offered turned out not
@@ -2592,6 +2779,19 @@ const RekSnapResults: React.FC<Props> = ({
           <Camera size={16} />
           Snap another
         </button>
+      )}
+      {wineSheetOpen && wineCompareOn && (
+        <WineCompareSheet
+          shelf={wineMeta?.shelfSnap ? wineMeta.shelf : null}
+          applied={wineRefs}
+          tasteFor={tasteFor}
+          onClose={() => setWineSheetOpen(false)}
+          onDone={(next) => {
+            const key = (l: WineRef[]) => l.map((r) => r.name.trim().toLowerCase()).join("|");
+            if (key(next) !== key(wineRefs)) applyWineRefs(next);
+            else setWineSheetOpen(false);
+          }}
+        />
       )}
       {d2 ? (
         <UndoToast label={toast?.label ?? null} onUndo={() => toast?.undo()} />

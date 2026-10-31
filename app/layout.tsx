@@ -1,5 +1,6 @@
 // app/layout.tsx
 import "./globals.css";
+import HomeWordmark from "../src/components/HomeWordmark";
 import InstallButton from "../src/components/InstallButton";
 import MoreMenu from "../src/components/MoreMenu";
 import SavedPage from "../src/components/SavedPage";
@@ -36,20 +37,28 @@ function StatusBarShield() {
 
 // S24b — four labeled buttons (Favorites · Watched · Recent · Saved, each
 // opening the Saved page on its tab) and the ⋯ menu at the right.
+// S26a — two rows (board F1): the wordmark left-aligned with ⋯ on the
+// right, then the four list buttons as outlined tiles. The big centered
+// wordmark on the home page is gone; this one is the home affordance.
 function TopBar() {
   return (
     <div
-      className="w-full border-b border-white/10 bg-[#0b1725]"
+      className="w-full bg-[#0b1725]"
       style={{
         paddingTop: "env(safe-area-inset-top)",
         paddingLeft: "env(safe-area-inset-left)",
         paddingRight: "env(safe-area-inset-right)",
       }}
     >
-      <div className="mx-auto flex h-14 w-full max-w-3xl items-center justify-between gap-2 px-2 sm:px-4">
+      <div className="mx-auto w-full max-w-xl px-4 pt-1.5">
+        <div className="flex h-11 items-center justify-between gap-2">
+          <HomeWordmark />
+          <div className="-mr-2 flex items-center">
+            <MoreMenu attribution={<Attribution />} />
+            <InstallButton />
+          </div>
+        </div>
         <SavedPage />
-        <MoreMenu attribution={<Attribution />} />
-        <InstallButton />
       </div>
     </div>
   );
@@ -89,7 +98,9 @@ export default function RootLayout({
         <link rel="apple-touch-icon" sizes="152x152" href="/rekomendr_icon_blue_152.png" />
         <link rel="apple-touch-icon" sizes="120x120" href="/rekomendr_icon_blue_120.png" />
       </head>
-      <body className="min-h-screen bg-[#0b1725] sm:bg-white">
+      {/* S26a — 100dvh, not 100vh: on iPhone 100vh is taller than the
+          visible page (the toolbar), which made home scroll. */}
+      <body className="min-h-[100dvh] bg-[#0b1725] sm:bg-white">
         <StatusBarShield />
         <TopBar />
         {children}
