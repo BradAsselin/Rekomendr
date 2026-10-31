@@ -26,9 +26,10 @@ const bar = read("src/components/SearchBar.tsx");
 const pair = read("src/components/SayOrSnap.tsx");
 
 console.log("1. Header");
-check("row 1: wordmark, then ⋯ (and the install plumbing)", /<HomeWordmark \/>\s*<div className="-mr-2 flex items-center">\s*<MoreMenu attribution=\{<Attribution \/>\} \/>\s*<InstallButton \/>/.test(layout), true);
+// S28c — ⋯ alone on row 1, then the wordmark centered, then the tiles.
+check("row 1: ⋯ alone (and the install plumbing), then the centered wordmark", /justify-end gap-2">\s*<div className="-mr-2 flex items-center">\s*<MoreMenu attribution=\{<Attribution \/>\} \/>\s*<InstallButton \/>\s*<\/div>\s*<\/div>\s*<div className="flex justify-center[^"]*">\s*<HomeWordmark \/>/.test(layout), true);
 check("row 2: the tiles", layout.indexOf("<SavedPage />") > layout.indexOf("<MoreMenu "), true);
-check("wordmark text unchanged, left-aligned button", mark.includes("Rekomendr<span") && mark.includes(">.AI</span>") && mark.includes('aria-label="Back to home"'), true);
+check("wordmark text unchanged", mark.includes("Rekomendr<span") && mark.includes(">.AI</span>") && mark.includes('aria-label="Back to home"'), true);
 check("wordmark on / asks the page; elsewhere navigates home", /pathname === "\/"\) window\.dispatchEvent\(new Event\(HOME_EVENT\)\);\s*else window\.location\.assign\("\/"\);/.test(mark), true);
 check("the page comes home on the event", /window\.addEventListener\(HOME_EVENT, goHome\)/.test(page) && /const goHome = \(\) => resetToHomeRef\.current\(\);/.test(page), true);
 check("the big centered wordmark is gone from the page", /text-3xl font-bold tracking-tight/.test(page), false);
@@ -38,7 +39,7 @@ check("Say it / Snap it pair unchanged, Reks Ray line stays", pair.includes(">Sa
 check("snap tips gone (item 8)", /SnapTips/.test(pair.replace(/\/\/.*$/gm, "")), false);
 
 console.log("\n2. One screen");
-check("body uses the visible height (100dvh), not 100vh", /<body className="min-h-\[100dvh\] /.test(layout) && !/min-h-screen/.test(layout), true);
+check("body uses the visible height (100dvh), not 100vh", /<body className="flex min-h-\[100dvh\] flex-col /.test(layout) && !/min-h-screen/.test(layout), true);
 check("main no longer adds a screen's height under the bar", /<main className="min-h-screen/.test(page), false);
 check("both chip rows scroll inside a clip (no indicator bar)", (bar.match(/-mx-4 overflow-hidden sm:mx-0/g) || []).length === 2 && (bar.match(/-mb-4 flex gap-2 overflow-x-auto overscroll-x-contain px-4 pb-4/g) || []).length === 2, true);
 check("chips still hide the scrollbar", (bar.match(/\[scrollbar-width:none\] \[&::-webkit-scrollbar\]:hidden/g) || []).length, 2);
