@@ -339,12 +339,7 @@ async function handleBackfill(backfill: any): Promise<Response> {
     false
   );
 
-  const completion = await llmCall({
-    step: "snap",
-    temperature: 0.7,
-    maxTokens: 300,
-    system: buildBackfillPrompt(mode),
-    user:
+  const backfillUser =
       `Detected item: ${item.name}\n` +
       (typeof item.description === "string" && item.description
         ? `Its signature profile: ${item.description}\n`
@@ -355,16 +350,28 @@ async function handleBackfill(backfill: any): Promise<Response> {
       `Already shown (do not repeat): ${excludeNames.join(", ") || "(none)"}\n` +
       `REJECTED (user disliked these — avoid them and lean away from their dominant characteristics): ${
         rejectedNames.join(", ") || "(none)"
-      }` + (priorBlock ? `\n${priorBlock}` : ""),
-  });
-
-  const text = jsonText(completion.text);
-  let parsed: any = null;
-  try {
-    parsed = JSON.parse(text);
-  } catch {
+      }` + (priorBlock ? `\n${priorBlock}` : "");
+  // S35 — an unparsed reply is asked again once, silently
+  // (src/lib/parseRetry.ts); only a second miss is the failed backfill.
+  const backfillCall = () =>
+    llmCall({
+      step: "snap",
+      temperature: 0.7,
+      maxTokens: 300,
+      system: buildBackfillPrompt(mode),
+      user: backfillUser,
+    });
+  const backfillRead = await parseWithRetry(
+    "backfill",
+    { mode },
+    backfillCall,
+    backfillCall,
+    (t) => JSON.parse(jsonText(t))
+  );
+  if (!backfillRead.ok) {
     return Response.json({ error: "Backfill failed" }, { status: 502 });
   }
+  const parsed: any = backfillRead.value;
 
   const rek = parsed?.rek;
   const normalize = (s: string) => s.trim().toLowerCase();
@@ -464,25 +471,31 @@ async function handleAnchorDetail(anchorDetail: any): Promise<Response> {
     );
   }
 
-  const completion = await llmCall({
-    step: "detail",
-    temperature: 0.7,
-    maxTokens: 300,
-    system: ANCHOR_DETAIL_PROMPT,
-    user:
-      `Item: ${name}\n` +
-      (category ? `Category: ${category}\n` : "") +
-      `Its displayed profile: ${shortDescription}`,
-    schema: ANCHOR_DETAIL_SCHEMA,
-  });
-
-  const text = jsonText(completion.text);
-  let parsed: any = null;
-  try {
-    parsed = JSON.parse(text);
-  } catch {
+  // S35 — an unparsed reply is asked again once, silently
+  // (src/lib/parseRetry.ts); only a second miss is "Detail failed".
+  const detailCall = () =>
+    llmCall({
+      step: "detail",
+      temperature: 0.7,
+      maxTokens: 300,
+      system: ANCHOR_DETAIL_PROMPT,
+      user:
+        `Item: ${name}\n` +
+        (category ? `Category: ${category}\n` : "") +
+        `Its displayed profile: ${shortDescription}`,
+      schema: ANCHOR_DETAIL_SCHEMA,
+    });
+  const detailRead = await parseWithRetry(
+    "detail",
+    {},
+    detailCall,
+    detailCall,
+    (t) => JSON.parse(jsonText(t))
+  );
+  if (!detailRead.ok) {
     return Response.json({ error: "Detail failed" }, { status: 502 });
   }
+  const parsed: any = detailRead.value;
 
   const long = parsed?.long;
   if (typeof long !== "string" || !long.trim()) {
@@ -1329,24 +1342,33 @@ const TYPED_WINE_SCHEMA = {
 async function classifyTypedWine(raw: unknown): Promise<string | null> {
   const text = typeof raw === "string" ? raw.trim().slice(0, 120) : "";
   if (!text) return null;
-  const completion = await llmCall({
-    step: "classify",
-    temperature: 0,
-    maxTokens: 60,
-    system: TYPED_WINE_CLASSIFIER,
-    user: text,
-    schema: TYPED_WINE_SCHEMA,
-  });
-  try {
-    const parsed = JSON.parse(jsonText(completion.text));
-    const name = typeof parsed?.name === "string" ? parsed.name.trim() : "";
-    const verdict = parsed?.specific === true && !!name;
-    console.info("[typed-anchor] wine classify", { specific: verdict });
-    return verdict ? name.slice(0, 120) : null;
-  } catch {
+  // S35 — an unparsed reply is asked again once, silently
+  // (src/lib/parseRetry.ts); a second miss searches as before.
+  const classifyCall = () =>
+    llmCall({
+      step: "classify",
+      temperature: 0,
+      maxTokens: 60,
+      system: TYPED_WINE_CLASSIFIER,
+      user: text,
+      schema: TYPED_WINE_SCHEMA,
+    });
+  const classifyRead = await parseWithRetry(
+    "typed-wine",
+    {},
+    classifyCall,
+    classifyCall,
+    (t) => JSON.parse(jsonText(t))
+  );
+  if (!classifyRead.ok) {
     console.warn("[typed-anchor] wine classifier returned non-JSON — search as before");
     return null;
   }
+  const parsed: any = classifyRead.value;
+  const name = typeof parsed?.name === "string" ? parsed.name.trim() : "";
+  const verdict = parsed?.specific === true && !!name;
+  console.info("[typed-anchor] wine classify", { specific: verdict });
+  return verdict ? name.slice(0, 120) : null;
 }
 
 // ---------------------------------------------------------------------------
