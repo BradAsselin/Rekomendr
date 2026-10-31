@@ -217,6 +217,8 @@ const S1_WHITE = "Dry and zesty — grapefruit and passionfruit over a grassy, m
   const warn = console.warn;
   const warned = [];
   console.warn = (...a) => { warned.push(a); };
+  // S34 — an unparseable read is re-read once, silently: both attempts refuse.
+  replies.push({ text: "I'm sorry, I can't identify the individual bottles in this image.", finish: "stop" });
   replies.push({ text: "I'm sorry, I can't identify the individual bottles in this image.", finish: "stop" });
   const d1 = await post({ image: IMG, clientId: ME, category: "Movies" });
   check("unparseable whole photo → 502 asking for strips", [d1.status, d1.json?.retry], [502, "strips"]);
@@ -236,6 +238,7 @@ const S1_WHITE = "Dry and zesty — grapefruit and passionfruit over a grassy, m
   check("strips fail but the read said wine → the bottles line", d3.json?.error, "That's a lot of bottles. Try one or two shelves.");
 
   replies.push({ text: "nope" });
+  replies.push({ text: "nope" }); // S34 — the silent re-read misses too
   const d4 = await post({ strips: [IMG, IMG], clientId: ME, category: "Movies" });
   check("strips fail on a non-wine read → the plain read failure", [d4.json?.error, d4.json?.dense ?? null], ["Could not read that photo.", null]);
 
