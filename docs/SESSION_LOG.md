@@ -3428,3 +3428,31 @@ Promote `main → release/v2` (yours). There are no env, SQL or migration change
 Promote `main → release/v2` (yours). There are no env, SQL or migration changes. Revert: `git revert -m 1 77358a0`.
 
 **§0 check: consistent.** Picks still follow the direction the person chose, and comparing is opt-in. Nothing new is stored or sent.
+
+## Session 33 — Title re-roll standalone + silent retry on an unparsed chain reply — 2026-10-31 — branch auto/s33-reroll-retry
+
+**Brief (Brad, in chat; S32 call 1 approved):** the re-roll ("+ More like this" on the snapped or typed title itself) follows the standalone rule for Movies, TV and Books. Change only the instruction that makes those lines comparative, and leave wine and other products as they are. When the model's reply fails to parse, retry once silently before showing the failure line, and log both attempts.
+
+### SHIPPED
+**#114 → 8afdd4a**
+- **Re-roll:** `buildStandaloneChainRerollPrompt` applies S32's MEDIA sentence-3 swap and nothing else (the re-roll has no referent override). It runs only with `standalone`, outside uses-mode, for a Movies/TV/Books anchor. Wine, other products, uses-mode and unflagged calls are byte-identical. The guarantee strips sentences that compare or name the title. The client makes the title the Compare to seed (with its TMDb id), so "Compare to [Title]" shows unchecked.
+- **Retry:** `handleChain` (steer and re-roll, every category) makes up to 2 attempts when JSON.parse fails.
+  - Attempt 1 logs a warn (`[chain] parse failed — retrying`), with chars, finish reason and the error.
+  - A success on the retry logs an info line.
+  - Attempt 2 logs an error (`… giving up`), then the existing 502 and failure line.
+  - The wine branch and the vision call are not covered.
+
+### TESTS
+- New `validate-s33`: 31/31. `validate-s32` was updated for the re-roll seed. 55 suites, tsc, lint and build pass.
+- New `pw-s33-reroll`: 9/9 locally and on the preview. Also on the preview: S32 19/19, S31 32/32, S26b 42/42, S26a 41/41, S29 53/53, S30 35/35.
+- Live: three standalone re-rolls on Heat gave 15/15 standalone lines, with no guard hits and no parse failures.
+
+### PHONE CHECKLIST (after promotion)
+1. Star a movie, type it, then tap "+ More like this" on the title. The new five carry no comparison, and "Compare to [Title]" shows unchecked.
+2. Check it. Each card gets "vs. your [Title]:" and the picks don't change. Uncheck it and the lines go.
+3. On a wine bottle, tap "+ More like this" on the title. It behaves as before.
+
+### PROMOTION
+Promote `main → release/v2` (yours). There are no env, SQL or migration changes. Revert: `git revert -m 1 8afdd4a`.
+
+**§0 check: consistent.** Comparing is opt-in on every More like this, and a parse miss is retried instead of shown. Nothing new is stored or sent.
