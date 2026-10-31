@@ -3343,3 +3343,29 @@ Promote `main → release/v2` (yours). There are no env, SQL or migration change
 Promote `main → release/v2` (yours). There are no env, SQL or migration changes. Revert: `git revert -m 1 e30b817`.
 
 **§0 check: consistent.** The nudges show people the fastest ways to a choice (say a mood, snap a shelf). There is no urgency or nagging, and nothing new is sent or stored.
+
+## Session 30 — List hint line + row chevrons — 2026-10-31 — branch auto/s30-list-hints
+
+**Brief (Brad, in chat):** one approved hint line at the top of Favorites, Watched, Recent and Saved, and a small gray › at the right end of each row. Row taps behave as before. No other changes. Favorites had no hint line to replace (on main or in production), so I asked. Brad chose to remove "+ More like this" from Favorites rows.
+
+### SHIPPED
+**#107 → ed77b2f**
+- **Hint:** "Tap any title for more like it, or to share it." in 13px gray-500 at the top of each tab with rows (`LIST_HINT` in `SavedPage.tsx`). Empty lists keep their existing empty lines.
+- **›:** every row ends in a ChevronRight 16 in gray-400. The title still opens the card (not counted as a go-to "more"), and the › opens the same card. In Recent the › sits inside the row's one button. The row controls are unchanged.
+- **Favorites:** "+ More like this" is gone from rows. The card it opens has More like this.
+- **Test fix:** `pw-s29-home-square` now pauses its fake clock before load. A slow preview load had let the nudge turn before the first check.
+
+### TESTS
+- New `validate-s30-list-hints`: 8/8 (`validate-s30.cjs` is S3.0's, unrelated). `validate-s21-chip-rows` was updated for the removed button. All 52 suites, tsc, lint and build pass.
+- New `pw-s30-list-hints`: 35/35 locally and on the preview, with every API POST stubbed so nothing is written. `pw-s29-home-square`: 53/53 on the preview, three runs in a row.
+
+### PHONE CHECKLIST (after promotion)
+1. Open each of Favorites, Watched, Recent and Saved. Each shows the gray hint line at the top and a › at the end of every row.
+2. Tap a title and its card opens, as before. Tap a › and the same card opens.
+3. Favorites rows show the star and ›, with no "+ More like this".
+4. An empty list still shows its usual empty line, with no hint.
+
+### PROMOTION
+Promote `main → release/v2` (yours). There are no env, SQL or migration changes. Revert: `git revert -m 1 ed77b2f`.
+
+**§0 check: consistent.** One plain line tells people what a tap does. It's fewer buttons, not more. Nothing new is sent or stored.
