@@ -40,6 +40,8 @@ function StatusBarShield() {
 // S26a — two rows (board F1): the wordmark left-aligned with ⋯ on the
 // right, then the four list buttons as outlined tiles. The big centered
 // wordmark on the home page is gone; this one is the home affordance.
+// S28c — three rows (docs/S28_HOME_BALANCE_FIX.md): ⋯ alone top-right,
+// the wordmark centered and larger with room around it, then the tiles.
 function TopBar() {
   return (
     <div
@@ -51,12 +53,14 @@ function TopBar() {
       }}
     >
       <div className="mx-auto w-full max-w-xl px-4 pt-1.5">
-        <div className="flex h-11 items-center justify-between gap-2">
-          <HomeWordmark />
+        <div className="flex h-11 items-center justify-end gap-2">
           <div className="-mr-2 flex items-center">
             <MoreMenu attribution={<Attribution />} />
             <InstallButton />
           </div>
+        </div>
+        <div className="flex justify-center pt-2 pb-5 [@media(max-height:700px)]:pt-0 [@media(max-height:700px)]:pb-3">
+          <HomeWordmark />
         </div>
         <SavedPage />
       </div>
@@ -100,7 +104,8 @@ export default function RootLayout({
       </head>
       {/* S26a — 100dvh, not 100vh: on iPhone 100vh is taller than the
           visible page (the toolbar), which made home scroll. */}
-      <body className="min-h-[100dvh] bg-[#0b1725] sm:bg-white">
+      {/* S28c — a column, so the page under the top bar can fill the rest. */}
+      <body className="flex min-h-[100dvh] flex-col bg-[#0b1725] sm:bg-white">
         <StatusBarShield />
         <TopBar />
         {children}

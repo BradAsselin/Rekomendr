@@ -581,9 +581,10 @@ export default function Page() {
   // S13b — early paint: the bottles a shelf snap read, shown while the
   // picks are still being written. Cleared when the snap lands or fails.
   const [shelfPreview, setShelfPreview] = useState<{ name: string; price: number | null }[] | null>(null);
-  // True once this session has at least one successful snap; hides the hero
-  // button. Set in an effect so server and first client render stay in sync.
-  const [hasSnapped, setHasSnapped] = useState(false);
+  // S28c — the hasSnapped gate is gone. It hid the old hero snap button
+  // after a session's first snap; S24b made that hero Say it / Snap it and
+  // kept the gate, and it lived in sessionStorage, so after any snap a
+  // reload landed on a home with no Say it / Snap it. They always show now.
 
   // Bumped by the wordmark home reset; keys SearchBar so a reset remounts
   // it — every bar internal (input, lane, vibe, category) returns to its
@@ -653,7 +654,6 @@ export default function Page() {
   };
 
   useEffect(() => {
-    setHasSnapped(getSnapCount() >= 1);
     // S8b — the starred go-to: the server's copy wins on load. S8c — the
     // follow-up question is decided once per open, here.
     void refreshWineState(true);
@@ -781,7 +781,6 @@ export default function Page() {
 
       const needsReks = anchor.results.similar.length === 0;
       setSnapResult(anchor);
-      setHasSnapped(true);
       setSnapLoading(false);
       setReksPending(needsReks);
 
@@ -1012,8 +1011,7 @@ export default function Page() {
         if (screen) {
           snapAbort.abort();
           incrementSnapCount();
-          setHasSnapped(true);
-          showScreen(screen, bar);
+              showScreen(screen, bar);
           return;
         }
       }
@@ -1029,7 +1027,6 @@ export default function Page() {
       if (snapId !== snapIdRef.current) return; // dismissed while in flight
       setSnapResult(data);
       incrementSnapCount();
-      setHasSnapped(true);
       const barCat = barCategoryForSnap(data.detected_item.category);
       if (barCat) setBarCategoryHint((h) => ({ value: barCat, n: h.n + 1 }));
     } catch (err) {
@@ -1565,7 +1562,6 @@ export default function Page() {
     setSnapLimitReached(false);
     setReksPending(false);
     setLateReks(null);
-    setHasSnapped(false); // re-show the hero snap button
     setActiveRecipe(null);
     setCategory("Movies");
     setPersistedLikedTitles([]);
@@ -1605,10 +1601,12 @@ export default function Page() {
     ) : null;
 
   return (
-    <main className="w-full flex justify-center px-4 pt-1 pb-6">
-      <div className="w-full max-w-xl">
-        {/* S26a — the wordmark moved to the top bar (HomeWordmark), left-
-            aligned beside ⋯; it is still the only home affordance. */}
+    // S28c — main fills the rest of the screen (the body is a column), so
+    // on home Say it / Snap it can take whatever height is left.
+    <main className="w-full flex flex-1 justify-center px-4 pt-4 pb-6">
+      <div className="flex w-full max-w-xl flex-col">
+        {/* S26a — the wordmark moved to the top bar (HomeWordmark); it is
+            still the only home affordance. S28c: centered on its own row. */}
         <SearchBar
           key={searchBarKey}
           onSearch={handleSearch}
@@ -1641,7 +1639,7 @@ export default function Page() {
           onChange={handleSnapFile}
         />
 
-        <div className="mt-8">
+        <div className="mt-8 flex flex-1 flex-col [@media(max-height:700px)]:mt-5">
           {snapLoading || snapResult || snapError || snapLimitReached ? (
             <RekSnapResults
               loading={snapLoading}
@@ -1658,7 +1656,7 @@ export default function Page() {
               onWatchedChange={handleWatchedChange}
             />
           ) : !hasSearched && !loading ? (
-            <>
+            <div className="flex flex-1 flex-col">
             {/* S8c — the one follow-up question on this open, and the
                 Bought list. Home screen only: never over a result. */}
             {/* S21 — no go-tos bar here in any category (Saved →
@@ -1673,12 +1671,10 @@ export default function Page() {
                 />
               </div>
             )}
-            {!hasSnapped && (
-              <div className="sm:hidden">
-                <SayOrSnap onSay={() => micRef.current?.()} onSnap={openSnapPicker} category={barCategory} />
-              </div>
-            )}
-            </>
+            <div className="flex flex-1 flex-col sm:hidden">
+              <SayOrSnap onSay={() => micRef.current?.()} onSnap={openSnapPicker} category={barCategory} />
+            </div>
+            </div>
           ) : (
             <>
               {searchError && !loading && (
