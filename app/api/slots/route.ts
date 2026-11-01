@@ -455,12 +455,18 @@ async function handlePost(req: Request): Promise<Response> {
       const r = closestRef(p, steering, near.from.get(p.id) ?? null);
       if (r) refOf.set(p.id, r);
     }
-    const linesP = linesByRef({
-      clientId,
-      groups: steering.map((ref) => ({ ref, cards: picks.filter((p) => refOf.get(p.id) === ref) })),
-      taste,
-      lane,
-    });
+    // S36 (charter §2.14) — `lines: false`: a title the person named
+    // steers these picks, but the comparison starts off, so no writer runs
+    // and every card keeps its TMDb synopsis. Compare to adds the lines.
+    const writeLines = body?.lines !== false;
+    const linesP = writeLines
+      ? linesByRef({
+          clientId,
+          groups: steering.map((ref) => ({ ref, cards: picks.filter((p) => refOf.get(p.id) === ref) })),
+          taste,
+          lane,
+        })
+      : Promise.resolve(new Map<number, { line: string; ref: string }>());
 
     // S16 — each pick's TMDb bundle, for the card's facts (S15's
     // "2h 10m • on Netflix"). Hang protection only: a pick whose bundle
@@ -528,6 +534,7 @@ async function handlePost(req: Request): Promise<Response> {
         refs: refs.length,
         steering: steering.length,
         steer: steer?.name ? "yes" : "no",
+        standalone: !writeLines,
         nearestScore: scores[0] ?? null,
         excluded: excluded.size,
         shipped: cards.length,
@@ -553,7 +560,7 @@ async function handlePost(req: Request): Promise<Response> {
       const stream = new ReadableStream<Uint8Array>({
         async start(ctrl) {
           const send = (o: unknown) => ctrl.enqueue(enc.encode(JSON.stringify(o) + "\n"));
-          send({ type: "cards", ...head, reks: cards, linesPending: steering.length > 0 && cards.length > 0 });
+          send({ type: "cards", ...head, reks: cards, linesPending: writeLines && steering.length > 0 && cards.length > 0 });
           const lines = await linesP;
           send({
             type: "lines",

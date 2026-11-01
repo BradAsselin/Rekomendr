@@ -104,6 +104,10 @@ interface ResultsProps {
   // S31 — this set came from More like this on a Saved-page row: the
   // tapped title, for the unchecked "Compare to [Title]" row.
   mltSeed?: MltSeed | null;
+  // S36 — a card's More like this landed its five (Recent keeps the set),
+  // and cards learned their facts and posters (Recent keeps those too).
+  onMoreLikeThisSet?: (seedTitle: string, reks: Rek[], seed: MltSeed | null) => void;
+  onFacts?: (facts: Record<string, { facts: string[]; posterPath: string | null }>) => void;
 }
 
 const ResultsV4: React.FC<ResultsProps> = ({
@@ -125,7 +129,11 @@ const ResultsV4: React.FC<ResultsProps> = ({
   header,
   headerRight,
   mltSeed = null,
+  onMoreLikeThisSet,
+  onFacts,
 }) => {
+  const onFactsRef = useRef(onFacts);
+  onFactsRef.current = onFacts;
   const [reks, setReks] = useState<Rek[]>([]);
   // S31 — "+ More like this" on a card here: the tapped card seeds the
   // new five and is the Compare to title named over them (unchecked).
@@ -272,6 +280,13 @@ const ResultsV4: React.FC<ResultsProps> = ({
         };
         setReks(fill);
         setTrail(fill);
+        // S36 — Recent keeps them with the entry this set came from.
+        const learned: Record<string, { facts: string[]; posterPath: string | null }> = {};
+        for (const r of need) {
+          const f = r.tmdbId != null ? by.get(r.tmdbId) : undefined;
+          if (f) learned[r.title.trim().toLowerCase()] = { facts: f.facts, posterPath: r.posterPath ?? f.posterPath };
+        }
+        if (Object.keys(learned).length) onFactsRef.current?.(learned);
       })
       .catch(() => console.warn("[facts] request failed — cards keep no line"));
   }, [d2, category, reks, trail]);
@@ -483,15 +498,17 @@ const ResultsV4: React.FC<ResultsProps> = ({
    * ----------------------------- */
   const handleMoreLikeThis = async (rek: Rek) => {
     recordLike({ category, title: rek.title, year: rek.year, action: 'more_like_this' });
-    if (category === "Movies" || category === "TV Shows" || category === "Books") {
-      setCardSeed({
-        category,
-        name: rek.title,
-        year: rek.year || null,
-        tmdbKind: category === "Movies" ? "movie" : category === "TV Shows" ? "tv" : null,
-        tmdbId: null,
-      });
-    }
+    const seed: MltSeed | null =
+      category === "Movies" || category === "TV Shows" || category === "Books"
+        ? {
+            category,
+            name: rek.title,
+            year: rek.year || null,
+            tmdbKind: category === "Movies" ? "movie" : category === "TV Shows" ? "tv" : null,
+            tmdbId: null,
+          }
+        : null;
+    if (seed) setCardSeed(seed);
 
     // Chain-parity: the tapped card is a PURSUED KEEP — it marks as a
     // like locally and graduates to the trail with the wipe's flush
@@ -578,6 +595,8 @@ const ResultsV4: React.FC<ResultsProps> = ({
       // Keepers are already visible — only the fresh cards stagger in.
       noteSetShown(category, fresh.map((r) => r.title));
       setReks((prev) => [...prev, ...fresh]);
+      // S36 — a More like this is a search: Recent keeps its five.
+      if (fresh.length) onMoreLikeThisSet?.(rek.title, fresh, seed);
       fresh.forEach((r, index) => {
         setTimeout(() => setVisibleIds((p) => [...p, r.id]), index * 80);
       });

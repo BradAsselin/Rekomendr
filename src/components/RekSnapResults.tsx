@@ -112,6 +112,9 @@ export type SnapResult = {
   // S4b — client-only: the anchor arrived already saved (a shared card the
   // person tapped Save on). The Save mark starts lit.
   saved?: boolean;
+  // S36 — client-only: a set reopened from Recent carries the card facts
+  // and posters it had, so nothing is asked again.
+  facts?: Record<string, { facts: string[]; posterPath: string | null }>;
   // S3.0 — present when the anchor is a TMDb-resolved movie/show (snapped
   // or typed): its official trailer and US watch providers.
   media?: {
@@ -189,6 +192,10 @@ type Props = {
   // comparison starts off; checking it shows the lines and ring).
   mltSeed?: MltSeed | null;
   mltWine?: boolean;
+  // S36 — a card's More like this landed its five (Recent keeps the set),
+  // and the cards learned their facts and posters (Recent keeps those too).
+  onChainSet?: (chainedName: string, set: SnapResult, seed: MltSeed | null) => void;
+  onFacts?: (facts: Record<string, { facts: string[]; posterPath: string | null }>) => void;
 };
 
 // S18b — the D2 card is Movies/TV's (books and wine keep theirs).
@@ -247,9 +254,15 @@ const RekSnapResults: React.FC<Props> = ({
   onWatchedChange,
   mltSeed = null,
   mltWine = false,
+  onChainSet,
+  onFacts,
 }) => {
   const mltWineRef = useRef(mltWine);
   mltWineRef.current = mltWine;
+  const onChainSetRef = useRef(onChainSet);
+  onChainSetRef.current = onChainSet;
+  const onFactsRef = useRef(onFacts);
+  onFactsRef.current = onFacts;
   // S31 — wine More like this: the bottle the set came from, offered
   // unchecked as "Compare to [Bottle]" (the server already wrote its lines).
   const [winePending, setWinePending] = useState<WineRef | null>(null);
@@ -528,8 +541,18 @@ const RekSnapResults: React.FC<Props> = ({
       priceChipRef.current = null;
       setHaulOpen(result.wine?.scene === "haul");
       // S18b — a new anchor: its own facts, marks and toast.
-      setCardFacts({});
-      factsAskedRef.current = new Set();
+      // S36 — a set reopened from Recent brings the facts it had.
+      // Every card in it counts as asked: reopening sends nothing.
+      setCardFacts(result.facts ?? {});
+      factsAskedRef.current = new Set(
+        result.facts
+          ? [
+              ...Object.keys(result.facts),
+              markKey(result.detected_item.name),
+              ...[...result.results.similar, ...result.results.uses, ...result.results.alternatives].map((r) => markKey(r.name)),
+            ]
+          : []
+      );
       touchedRef.current = new Set();
       watchedNamesRef.current = new Set();
       if (toastTimer.current) clearTimeout(toastTimer.current);
@@ -632,7 +655,10 @@ const RekSnapResults: React.FC<Props> = ({
                 : null;
             if (key) next[key] = { facts: Array.isArray(f.facts) ? f.facts : [], posterPath: f.posterPath ?? null };
           }
-          if (Object.keys(next).length > 0) setCardFacts((p) => ({ ...p, ...next }));
+          if (Object.keys(next).length > 0) {
+            setCardFacts((p) => ({ ...p, ...next }));
+            onFactsRef.current?.(next);
+          }
         })
         .catch(() => console.warn("[facts] request failed — cards keep no line"));
     }
@@ -1350,7 +1376,10 @@ const RekSnapResults: React.FC<Props> = ({
     branch: "chain" | "wine" = "chain",
     // S32 — the More like this seed once the set lands (null ends it;
     // undefined leaves it as it is).
-    seedAfter?: MltSeed | null
+    seedAfter?: MltSeed | null,
+    // S36 — a More like this chain (not a re-roll): the card it pursued,
+    // so Recent can keep the set as "More like [Title]".
+    chainedName?: string
   ) => {
     const forResult = resultRef.current;
     if (!forResult) return;
@@ -1428,6 +1457,14 @@ const RekSnapResults: React.FC<Props> = ({
       setLists((prev) => (prev ? { ...prev, [mode]: cleaned } : prev));
       if (seedAfter !== undefined) setChainSeed(seedAfter);
       setChainError(null);
+      if (chainedName) {
+        const { facts: _facts, ...base } = forResult;
+        onChainSetRef.current?.(
+          chainedName,
+          { ...base, mode, results: { ...(listsRef.current ?? forResult.results), [mode]: cleaned } },
+          seedAfter ?? null
+        );
+      }
     } catch (err) {
       console.error("RekSnap chain failed:", err);
       if (resultRef.current !== forResult) return;
@@ -1499,7 +1536,8 @@ const RekSnapResults: React.FC<Props> = ({
         mode,
         wipe.restoreList,
         wineList(forResult, mode) ? "wine" : "chain",
-        wineList(forResult, mode) ? undefined : seed
+        wineList(forResult, mode) ? undefined : seed,
+        rek.name
       );
     }, 250);
   };
@@ -1552,7 +1590,8 @@ const RekSnapResults: React.FC<Props> = ({
       mode,
       wipe.restoreList,
       wineList(forResult, mode) ? "wine" : "chain",
-      wineList(forResult, mode) ? undefined : seed
+      wineList(forResult, mode) ? undefined : seed,
+      entry.rek.name
     );
   };
 

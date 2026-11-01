@@ -84,7 +84,8 @@ check("home shows no go-tos bar (S21)", page.includes("<GoTosList"), false);
 check("Wine you bought rows have it (not counted as a go-to)", page.includes('moreFromGoTo({ category: "wine", name }, { counted: false })'), true);
 check("screens open the go-to as the anchor (TMDb, then the chooser)", page.includes('action: "open"') && page.includes("fetchTypedReks(anchor.media, null)"), true);
 // S31 — as a More like this set ({ mlt: true }: its Compare to starts unchecked).
-check("books + wine run the typed search on the name", page.includes("void handleSearch(`${bar}||||${t.name}||mode:ai`, bar, undefined, undefined, undefined, undefined, { mlt: true });"), true);
+// S36 — the set also names its title for Recent ("More like [Title]").
+check("books + wine run the typed search on the name", page.includes("void handleSearch(`${bar}||||${t.name}||mode:ai`, bar, undefined, undefined, undefined, undefined, { mlt: true, mltName: t.name });"), true);
 const anchorRoute = read("app/api/anchor/route.ts");
 check('/api/anchor handles "open"', anchorRoute.includes('if (body?.action === "open") return await open(body);'), true);
 check("open makes no model call (the reks follow via \"reks\")", anchorRoute.split("async function open")[1].split("async function card")[0].includes("chooseMediaReks"), false);

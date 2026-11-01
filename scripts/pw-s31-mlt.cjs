@@ -160,8 +160,11 @@ const cardTexts = (page) => page.locator("[data-vs-line], p.leading-relaxed").al
     const asked = log.reks.length;
     await page.waitForFunction(() => document.body.innerText.includes("follows a scientist"), null, { timeout: 60000 }).catch(() => {});
     await page.waitForTimeout(1500);
-    check("a new search (a typed title) is not More like this", [log.reks.length > asked, log.reks.at(-1)?.mlt], [true, undefined]);
-    check("…and shows no More like this row", await page.getByTestId("mlt-compare-row").count(), 0);
+    // S36 (charter §2.14) — a typed title now follows S31's rule itself:
+    // standalone lines, its own unchecked "Compare to [Title]", the old
+    // set's choice dropped.
+    check("a new search (a typed title) asks for its own standalone five", [log.reks.length > asked, log.reks.at(-1)?.mlt], [true, true]);
+    check("…and its row names the typed title, unchecked", [await page.getByTestId("mlt-compare-row").getByTestId("compare-open").innerText(), await page.getByTestId("mlt-compare-row").getByTestId("compare-open").getAttribute("aria-pressed")], ["Compare to Contact", "false"]);
     await ctx.close();
   }
 

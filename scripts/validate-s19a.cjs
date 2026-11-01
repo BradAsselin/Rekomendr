@@ -203,7 +203,7 @@ for (const level of ["warn", "info", "error"]) console[level] = () => {};
   check("…with no second parse and no title check", /typedText && !parsedMood \? resolveTypedAnchor/.test(page) && /parsedMood\s*\? Promise\.resolve\(parsedMood\)/.test(page), true);
   check("the slots request sends them", /\.\.\.\(req\.keywords\?\.length \? \{ keywords: req\.keywords \} : \{\}\),\s*\.\.\.\(req\.reference \? \{ reference: req\.reference \} : \{\}\),/.test(read("src/lib/slotsClient.ts")), true);
   // S24a — the request rides with the named title and the refs it was built with.
-  check("backfills keep the same request (keywords ride slotReqRef)", /slotReqRef\.current = \{ req, named, refs \};/.test(page), true);
+  check("backfills keep the same request (keywords ride slotReqRef)", /slotReqRef\.current = \{ req, named, refs( \}|, \.\.\.\(standalone)/.test(page), true); // S36: + the standalone flag
   check("the log names the source and the mood fields", /source: voice \? "voice" : "typed",[\s\S]{0,200}keywords: plan\.req\.keywords\?\.length \?\? 0,\s*reference: !!plan\.req\.reference,/.test(page), true);
 
   console.log(`\n${passed} passed, ${failed} failed`);
