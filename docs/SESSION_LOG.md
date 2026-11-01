@@ -3520,3 +3520,49 @@ Promote `main → release/v2` (yours). There are no env, SQL or migration change
 Promote `main → release/v2` (yours). There are no env, SQL or migration changes. Revert: `git revert -m 1 92aca22`.
 
 **§0 check: consistent.** A bad model reply is retried instead of shown, on every lane. Nothing new is stored or sent.
+
+## Session 36 — Recent remembers your searches; typed/spoken title follows S31 — 2026-11-01 — branch auto/s36-recent-searches — PR #123
+
+**Brief (Brad, in chat):** commit the charter's new §2.14 on its own branch and merge it, then build `docs/S35_RECENT_SEARCHES.md` (the spec's own name; logged as Session 36 because Session 35 was the retry round), following §2.14. Merge when green.
+
+### SHIPPED
+**#122 → 9ec142c:** charter §2.14 "One compare control, the same everywhere" (Brad's text, approved in chat; §11.6).
+
+**#123 → 5d740b6**
+- **Recent entries:** `src/lib/recentSearches.ts` keeps them in localStorage (`rekomendr.recent_searches`), on this device only, with no network call. Newest first, 50 max. Labels:
+  - voice and typed: “words”
+  - chips: `Comedy · Feel-good` (a vibe tapped right after its genre refines the same entry)
+  - snap: `Snapped: [name]` (a snapped screen uses its service)
+  - More like this: `More like [Title]` (a tapped list title or go-to, a card's MLT in either lane; re-rolls are not recorded)
+  - Compare to re-runs and health sets are never entries.
+- **Reopen:** an entry comes back from storage. No search, model or facts request is made, and the voice set isn't re-sent.
+- **Recent tab:**
+  - Searches and opened titles are merged newest first.
+  - Each search shows its icon, label, time, and five posters (names for wine, books and other snaps).
+  - A pick opens its card. An opened pick gets a blue dot.
+  - Clear recent clears both lists. The hint line is unchanged.
+- **§2.14 rule:**
+  - A typed title's five use S31's standalone chooser (`mlt: true`) under an unchecked "Compare to [Title]".
+  - A title named in a mood keeps its ranking request but sends `lines: false`: the slots route skips the writer and the cards keep their TMDb synopses.
+  - Refs chosen in Compare to keep their lines. Wine is unchanged.
+  - No prompt text changed.
+
+### TESTS
+- New `validate-s36-recent`: 50/50. 58 suites, tsc, lint and build pass.
+- `validate-s12a/s15-screen/s16b/s19a/s25` had literal-text checks updated to the reshaped code (the behavior they guard is unchanged).
+- **Note:** I wrote the new suite as `validate-s36.cjs` at first, which overwrote S3.6's suite of that name. It was restored from main before any commit (59/59) and the new suite was renamed.
+- On the preview:
+  - `pw-s36-recent` 37/37
+  - S31 32/32, S32 19/19, S33 9/9: their "typed title has no row" checks were updated to the §2.14 rule
+  - S30 35/35, S29 53/53, S28c 154/154, S26a 41/41, S26b 42/42
+- Live: a steered `/api/slots` with `lines:false` returned five cards with `vsGoTo: null` and their synopses.
+
+### FOUND, NOT FIXED
+- Snap-lane card opens don't note a Recent title, so those picks never get a dot.
+- A reopened snap-lane Movies/TV set makes the existing `/api/saved` marks read (useServerMarks). It isn't a search or model request.
+- Stored Compare to refs still apply automatically to new chips/voice searches (pre-§2.14).
+
+### PROMOTION
+Promote `main → release/v2` (yours). There are no env, SQL or migration changes. Revert: `git revert -m 1 5d740b6` (and `9ec142c` for the charter).
+
+**§0 check: consistent.** The person keeps their own path, on their own device only. Nothing new is sent, and picks are still chosen on fit first.
