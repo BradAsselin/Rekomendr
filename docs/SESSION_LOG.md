@@ -3566,3 +3566,34 @@ Promote `main → release/v2` (yours). There are no env, SQL or migration change
 Promote `main → release/v2` (yours). There are no env, SQL or migration changes. Revert: `git revert -m 1 5d740b6` (and `9ec142c` for the charter).
 
 **§0 check: consistent.** The person keeps their own path, on their own device only. Nothing new is sent, and picks are still chosen on fit first.
+
+## Session 37 — Compare to defaults: wine ☑ with standalone lines, new searches start off, snap-lane opens in Recent — 2026-11-01 — branch auto/s37-compare-defaults — PR #125
+
+**Brief (Brad, in chat):** S36 follow-ups under §2.14. Build the skipped wine part of `docs/S35_RECENT_SEARCHES.md` (approved: change only the instruction that makes wine description lines comparative); a new search starts with Compare to off; snap-lane card opens land in Recent with the dot. The four S36 wording and layout calls are approved as built. Merge when green.
+
+### SHIPPED
+**#125 → 182927e**
+- **Wine, a typed or snapped single bottle:** "Compare to [Bottle] ☑", already checked.
+  - Descriptions stand alone. The wine engine (its one call site) gets `STANDALONE_WINE_VOICE`: the snap voice with only the comparative instruction swapped (sentence-1 placement, the CONSUMABLE placement and verdict beats, their RIGHT/WRONG pairs). A swap that stops matching throws. `vs_favorite` is untouched.
+  - Wine More like this lost its "descriptions compare against" override; the direction still steers.
+  - Backstop: `dropComparingWineSentences` (standaloneLine.ts) on the engine and the vision fallback; a pick with nothing left is dropped and logged.
+  - Unchecking hides the vs. lines and rings; checking again shows them with no request (unchecked re-runs still write the bottle's lines, hidden).
+- **The shared header's checked state:** a named reference alone reads "Compare to [Name] ☑" with "+", on wine and on every S31 More like this row (was a "vs. [Name] ×" chip).
+- **New searches start off:** chips, voice, typed, snap and More like this clear the stored Compare to set; Compare to and steer re-runs keep it. The sheet's lists are untouched. Recent stores the refs a set was shown with; reopening restores them, or strips stale lines.
+- **Snap lane:** Show details on the anchor, a frontier or a trail card notes it in Recent (device-only), so the entry's pick gets its dot.
+
+### TESTS
+- New `validate-s37` 58/58 (real route, stubbed model). All suites, tsc, lint and build pass.
+- `validate-s21`'s mock line no longer opens on "Similar…" (the wine fallback now drops it); `validate-s26b/s32` literal checks updated.
+- On the preview: S26b 45/45, S31 36/36, S32 20/20, S33 10/10, S36 40/40 (updated to ☑, plus re-check-with-no-call, stored-set-cleared and snap-lane-dot checks); S26a 41/41, S28c 154/154, S29 53/53, S30 35/35.
+- Live, real model: "Josh Cellars Cabernet Sauvignon" and "La Marca Prosecco" typed — standalone descriptions, five vs. lines, rings; uncheck/re-check made no request.
+
+### FOUND, NOT FIXED
+- A live description can still carry a referent-free comparative mid-sentence ("the bubbles are bigger and firmer"); the backstop catches openers and "than", not these.
+- Recent's titles list covers Movies, TV, Books and Wine only, so a whiskey or other snap pick never gets a dot (unchanged from S36).
+- Reopening a wine snap entry starts checked again, even if it was unchecked when left.
+
+### PROMOTION
+Promote `main → release/v2` (yours). No env, SQL or migration changes. Revert: `git revert -m 1 182927e`.
+
+**§0 check: consistent.** The person meets each pick on its own terms first, comparison only where they're holding the reference, and nothing new leaves the device.
