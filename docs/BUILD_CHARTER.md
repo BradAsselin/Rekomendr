@@ -79,6 +79,16 @@ Field validation is the only validation. Six wows on the ledger share one beat: 
 11. **Timeouts sit above the p99 of legitimate completions** — hang protection, never a latency SLA. Any timeout extension re-audits every response landing site (a request that lives longer arrives later).
 12. **Two-tier exclusion canon:** an uncapped drop-set at the single response site is the guarantee; the capped prompt avoid-list is pressure. Guarantees never truncate.
 13. **A shared card is permanent.** Once shared, a card's link opens forever: no TTL, no cleanup job, no expiring token, by policy. The snapshot text never changes; what may refresh is live, factual completion (where it streams today). Only two things can hide a card: its owner revoking it, and the health wall (§2.2). Any migration or job that would delete, expire or narrow shared cards needs Brad's explicit approval. The production domain keeps serving `/a/*` for as long as the product exists. *(Added 2026-10-15; approved by Brad in chat.)*
+14. **One compare control, the same everywhere.** People learn a control once and then stop thinking about it. That is the "least effort" half of §0. Whenever picks can be measured against a reference (a title or a bottle):
+    - **One control, one place.** The control is "Compare to [Reference]" in the row directly above the picks. It always names its reference. A "+" adds up to three references, and the sheet lists them from This shelf, Favorites, Watched, Recent and Saved.
+    - **Visible state, one tap.** The control shows ☐ or ☑, and one tap toggles it. On means comparison is on; off means every trace of it is gone.
+    - **Comparison lives in one place.** The comparison appears only in the separate "vs. [Reference]:" line on each card, plus the orange reference ring on wine's taste bars. Card descriptions are always standalone, in every lane and every voice, and a backstop removes comparative sentences that slip through. Toggling never re-runs the search or re-ranks the picks.
+    - **Defaults follow context, for a reason.**
+      - Wine with a typed or snapped bottle starts on, because the person is at a shelf with a reference in hand.
+      - Everything else starts off, so the picks are met on their own terms first. That covers movies, TV and books, whether started from a list tap, More like this, a typed or spoken title, chips, voice, or a shelf with nothing picked.
+    - **Nothing picks a reference for the person** except the thing they just snapped or typed. Favorites never steer silently (§0.2).
+    - **New surfaces use this control.** Any new surface that shows picks against a reference uses it unchanged. A different control, placement or default needs Brad's approval.
+    - The same spirit applies to every repeated action, not just compare. Tapping a title anywhere opens its card and starts More like this; star, save, Watched it and share look and sit the same on every card. A new way of doing an existing action needs Brad's approval. *(Added 2026-11-01; approved by Brad in chat.)*
 
 ---
 
