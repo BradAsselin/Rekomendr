@@ -112,7 +112,8 @@ const chainAndCheck = async (page, log, label) => {
     await page.locator("form input").press("Enter");
     await page.getByText(/follows a crew/).first().waitFor({ timeout: 60000 });
     await page.waitForTimeout(800);
-    check("a typed title is not More like this: no row", await page.getByTestId("mlt-compare-row").count(), 0);
+    // S36 (charter §2.14) — a typed title has its own unchecked row now.
+    check("a typed title: its own row, unchecked", [await page.getByTestId("mlt-compare-row").getByTestId("compare-open").innerText(), await page.getByTestId("mlt-compare-row").getByTestId("compare-open").getAttribute("aria-pressed")], ["Compare to Heat", "false"]);
     // The anchor's button renders first (above the cards).
     await chainBtn(page).first().click();
     await page.getByText(drifter).first().waitFor({ timeout: 30000 });
@@ -130,7 +131,8 @@ const chainAndCheck = async (page, log, label) => {
     const L = await leads(page);
     check('each card gets "vs. your Heat:" (a starred go-to)', L.length >= 5 && L.every((l) => l.trim() === "vs. your Heat:"), true);
     check("…no re-ranking: no new re-roll", log.chains.length, 1);
-    await row.getByTestId("compare-remove").click();
+    check("…the row reads Compare to Heat ☑", await row.getByTestId("compare-open").getAttribute("aria-pressed"), "true");
+    await row.getByTestId("compare-open").click();
     await page.waitForTimeout(300);
     check("unchecking removes the lines; the five are as they were", [await page.locator("[data-vs-line]").count(), await page.getByText(drifter).allTextContents()], [0, order]);
     await ctx.close();

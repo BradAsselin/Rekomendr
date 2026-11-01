@@ -106,7 +106,9 @@ const chainAndCheck = async (page, log, label) => {
     await page.locator("form input").press("Enter");
     await page.getByText(/follows a crew/).first().waitFor({ timeout: 60000 });
     await page.waitForTimeout(800);
-    check("a typed title is not More like this: no row", [log.reks.at(-1)?.mlt, await page.getByTestId("mlt-compare-row").count()], [undefined, 0]);
+    // S36 (charter §2.14) — a typed title follows S31 itself: standalone
+    // five under its own unchecked "Compare to [Title]".
+    check("a typed title: standalone five, its own row", [log.reks.at(-1)?.mlt, await page.getByTestId("mlt-compare-row").getByTestId("compare-open").innerText()], [true, "Compare to Heat"]);
 
     const c1 = await chainAndCheck(page, log, "first chain");
     const chained = c1.chained.name;
@@ -124,7 +126,8 @@ const chainAndCheck = async (page, log, label) => {
     const L = await leads(page);
     check(`each card gets "vs. ${chained}:"`, L.length >= 5 && L.every((l) => l.trim() === `vs. ${chained}:`), true);
     check("…no re-ranking: no new chain, no new five", [log.chains.length, log.reks.length], [1, 1]);
-    await row.getByTestId("compare-remove").click();
+    check("…the row reads Compare to [card] ☑", [await row.getByTestId("compare-open").innerText(), await row.getByTestId("compare-open").getAttribute("aria-pressed")], [`Compare to ${chained}`, "true"]);
+    await row.getByTestId("compare-open").click();
     await page.waitForTimeout(300);
     check("unchecking removes the lines; the five are as they were", [await page.locator("[data-vs-line]").count(), await page.getByText(drifter).allTextContents()], [0, order]);
     check("…and the row is back to Compare to [card]", await row.getByTestId("compare-open").innerText(), `Compare to ${chained}`);
@@ -167,7 +170,8 @@ const chainAndCheck = async (page, log, label) => {
     await page.locator("form input").press("Enter");
     await page.getByText(/follows a crew/).first().waitFor({ timeout: 60000 });
     await page.waitForTimeout(800);
-    check("a new search shows no row", await page.getByTestId("mlt-compare-row").count(), 0);
+    // S36 — the new search's own row (its typed title), unchecked: the chain's choice is gone.
+    check("a new search drops the chain's row for its own, unchecked", [await page.getByTestId("mlt-compare-row").getByTestId("compare-open").innerText(), await page.getByTestId("mlt-compare-row").getByTestId("compare-open").getAttribute("aria-pressed")], ["Compare to Heat", "false"]);
     await ctx.close();
   }
 

@@ -135,7 +135,9 @@ const post = async (body) => {
 const five = (prefix, category) =>
   [1, 2, 3, 4, 5].map((i) => ({
     name: `${prefix} ${i}`,
-    description: `${prefix} ${i} description.`,
+    // S37 — a wine fallback drops sentences that compare ("Similar…"): the
+    // mock line names its pick without opening on a comparison.
+    description: `The ${prefix.toLowerCase()} pick ${i} description.`,
     category,
     rank: i,
   }));

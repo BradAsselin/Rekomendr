@@ -214,7 +214,8 @@ const returnLine = (p) => p.split("\n").find((l) => l.startsWith("Return JSON on
   const sheet = read("src/components/WineCompareSheet.tsx");
   const facts = read("src/components/WineFacts.tsx");
   check("the go-to rides as goTo, never as the comparison", /goTo: getWineFavorite\(\)\?\.name \?\? null/.test(page) && !/favorite: getWineFavorite\(\)/.test(page) && !/favorite: getWineFavorite\(\)/.test(rsr), true);
-  check("re-runs send the first reference", /favorite: refPayload\(wineRefsRef\.current\[0\], forResult\.detected_item\.description\)/.test(rsr), true);
+  // S37 — unchecked, the snapped bottle still rides (its lines hidden).
+  check("re-runs send the first reference", /favorite: refPayload\(wineRefsRef\.current\[0\] \?\? winePendingRef\.current, forResult\.detected_item\.description\)/.test(rsr), true);
   check("the bottle pills are gone", /data-testid="shelf-preview"/.test(rsr), false);
   check('status line: "Reading the shelf…", then its count', rsr.includes('"Reading the shelf…"') && rsr.includes("`Reading the shelf… ${early.length} bottles found`"), true);
   check('top card labels: "This shelf · most popular" / "Comparing to · from this shelf"', rsr.includes('label="This shelf · most popular"') && rsr.includes('"Comparing to · from this shelf"'), true);

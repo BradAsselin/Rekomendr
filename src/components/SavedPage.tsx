@@ -22,7 +22,7 @@
 // (bookmark, check, star) with the cards' own labels.
 
 import React, { useCallback, useEffect, useState } from "react";
-import { Bookmark, ChevronRight, CircleCheck, RotateCcw, Star, X, type LucideIcon } from "lucide-react";
+import { BookOpen, Bookmark, Camera, ChevronRight, CircleCheck, Film, RotateCcw, Star, Tv, Wine, X, type LucideIcon } from "lucide-react";
 
 import { WatchedButton } from "./WatchedControl";
 import GoToStar from "./GoToStar";
@@ -32,9 +32,31 @@ import { getGoTos, onGoTosChange, type GoTo } from "../lib/goTos";
 import { getWineFavorite, onWineFavoriteChange, setWineFavorite } from "../lib/wineVisit";
 import { fetchSavedLists, onSavedChange, undoSignal, undoWatched } from "../lib/userPrefs";
 import type { SavedCategory, SavedItem } from "../lib/savedLists";
-import { clearRecent, getRecent, onRecentChange, type RecentItem } from "../lib/recent";
+import { clearRecent, getRecent, onRecentChange, recentCategoryOf, type RecentItem } from "../lib/recent";
+import {
+  clearSearchEntries,
+  entryWhen,
+  getSearchEntries,
+  onSearchEntriesChange,
+  titleKey,
+  type EntryPick,
+  type SearchEntry,
+} from "../lib/recentSearches";
+import { usePostersOn } from "../lib/posterPref";
 
 const OPEN_EVENT = "rekomendr:open-saved-item";
+// S36 — an entry tapped in Recent: the page reopens that set from storage.
+const OPEN_ENTRY_EVENT = "rekomendr:open-search-entry";
+export function onOpenSearchEntry(fn: (id: string) => void): () => void {
+  const h = (e: Event) => fn((e as CustomEvent<string>).detail);
+  window.addEventListener(OPEN_ENTRY_EVENT, h);
+  return () => window.removeEventListener(OPEN_ENTRY_EVENT, h);
+}
+
+// S36 — the entry's category icon; anything snapped that isn't one of the
+// four shows the camera.
+const ENTRY_ICON: Record<string, LucideIcon> = { Movies: Film, "TV Shows": Tv, Books: BookOpen, Wine };
+const entryIcon = (category: string): LucideIcon => ENTRY_ICON[recentCategoryOf(category) ?? ""] ?? Camera;
 
 // The page listens and opens the card (app/page.tsx → moreFromGoTo).
 // `counted`: a Favorites "+ More like this" counts as a go-to "more"; a
@@ -103,6 +125,9 @@ const SavedPage: React.FC = () => {
   const [favorites, setFavorites] = useState<Fav[]>([]);
   // S24a — this device's Recent (never sent anywhere).
   const [recent, setRecent] = useState<RecentItem[]>([]);
+  // S36 — this device's searches (never sent anywhere).
+  const [searches, setSearches] = useState<SearchEntry[]>([]);
+  const postersOn = usePostersOn();
   // Saved/Watched say "empty" only once a read has actually answered — a
   // list still loading (or a failed read) is not an empty list.
   const [loaded, setLoaded] = useState(false);
@@ -119,7 +144,9 @@ const SavedPage: React.FC = () => {
     void reload();
     setFavorites(readFavorites());
     setRecent(getRecent());
+    setSearches(getSearchEntries());
     const offRecent = onRecentChange(() => setRecent(getRecent()));
+    const offSearches = onSearchEntriesChange(() => setSearches(getSearchEntries()));
     const offSaved = onSavedChange(() => void reload());
     const offGoTos = onGoTosChange(() => setFavorites(readFavorites()));
     const offWine = onWineFavoriteChange(() => setFavorites(readFavorites()));
@@ -128,6 +155,7 @@ const SavedPage: React.FC = () => {
       offGoTos();
       offWine();
       offRecent();
+      offSearches();
     };
   }, [reload]);
 
@@ -199,6 +227,85 @@ const SavedPage: React.FC = () => {
     </li>
   );
 
+  // S36 — a pick opens its card, like any title tapped in a list (its card
+  // and More like this). A snapped thing that isn't a movie, show, book or
+  // wine has no card of its own: the tap reopens the set it was in.
+  const openEntry = (e: SearchEntry) => {
+    setOpen(false);
+    try {
+      window.scrollTo({ top: 0 });
+    } catch {}
+    window.dispatchEvent(new CustomEvent<string>(OPEN_ENTRY_EVENT, { detail: e.id }));
+  };
+  const openPick = (e: SearchEntry, p: EntryPick) => {
+    const raw = p.category || e.category;
+    if (recentCategoryOf(raw) === "Wine") return openItem({ category: "wine", name: p.title });
+    const c = goToCategoryFor(raw);
+    if (!c) return openEntry(e);
+    const kind = c === "movies" ? "movie" : c === "tv" ? "tv" : null;
+    openItem({ category: c, name: p.title, tmdbKind: kind, tmdbId: p.tmdbId });
+  };
+  // A pick counts as opened once its card was opened, shared, saved or
+  // marked after the search (the titles Recent already keeps).
+  const openedAfter = (e: SearchEntry, p: EntryPick) => {
+    const cat = recentCategoryOf(p.category || e.category);
+    const k = titleKey(p.title);
+    return recent.some((r) => r.category === cat && titleKey(r.title) === k && r.at >= e.at);
+  };
+
+  const searchRow = (e: SearchEntry) => {
+    const Icon = entryIcon(e.category);
+    const media = goToCategoryFor(e.category);
+    const posters = postersOn && (media === "movies" || media === "tv");
+    return (
+      <li key={`e${e.id}`} className="py-2" data-testid="recent-search">
+        <button type="button" onClick={() => openEntry(e)} className="flex w-full items-center gap-2 py-1 text-left" data-testid="recent-search-open">
+          <Icon size={16} strokeWidth={1.8} aria-hidden="true" className="shrink-0 text-gray-400" />
+          <span className="min-w-0 flex-1">
+            <span className="line-clamp-2 text-[15px] text-gray-900" data-testid="recent-search-label">{e.label}</span>
+            <span className="block text-[12px] text-gray-400" data-testid="recent-search-when">{entryWhen(e.at)}</span>
+          </span>
+          <Chevron />
+        </button>
+        {posters ? (
+          <div className="mt-1.5 flex gap-2 pl-6" data-testid="recent-search-picks">
+            {e.picks.map((p, i) => (
+              <button
+                key={`${i}${p.title}`}
+                type="button"
+                onClick={() => openPick(e, p)}
+                aria-label={p.title}
+                data-testid="recent-pick"
+                className="relative h-[66px] w-[44px] shrink-0 overflow-hidden rounded-md bg-gray-200"
+              >
+                {p.posterPath ? (
+                  // eslint-disable-next-line @next/next/no-img-element -- TMDb's CDN serves the small size directly
+                  <img src={`https://image.tmdb.org/t/p/w92${p.posterPath}`} alt="" width={44} height={66} loading="lazy" decoding="async" className="h-full w-full object-cover" />
+                ) : (
+                  <span className="block p-1 text-left text-[9px] leading-tight text-gray-600 line-clamp-5">{p.title}</span>
+                )}
+                {openedAfter(e, p) && (
+                  <span aria-hidden="true" data-testid="recent-pick-opened" className="absolute right-1 top-1 h-2 w-2 rounded-full bg-[#3B6BD4] ring-2 ring-white" />
+                )}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <ul className="mt-0.5 pl-6" data-testid="recent-search-picks">
+            {e.picks.map((p, i) => (
+              <li key={`${i}${p.title}`}>
+                <button type="button" onClick={() => openPick(e, p)} data-testid="recent-pick" className="flex w-full items-center gap-1.5 py-1 text-left text-[14px] text-gray-700">
+                  <span className="line-clamp-1">{p.title}</span>
+                  {openedAfter(e, p) && <span aria-hidden="true" data-testid="recent-pick-opened" className="h-2 w-2 shrink-0 rounded-full bg-[#3B6BD4]" />}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </li>
+    );
+  };
+
   const grouped = <T extends { category: SavedCategory }>(list: T[], render: (x: T, i: number) => React.ReactNode) =>
     GROUPS.map((g) => {
       const items = list.filter((x) => x.category === g);
@@ -215,8 +322,14 @@ const SavedPage: React.FC = () => {
     Saved: saved.length,
     Watched: watched.length,
     Favorites: favorites.length,
-    Recent: recent.length,
+    Recent: recent.length + searches.length,
   };
+
+  // S36 — Recent is one path, newest first: the searches and the titles opened.
+  const recentRows = [
+    ...searches.map((e) => ({ at: e.at, search: e, title: null as RecentItem | null })),
+    ...recent.map((r) => ({ at: r.at, search: null as SearchEntry | null, title: r })),
+  ].sort((a, b) => b.at.localeCompare(a.at));
 
   return (
     <>
@@ -326,11 +439,13 @@ const SavedPage: React.FC = () => {
                   f.goTo
                 )
               )}
-            {/* S24a — Recent: newest first, every category, this device only. */}
-            {tab === "Recent" && recent.length > 0 && (
+            {/* S24a — Recent: newest first, every category, this device only.
+                S36 — each search sits in it too, with its five. */}
+            {tab === "Recent" && recentRows.length > 0 && (
               <>
                 <ul className="divide-y divide-gray-100 pt-2" data-testid="recent-list">
-                  {recent.map((r, i) => (
+                  {recentRows.map(({ search, title: r }, i) =>
+                    search ? searchRow(search) : r && (
                     <li key={`r${i}${r.category}${r.title}`} className="py-1">
                       <button
                         type="button"
@@ -353,7 +468,11 @@ const SavedPage: React.FC = () => {
                 <div className="pt-4 text-center">
                   <button
                     type="button"
-                    onClick={() => clearRecent()}
+                    onClick={() => {
+                      // S36 — clears both: the titles and the searches.
+                      clearRecent();
+                      clearSearchEntries();
+                    }}
                     data-testid="recent-clear"
                     className="rounded-full px-4 py-2.5 text-[15px] font-medium text-[#3B6BD4]"
                   >

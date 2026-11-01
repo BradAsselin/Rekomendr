@@ -129,8 +129,8 @@ const cardTexts = (page) => page.locator("[data-vs-line], p.leading-relaxed").al
     check("checking asks for lines against the tapped title only", log.lines.map((b) => [b.category, b.refs.map((r) => r.name)]), [["Movies", ["Arrival"]]]);
     check("each card gets the vs. line naming it", (await leads(page)).length >= 5 && (await leads(page)).every((l) => /^vs\. (your )?Arrival:$/.test(l.trim())), true);
     check("…no re-ranking: no new five were asked for", log.reks.length, 1);
-    check("the row shows the chip and +", [await row.getByTestId("compare-chip").innerText(), await row.getByTestId("compare-add").count()], ["vs. Arrival", 1]);
-    await row.getByTestId("compare-remove").click();
+    check("the row reads Compare to Arrival ☑, with +", [await row.getByTestId("compare-open").innerText(), await row.getByTestId("compare-open").getAttribute("aria-pressed"), await row.getByTestId("compare-add").count()], ["Compare to Arrival", "true", 1]);
+    await row.getByTestId("compare-open").click();
     await page.waitForTimeout(300);
     check("unchecking removes the lines; the five are as they were", [await page.locator("[data-vs-line]").count(), await page.getByText(/follows a scientist/).allTextContents()], [0, order]);
     check("…and the row is back to Compare to Arrival", await row.getByTestId("compare-open").innerText(), "Compare to Arrival");
@@ -160,8 +160,12 @@ const cardTexts = (page) => page.locator("[data-vs-line], p.leading-relaxed").al
     const asked = log.reks.length;
     await page.waitForFunction(() => document.body.innerText.includes("follows a scientist"), null, { timeout: 60000 }).catch(() => {});
     await page.waitForTimeout(1500);
-    check("a new search (a typed title) is not More like this", [log.reks.length > asked, log.reks.at(-1)?.mlt], [true, undefined]);
-    check("…and shows no More like this row", await page.getByTestId("mlt-compare-row").count(), 0);
+    // S36 (charter §2.14) — a typed title now follows S31's rule itself:
+    // standalone lines, its own unchecked "Compare to [Title]", the old
+    // set's choice dropped.
+    check("a new search starts with Compare to off: the stored set is gone", await page.evaluate(() => localStorage.getItem("rekomendr.compare_to")), null);
+    check("a new search (a typed title) asks for its own standalone five", [log.reks.length > asked, log.reks.at(-1)?.mlt], [true, true]);
+    check("…and its row names the typed title, unchecked", [await page.getByTestId("mlt-compare-row").getByTestId("compare-open").innerText(), await page.getByTestId("mlt-compare-row").getByTestId("compare-open").getAttribute("aria-pressed")], ["Compare to Contact", "false"]);
     await ctx.close();
   }
 
@@ -180,7 +184,8 @@ const cardTexts = (page) => page.locator("[data-vs-line], p.leading-relaxed").al
     check("checking: lines against Piranesi for Books", log.lines.map((b) => [b.category, b.refs.map((r) => r.name)]), [["Books", ["Piranesi"]]]);
     check("each card leads vs. your Piranesi:", (await leads(page)).length >= 5 && (await leads(page)).every((l) => l.trim() === "vs. your Piranesi:"), true);
     check("…no new search ran", log.prompts.length, promptsBefore);
-    await page.getByTestId("compare-remove").click();
+    check("…the row reads Compare to Piranesi ☑", await page.getByTestId("compare-open").getAttribute("aria-pressed"), "true");
+    await page.getByTestId("compare-open").click();
     await page.waitForTimeout(300);
     check("unchecking removes them", await page.locator("[data-vs-line]").count(), 0);
 
@@ -215,7 +220,8 @@ const cardTexts = (page) => page.locator("[data-vs-line], p.leading-relaxed").al
     await open.click();
     await page.waitForTimeout(400);
     check("checking: vs. lines and orange rings, no re-run", [await page.locator("[data-vs-line]").count() >= 3, await page.getByTestId("taste-ring").count() > 0, log.wine.length], [true, true, 1]);
-    await row.getByTestId("compare-remove").click();
+    check("…the row reads Compare to [Bottle] ☑", await open.getAttribute("aria-pressed"), "true");
+    await open.click();
     await page.waitForTimeout(400);
     check("unchecking: back to blue dots only", [await page.locator("[data-vs-line]").count(), await page.getByTestId("taste-ring").count()], [0, 0]);
 
@@ -227,6 +233,9 @@ const cardTexts = (page) => page.locator("[data-vs-line], p.leading-relaxed").al
     await page.getByText("La Crema Sonoma Coast Chardonnay").first().waitFor({ timeout: 60000 });
     await page.waitForTimeout(500);
     check("a typed bottle (not More like this) still compares to itself", await page.locator("[data-vs-line]").count() >= 3, true);
+    // S37 (charter §2.14) — shown as "Compare to [Bottle] ☑", already checked.
+    const typedOpen = page.getByTestId("wine-compare-row").getByTestId("compare-open");
+    check("…shown as Compare to [Bottle] ☑", [(await typedOpen.innerText()).startsWith("Compare to Kendall"), await typedOpen.getAttribute("aria-pressed")], [true, "true"]);
     await ctx.close();
   }
 

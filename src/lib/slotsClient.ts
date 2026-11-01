@@ -85,6 +85,9 @@ export async function fetchSlots(
     // writer is still running. The promise still resolves with the
     // finished set (lines merged into the same cards).
     onCards?: (ans: SlotAnswer & { linesPending: boolean }) => void;
+    // S36 (charter §2.14) — a title the person named still steers the
+    // five, but their lines start standalone (TMDb synopses): no writer.
+    lines?: false;
   } = {}
 ): Promise<SlotAnswer | null> {
   const res = await fetch("/api/slots", {
@@ -104,6 +107,7 @@ export async function fetchSlots(
       ...(opts.count ? { count: opts.count } : {}),
       ...(opts.slot ? { slot: opts.slot } : {}),
       ...(opts.onCards && !opts.count ? { stream: "ndjson" } : {}),
+      ...(opts.lines === false ? { lines: false } : {}),
     }),
   }).catch(() => null);
   if (!res) {

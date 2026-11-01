@@ -211,7 +211,7 @@ export function buildWineReksPrompt(voice: string, ctx: WineGenContext): string 
   }
   if (ctx.kind === "steer" && ctx.chained) {
     lines.push(
-      `DIRECTION: the user tapped "+ More like this" on ${ctx.chained.name}. The anchor is where they started; ${ctx.chained.name} is where they walked. Continue that line beyond ${ctx.chained.name} — never back toward the anchor. REFERENT OVERRIDE: descriptions compare against ${ctx.chained.name} (implicit — do not repeat its name), not the anchor.`,
+      `DIRECTION: the user tapped "+ More like this" on ${ctx.chained.name}. The anchor is where they started; ${ctx.chained.name} is where they walked. Continue that line beyond ${ctx.chained.name} — never back toward the anchor.`,
       ""
     );
   }
