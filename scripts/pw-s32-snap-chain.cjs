@@ -126,7 +126,8 @@ const chainAndCheck = async (page, log, label) => {
     const L = await leads(page);
     check(`each card gets "vs. ${chained}:"`, L.length >= 5 && L.every((l) => l.trim() === `vs. ${chained}:`), true);
     check("…no re-ranking: no new chain, no new five", [log.chains.length, log.reks.length], [1, 1]);
-    await row.getByTestId("compare-remove").click();
+    check("…the row reads Compare to [card] ☑", [await row.getByTestId("compare-open").innerText(), await row.getByTestId("compare-open").getAttribute("aria-pressed")], [`Compare to ${chained}`, "true"]);
+    await row.getByTestId("compare-open").click();
     await page.waitForTimeout(300);
     check("unchecking removes the lines; the five are as they were", [await page.locator("[data-vs-line]").count(), await page.getByText(drifter).allTextContents()], [0, order]);
     check("…and the row is back to Compare to [card]", await row.getByTestId("compare-open").innerText(), `Compare to ${chained}`);

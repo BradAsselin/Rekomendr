@@ -20,6 +20,7 @@ import { getMoreLikeThisSet, getTop5FromEngine, type Rek } from "../src/engine/r
 import { fetchCompareLines, fetchSlots, type RefIn, type SlotRequest } from "../src/lib/slotsClient";
 import {
   clearIfCategoryChanged,
+  clearRefs,
   compareCategoryOf,
   onRefsChange,
   refsFor,
@@ -715,6 +716,7 @@ export default function Page() {
       screen: screenRef.current ? { titles: screenRef.current.titles, service: screenRef.current.service } : null,
       last: last ? { query: last.query, cat: last.cat, meta: last.meta, parsedMood: last.parsedMood } : null,
       slot: slotReqRef.current,
+      compareRefs: compareCategoryOf(cat) ? refsFor(cat) : [],
     };
   };
   const snapRestoreOf = (result: SnapResult, seed: MltSeed | null, wine: boolean): SearchRestore => {
@@ -725,6 +727,15 @@ export default function Page() {
   const onCardFacts = (facts: FactsByTitle) => noteEntryFacts(activeEntryRef.current, facts);
 
   const [compareOpen, setCompareOpen] = useState(false);
+  // S37 (charter §2.14) — a new search (chips, voice, typed, snap, More like
+  // this) starts with Compare to off: a reference picked for an earlier
+  // search never carries into the next. It stays a quick pick in the
+  // sheet, in the list it was picked from.
+  const startCompareOff = () => {
+    if (refsFor("Movies").length + refsFor("TV Shows").length + refsFor("Books").length === 0) return;
+    console.info("[compare-to] new search — references off");
+    clearRefs();
+  };
   const [refsVersion, setRefsVersion] = useState(0);
   useEffect(() => onRefsChange(() => setRefsVersion((v) => v + 1)), []);
   // The bar's category as the person last chose it (null = just mounted):
@@ -952,6 +963,7 @@ export default function Page() {
   // its name, said in the log.
   const openMediaGoTo = async (t: { category: "movies" | "tv"; name: string; tmdbKind: "movie" | "tv" | null; tmdbId: number | null }) => {
     const snapId = ++snapIdRef.current;
+    startCompareOff();
     const draft = draftOf("mlt", `More like ${t.name}`);
     const seed: MltSeed = {
       category: BAR_CATEGORY[t.category] as MltSeed["category"],
@@ -1057,6 +1069,7 @@ export default function Page() {
 
     const snapId = ++snapIdRef.current;
     clearMlt(); // S31 — a snap starts a new set
+    startCompareOff();
     lastActivityRef.current = Date.now();
     setSnapError(null);
     setSnapResult(null);
@@ -1292,7 +1305,10 @@ export default function Page() {
 
     const nextCategory = categoryFromQuery(query);
     // S24a — a search in another category clears the Compare to set.
+    // S37 (charter §2.14) — and every new search starts with it off; only
+    // a re-run of this one (Compare to, a steer) keeps it.
     clearIfCategoryChanged(nextCategory);
+    if (!(opts?.rerun || (steerOpts && !voice))) startCompareOff();
     lastSearchRef.current = { query, cat: _cat, meta, parsedMood };
     // S17 — the header: spoken words, else the chips, else the typed words.
     // A steer re-run keeps the header it had. Wine keeps its own layout.
@@ -1800,6 +1816,7 @@ export default function Page() {
     activeEntryRef.current = e.id;
     const r = e.restore;
     if (r.lane === "snap") {
+      clearRefs(); // S37 — a snap set's compare lives with the set itself
       slotReqRef.current = null;
       lastSearchRef.current = null;
       setReks([]);
@@ -1825,8 +1842,15 @@ export default function Page() {
     setMltWine(false);
     setMltSeed(r.mltSeed);
     setHasSearched(true);
+    // S37 — the references the set was shown with come back with it (none
+    // for a set shown without any): the control and the "vs." lines match.
+    const cc = compareCategoryOf(cat);
+    const shownRefs = cc ? (r.compareRefs ?? []).filter((x) => x.category === cc) : [];
+    if (cc && shownRefs.length) setRefs(cc, shownRefs);
+    else clearRefs();
+    const reks = shownRefs.length ? r.reks : stripCompareLines(r.reks);
     // A card whose facts never came back stays without them: reopening asks nothing.
-    setReks(r.reks.map((k) => (k.tmdbId != null && k.facts === undefined ? { ...k, facts: e.facts[k.title.trim().toLowerCase()]?.facts ?? [] } : k)));
+    setReks(reks.map((k) => (k.tmdbId != null && k.facts === undefined ? { ...k, facts: e.facts[k.title.trim().toLowerCase()]?.facts ?? [] } : k)));
   };
   const reopenEntryRef = useRef(reopenEntry);
   reopenEntryRef.current = reopenEntry;

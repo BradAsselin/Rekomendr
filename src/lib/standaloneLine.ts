@@ -31,6 +31,45 @@ export function comparativeReason(line: string, seedTitle: string): string | nul
   return null;
 }
 
+// S37 (charter §2.14) — wine's own slips: a sentence that OPENS on a bare
+// comparative ("Drier, with…", "Slightly sweeter…", "More oak…") measures
+// against the snapped bottle without saying "than"; and the old verdict
+// beats ("doubles down", "the one you snapped").
+const WINE_COMPARATIVE: [string, RegExp][] = [
+  [
+    "bare comparative opener",
+    /^\s*(slightly |a (little|touch|bit|shade) |much |even |far |noticeably |considerably )?(drier|sweeter|bolder|lighter|richer|fuller|leaner|softer|crisper|riper|oakier|fruitier|brighter|darker|deeper|smoother|juicier|rounder|firmer|sharper|fresher|earthier|spicier|bigger|smaller|plusher|silkier|tarter|tangier|creamier|zestier)\b/i,
+  ],
+  ["more/less opener", /^\s*(slightly |a (little|touch|bit|shade) |much |even |far )?(more|less|fewer)\b/i],
+  ["doubles down", /\bdoubl(e|es|ing) down\b/i],
+  ["the one you snapped", /\b(the one|the bottle|the wine) you (snapped|typed|picked|love)\b/i],
+];
+
+export function wineComparativeReason(line: string, names: string[]): string | null {
+  for (const [why, re] of WINE_COMPARATIVE) if (re.test(line)) return why;
+  for (const n of names) {
+    const why = comparativeReason(line, n);
+    if (why) return why;
+  }
+  return names.length ? null : comparativeReason(line, "");
+}
+
+// A wine card's text without the sentences that compare (to the snapped
+// bottle, the chained one, or the reference). Empty when nothing stands.
+export function dropComparingWineSentences(text: string, names: string[]): { text: string; dropped: string[] } {
+  const kept: string[] = [];
+  const dropped: string[] = [];
+  for (const s of sentencesOf(text)) {
+    const why = wineComparativeReason(s, names);
+    if (why) dropped.push(why);
+    else kept.push(s);
+  }
+  return { text: kept.join(" "), dropped };
+}
+
+const sentencesOf = (text: string): string[] =>
+  (text.replace(/\s+/g, " ").trim().match(/[^.!?]+[.!?]+["'’”)]*(\s|$)|[^.!?]+$/g) ?? []).map((s) => s.trim()).filter(Boolean);
+
 // A multi-sentence card text without its comparing sentences. Empty when
 // nothing stands alone.
 export function dropComparingSentences(text: string, seedTitle: string): { text: string; dropped: string[] } {

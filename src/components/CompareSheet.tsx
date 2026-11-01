@@ -15,7 +15,7 @@
 // "Done", the tab names, and the Saved page's own empty-tab lines.
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Circle, CircleCheck, Plus, Square, X } from "lucide-react";
+import { Circle, CircleCheck, Plus, Square, SquareCheck, X } from "lucide-react";
 
 import { goTosFor } from "../lib/goTos";
 import { fetchSavedLists } from "../lib/userPrefs";
@@ -35,7 +35,31 @@ export const CompareHeader: React.FC<{
   onRemove: (name: string) => void;
   pendingName?: string;
 }> = ({ refs, onOpen, onRemove, pendingName }) =>
-  refs.length === 0 ? (
+  // S37 (charter §2.14) — the named reference alone, checked: the same
+  // button, "Compare to [Name] ☑"; one tap unchecks it, "+" adds more.
+  pendingName && refs.length === 1 && refs[0].name === pendingName ? (
+    <div className="ml-auto flex min-w-0 max-w-full items-center justify-end gap-1.5" data-testid="compare-checked">
+      <button
+        type="button"
+        onClick={() => onRemove(refs[0].name)}
+        data-testid="compare-open"
+        aria-pressed={true}
+        className="flex min-w-0 max-w-full items-center gap-1.5 rounded-full border border-[#3B6BD4] bg-[#3B6BD4] px-3 py-1.5 text-[13px] font-semibold text-white active:scale-[0.98]"
+      >
+        <span className="truncate">{`Compare to ${pendingName}`}</span>
+        <SquareCheck size={14} strokeWidth={2.25} aria-hidden="true" className="shrink-0" />
+      </button>
+      <button
+        type="button"
+        onClick={onOpen}
+        aria-label="+"
+        data-testid="compare-add"
+        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#3B6BD4] text-white"
+      >
+        <Plus size={16} strokeWidth={2.5} aria-hidden="true" />
+      </button>
+    </div>
+  ) : refs.length === 0 ? (
     <button
       type="button"
       onClick={onOpen}

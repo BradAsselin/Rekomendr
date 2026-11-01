@@ -40,7 +40,7 @@ import { chooseMediaReks, guardTaste } from "../../../src/lib/mediaReks";
 import { normalizeTitle } from "../../../src/lib/tmdbVerify";
 import { withRekTokens } from "../../../src/lib/rekTokens";
 import { goToCategoryFor } from "../../../src/lib/goToCategory";
-import { dropComparingSentences } from "../../../src/lib/standaloneLine";
+import { dropComparingSentences, dropComparingWineSentences } from "../../../src/lib/standaloneLine";
 import { parseWithRetry } from "../../../src/lib/parseRetry";
 import {
   bandFor,
@@ -816,6 +816,76 @@ const STANDALONE_DIFFERENTIATOR_VOICE = STANDALONE_MEDIA_SWAPS.reduce((p, [from,
   if (!p.includes(from)) throw new Error(`reksnap: standalone swap missing: ${from.slice(0, 40)}`);
   return p.replace(from, to);
 }, DIFFERENTIATOR_VOICE);
+// S37 (charter §2.14; Brad, 2026-11-01) — wine descriptions stand alone:
+// all comparison lives in the "vs." line (vs_favorite) and the orange
+// ring. Only the instruction that made the wine lines comparative changes
+// — the differentiator sentence-1 placement, the CONSUMABLE clause's
+// placement and verdict beats, and their RIGHT/WRONG pairs (a comparative
+// WRONG example is still a comparative in the prompt). The media clause,
+// the bans and the sentence count are byte-identical. Wine engine only.
+const STANDALONE_WINE_SWAPS: [string, string][] = [
+  [
+    "Sentence 1 — the differentiator: how the item DIFFERS from the detected item, OPENING with that key differentiating quality, punchy and factual, axis-first. Comparisons are ALWAYS against the detected item — the referent is implicit; do NOT repeat its name. Use bare comparatives.\n",
+    "Sentence 1 — the placement: where this item sits on the category's primary axis, OPENING with that quality, punchy and factual, axis-first, as if it were the only item on the page. It names no other item and measures against none.\n",
+  ],
+  [
+    "The FIRST comparative must place the rek against the detected item on the category's primary axis — either a difference ('Slightly sweeter...') or an affirmation ('Similarly dry, but more tannic...'). Signature notes follow the axis placement, never replace it.\n",
+    "The FIRST words must place the rek on the category's primary axis on its own terms ('Off-dry, leaning sweet...', 'Dry and firmly tannic...'). Signature notes follow the axis placement, never replace it.\n",
+  ],
+  [
+    "- RIGHT: 'Similarly dry, but more tannic. The blackcurrant sits underneath while the oak sweetens the edges, and the grip firms up right at the finish. Doubles down on the structure — if the firmness is what you love, this pushes it further.'\n",
+    "- RIGHT: 'Dry and firmly tannic. The blackcurrant sits underneath while the oak sweetens the edges, and the grip firms up right at the finish. Built on structure — if firmness is what you love, this is all of it.'\n",
+  ],
+  [
+    "- WRONG: 'Richer with more oak influence. Features dark fruit and mocha flavors.' (richer HOW? never places it on the axis the buyer decides by)\n",
+    "- WRONG: 'Rich with oak influence. Features dark fruit and mocha flavors.' (rich HOW? never places it on the axis the buyer decides by)\n",
+  ],
+  [
+    "three sentences that all work off the anchor — the user knows the item they snapped, and every sentence spends that knowledge.",
+    "three sentences about this item alone — each reads as if it were the only item on the page.",
+  ],
+  [
+    "Consumable sentence 1 — placement against the anchor: the bare comparative on the category's primary axis, per the sentence 1 rule above, unchanged — bare-comparative default included, referent implicit.\n",
+    "Consumable sentence 1 — placement on the category's primary axis, per the sentence 1 rule above: this item's own position.\n",
+  ],
+  [
+    "Consumable sentence 3 — the verdict beat: where this lands relative to what the user loves about the anchor — keeps it with a difference, trades it for something else, or doubles down on it. Shape it AS the relationship ('If the roundness is what you love, this keeps it and adds dark fruit'; 'Trades the plushness for structure — leaner, but longer').",
+    "Consumable sentence 3 — the verdict beat: what this one is about, in one plain call on its own character ('All roundness and dark fruit, with no edges to speak of'; 'Built on structure — lean, and it runs long').",
+  ],
+  [
+    "The referent stays implicit here too — no 'than the one you snapped'.\n",
+    "It names no other item and measures against none.\n",
+  ],
+  [
+    "- RIGHT: 'Similarly dry, but the tannin arrives earlier. The dark fruit sits low while the grip builds through the mid-palate, and the finish runs long and dusty. Trades the plushness for structure — if the roundness is what you love this will read stern, but if you wanted more spine, this is it.'\n",
+    "- RIGHT: 'Dry, with the tannin arriving early. The dark fruit sits low while the grip builds through the mid-palate, and the finish runs long and dusty. All structure, little plushness — if roundness is what you want this will read stern, but if you want spine, this is it.'\n",
+  ],
+  [
+    "- WRONG: 'Similarly dry, but with more emphasis on red fruit. Elegant with notes of cherry and subtle oak.'",
+    "- WRONG: 'Dry, with an emphasis on red fruit. Elegant with notes of cherry and subtle oak.'",
+  ],
+  [
+    "- RIGHT: 'Richer, with deeper-orange yolks. The yolk stands up and fries jammy instead of watery, and the flavor leans buttery rather than flat. Doubles down on the richness — if the deep yolk is what you love, this is more of it; for baking, the difference mostly vanishes.'\n",
+    "- RIGHT: 'Rich, with deep-orange yolks. The yolk stands up and fries jammy, and the flavor leans buttery. All about the yolk — fried or soft-boiled it shines; in baking it mostly disappears.'\n",
+  ],
+  [
+    "- WRONG: 'Richer, with deeper-orange yolks. Creamy texture and farm-fresh flavor. Ideal if yolk quality is important to you.' (sentence 2 is descriptor inventory; sentence 3 is the rating register smuggled into the verdict slot — it rates suitability and addresses a person-type instead of stating where this lands relative to the anchor)\n",
+    "- WRONG: 'Rich, with deep-orange yolks. Creamy texture and farm-fresh flavor. Ideal if yolk quality is important to you.' (sentence 2 is descriptor inventory; sentence 3 is the rating register smuggled into the verdict slot — it rates suitability and addresses a person-type instead of stating what this one is about)\n",
+  ],
+  [
+    "- RIGHT: 'Similarly dry, with more tropical fruit intensity. The passionfruit leads and a grassy edge cuts in behind it, keeping the sweetness honest. Keeps the crispness and turns up the volume — same spine, louder fruit.'\n",
+    "- RIGHT: 'Dry, with intense tropical fruit. The passionfruit leads and a grassy edge cuts in behind it, keeping the sweetness honest. A crisp spine under loud fruit — all volume, no flab.'\n",
+  ],
+  [
+    "- WRONG: 'More tropical fruit intensity. A well-balanced and iconic choice.'",
+    "- WRONG: 'Intense tropical fruit. A well-balanced and iconic choice.'",
+  ],
+];
+const STANDALONE_WINE_VOICE = STANDALONE_WINE_SWAPS.reduce((p, [from, to]) => {
+  if (!p.includes(from)) throw new Error(`reksnap: standalone wine swap missing: ${from.slice(0, 40)}`);
+  return p.replace(from, to);
+}, DIFFERENTIATOR_VOICE);
+
 const REFERENT_OVERRIDE =
   "REFERENT OVERRIDE for this task: comparisons are ALWAYS against the CHAINED ITEM — the direction being pursued — not the detected item. The chained item is the implicit referent; do NOT repeat its name.\n\n";
 
@@ -1476,6 +1546,26 @@ type WineSetResult = {
   reference: WineReference | null;
 };
 
+// S37 (charter §2.14) — THE GUARANTEE for wine's standalone descriptions:
+// a sentence that still compares (to the snapped bottle, the chained one
+// or the reference) never ships; a pick with nothing left is dropped
+// before the guarantees count the set.
+function standaloneWineReks<T extends { name?: unknown; description?: unknown }>(raw: T[], names: (string | null | undefined)[]): T[] {
+  const measured = names.filter((n): n is string => typeof n === "string" && !!n.trim());
+  return raw.filter((r) => {
+    if (typeof r?.description !== "string" || !r.description.trim()) return true;
+    const out = dropComparingWineSentences(r.description, measured);
+    if (!out.dropped.length) return true;
+    console.warn("[wine] standalone: comparing sentences removed", {
+      name: typeof r.name === "string" ? r.name : null,
+      dropped: out.dropped,
+      kept: !!out.text,
+    });
+    r.description = out.text;
+    return !!out.text;
+  });
+}
+
 async function runWineSet(args: {
   kind: WineGenKind;
   need: number;
@@ -1513,7 +1603,8 @@ async function runWineSet(args: {
   // Over-ask: the guarantees drop seen/disliked/out-of-band picks, and an
   // honest-short set is the price of a miss — never padding (§2.4).
   const count = args.kind === "backfill" ? 3 : 8;
-  const gen = await generateWineReks(DIFFERENTIATOR_VOICE, {
+  // S37 (charter §2.14) — wine descriptions stand alone.
+  const gen = await generateWineReks(STANDALONE_WINE_VOICE, {
     kind: args.kind,
     count,
     anchor,
@@ -1547,7 +1638,9 @@ async function runWineSet(args: {
       ? { name: input.favorite.name, dry: anchorInfo.dry, body: anchorInfo.body }
       : referenceTaste(input.favorite, gen.goTo)
     : null;
-  const { reks, log } = finishWineReks(gen.reks, {
+  // S37 — the prompt is pressure; this is the guarantee (the over-ask
+  // covers a dropped pick, else the set ships honest-short).
+  const { reks, log } = finishWineReks(standaloneWineReks(gen.reks, [anchor.name, args.chained?.name, input.favorite?.name]), {
     anchorName: anchor.name,
     anchorCategory: anchor.category,
     shelf: args.shelf,
@@ -2233,7 +2326,7 @@ ${priorBlock}` : "");
       } else {
         let picks = ws?.reks ?? [];
         if (!ws || picks.length === 0) {
-          picks = finishWineReks(similar, {
+          picks = finishWineReks(standaloneWineReks(similar, [ws?.topAnchor.name ?? detected.name, wineInput.favorite?.name]), {
             anchorName: ws?.topAnchor.name ?? detected.name,
             anchorCategory,
             shelf: ws?.shelf ?? null,

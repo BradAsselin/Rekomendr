@@ -17,6 +17,7 @@ import type { MltSeed } from "../components/MltCompare";
 import type { SnapResult } from "../components/RekSnapResults";
 import type { ScreenTitles } from "./screenClient";
 import type { RefIn, SlotRequest } from "./slotsClient";
+import type { CompareRef } from "./compareTo";
 
 export type SearchKind = "voice" | "typed" | "chips" | "snap" | "mlt";
 
@@ -43,6 +44,9 @@ export type SearchRestore =
       // (the person's own act — never the reopen itself).
       last: { query: string; cat: string; meta?: unknown; parsedMood?: unknown } | null;
       slot: { req: SlotRequest; named: RefIn | null; refs: RefIn[]; standalone?: boolean } | null;
+      // S37 — the Compare to references this set was shown with (its
+      // "vs." lines); reopening puts them back, so the control matches.
+      compareRefs?: CompareRef[];
     }
   | {
       lane: "snap";
