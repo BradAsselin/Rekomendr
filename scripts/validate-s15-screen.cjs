@@ -159,7 +159,8 @@ for (const level of ["warn", "info", "error"]) console[level] = () => {};
   // S17 — the Steer by row is gone (Movies/TV), so it no longer re-ranks a screen set.
   check("Steer by row removed (S17)", page.includes("SteerByRow"), false);
   check("a thumbs-down never brings in a title that wasn't on the screen", /slotBackfill = async[\s\S]{0,300}if \(screenRef\.current\) return null;/.test(page), true);
-  check("a new search, snap or home leaves screen mode", (page.match(/leaveScreen\(\);/g) || []).length, 3);
+  // S36 — reopening a Recent entry leaves it too (a screen entry re-enters it).
+  check("a new search, snap, home or a reopen leaves screen mode", (page.match(/leaveScreen\(\);/g) || []).length, 4);
   check("header wording", page.includes(">\n                          From your screen\n") || page.includes("From your screen"), true);
   const words = (page.match(/"[^"]*"|>[^<>{}]+</g) || []).join(" ");
   check("no other new user-facing words in the page diff", require("child_process").execSync("git diff 1c60240 2ab1240 -- app/page.tsx" /* S15's own range (main moved on) */, { cwd: root, encoding: "utf8" })

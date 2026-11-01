@@ -106,7 +106,9 @@ const chainAndCheck = async (page, log, label) => {
     await page.locator("form input").press("Enter");
     await page.getByText(/follows a crew/).first().waitFor({ timeout: 60000 });
     await page.waitForTimeout(800);
-    check("a typed title is not More like this: no row", [log.reks.at(-1)?.mlt, await page.getByTestId("mlt-compare-row").count()], [undefined, 0]);
+    // S36 (charter §2.14) — a typed title follows S31 itself: standalone
+    // five under its own unchecked "Compare to [Title]".
+    check("a typed title: standalone five, its own row", [log.reks.at(-1)?.mlt, await page.getByTestId("mlt-compare-row").getByTestId("compare-open").innerText()], [true, "Compare to Heat"]);
 
     const c1 = await chainAndCheck(page, log, "first chain");
     const chained = c1.chained.name;
@@ -167,7 +169,8 @@ const chainAndCheck = async (page, log, label) => {
     await page.locator("form input").press("Enter");
     await page.getByText(/follows a crew/).first().waitFor({ timeout: 60000 });
     await page.waitForTimeout(800);
-    check("a new search shows no row", await page.getByTestId("mlt-compare-row").count(), 0);
+    // S36 — the new search's own row (its typed title), unchecked: the chain's choice is gone.
+    check("a new search drops the chain's row for its own, unchecked", [await page.getByTestId("mlt-compare-row").getByTestId("compare-open").innerText(), await page.getByTestId("mlt-compare-row").getByTestId("compare-open").getAttribute("aria-pressed")], ["Compare to Heat", "false"]);
     await ctx.close();
   }
 

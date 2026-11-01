@@ -200,7 +200,7 @@ const readNdjson = async (res) => {
   check("a typed title still lands as the anchor first", iAnchor > 0 && iPlan > iAnchor, true);
   check("the parse posts source: typed", /source: "typed",/.test(page), true);
   check("fallbacks are named", ['"[typed-mood] → AI search"', "parse_failed", "not_mapped", '"category"'].every((s) => page.includes(s)), true);
-  check("slots path paints early and merges lines", /onCards: \(c\) => \{[\s\S]*?setLinesPending\(c\.linesPending\);[\s\S]*?setLoading\(false\);/.test(page) && /if \(painted\) setReks\(ans\.reks\);/.test(page), true);
+  check("slots path paints early and merges lines", /onCards: \(c\) => \{[\s\S]*?setLinesPending\(c\.linesPending\);[\s\S]*?setLoading\(false\);/.test(page) && /if \(painted\) \{?\s*setReks\(ans\.reks\);/.test(page), true); // S36: the block also records the set for Recent
   // S19a — voice now runs the typed branch with its parse in hand (one mapping site).
   check("voice and typed share one mapping", (page.match(/slotPlanFromMood\(/g) || []).length === 2 && /await handleSearch\(`\$\{cat\}\|\|\|\|\$\{transcript\}\|\|mode:ai`, cat, undefined, undefined, voice, data\);/.test(page), true);
   const mood = read("app/api/mood/route.ts");

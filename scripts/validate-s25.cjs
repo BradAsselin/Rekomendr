@@ -107,7 +107,7 @@ const items = [
   const promptDiff = diff("src/lib/mediaReks.ts src/lib/voiceMood.ts src/engine/rekomendrEngine.ts");
   check("the chooser prompt's strings are byte-identical", /^[-+]\s*("|'|`).*\\n/m.test(promptDiff) || /^[-+].*CHOOSER_PROMPT =/m.test(promptDiff), false);
   const page = read("app/page.tsx");
-  check("Books with a reference: lines after the seeded five", /\} else if \(nextCategory === "Books" && bookRefs\.length\) \{\s*setLoading\(false\);\s*await addCompareLines\(next\.reks, "Books", searchId\);/.test(page), true);
+  check("Books with a reference: lines after the seeded five", /\} else if \(nextCategory === "Books" && bookRefs\.length\) \{\s*setLoading\(false\);\s*(const merged = )?await addCompareLines\(next\.reks, "Books", searchId\);/.test(page), true); // S36: the merged set is kept for Recent
   check("a book card sends its own text", /\.\.\.\(cat === "Books" \? \{ overview: r\.long \|\| r\.short \|\| "" \} : \{\}\)/.test(page), true);
   check("the client asks for Books", /category: "Movies" \| "TV Shows" \| "Books",/.test(read("src/lib/slotsClient.ts")), true);
   const r4 = read("src/components/ResultsV4.tsx");
