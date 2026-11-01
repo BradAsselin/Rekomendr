@@ -247,7 +247,8 @@ const pickCategory = async (page, c) => {
   const leads = await page.locator("[data-vs-line] span").allTextContents();
   check("checking adds vs. Coherence: lines", leads.length >= 5 && leads.every((l) => /^vs\. (your )?Coherence:$/.test(l.trim())), true);
   check("…without re-ranking: no new five asked for", log.reks.length, reksAsked);
-  await mrow.getByTestId("compare-remove").click();
+  check("…the row reads Compare to Coherence ☑", [await mrow.getByTestId("compare-open").innerText(), await mrow.getByTestId("compare-open").getAttribute("aria-pressed")], ["Compare to Coherence", "true"]);
+  await mrow.getByTestId("compare-open").click();
   await page.waitForTimeout(300);
   check("unchecking removes them; the five are as they were", [await page.locator("[data-vs-line]").count(), await page.getByText(/follows a few friends/).allTextContents()], [0, order]);
   list = await entries(page);
@@ -311,6 +312,18 @@ const pickCategory = async (page, c) => {
   check("same anchor and five; no search, model or facts request", [await page.getByText(/follows a few friends/).count() >= 5, log.api.slice(b3).map((a) => a.p).filter((p) => p !== "/api/saved")], [true, []]);
   check("…only the existing marks read", log.api.slice(b3).every((a) => a.p === "/api/saved" && !/Coherence|Primer/.test(a.raw)), true);
   check("…its Compare to row back, unchecked", await page.getByTestId("mlt-compare-row").getByTestId("compare-open").getAttribute("aria-pressed"), "false");
+
+  console.log("\nOpen a card in the snap lane: Recent notes it (S37)");
+  await page.getByRole("button", { name: /Show details/ }).last().click();
+  await page.waitForTimeout(500);
+  const openedTitle = await page.evaluate(() => JSON.parse(localStorage.getItem("rekomendr.recent") || "[]")[0]?.title ?? null);
+  const typedPicks = (await entries(page)).find((e) => e.label === "“Coherence”")?.picks.map((p) => p.title) ?? [];
+  check("the opened snap-lane card is in Recent's titles", [!!openedTitle, typedPicks.includes(openedTitle)], [true, true]);
+  await home(page);
+  await openRecent(page);
+  const tdots = await page.getByTestId("recent-search").filter({ hasText: "“Coherence”" }).first().getByTestId("recent-pick").evaluateAll((els) => els.map((e) => !!e.querySelector('[data-testid="recent-pick-opened"]')));
+  check("…and its pick in the entry has the dot", tdots[typedPicks.indexOf(openedTitle)], true);
+  await closeSheet(page);
 
   console.log("\nMore like this on a card (Books)");
   await home(page);

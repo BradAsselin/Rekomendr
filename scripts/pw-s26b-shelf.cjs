@@ -185,14 +185,23 @@ const ringLefts = (page) =>
   await page.waitForFunction(() => document.body.innerText.includes("La Crema Sonoma Coast Chardonnay"), null, { timeout: 10000 });
   await page.waitForTimeout(300);
   check("no shelf card on a single bottle", await page.getByTestId("shelf-anchor-card").count(), 0);
-  check('the snapped bottle is the reference: chip "vs. Kendall-Jackson Vintner\'s ×"', ((await page.getByTestId("compare-chip").textContent()) || "").trim(), "vs. Kendall-Jackson Vintner's");
+  // S37 (charter §2.14) — "Compare to [Bottle] ☑", already checked.
+  const bottleOpen = page.getByTestId("wine-compare-row").getByTestId("compare-open");
+  check('the snapped bottle is the reference: "Compare to Kendall-Jackson Vintner\'s ☑"', [((await bottleOpen.textContent()) || "").trim(), await bottleOpen.getAttribute("aria-pressed")], ["Compare to Kendall-Jackson Vintner's", "true"]);
   const svs = await page.locator("[data-vs-line] span").allTextContents();
   check("each pick reads vs. the snapped bottle", [svs.length, svs.every((t) => t.startsWith("vs. Kendall-Jackson Vintner's:"))], [3, true]);
   check("orange rings at the snapped bottle's position", (await ringLefts(page)).length >= 6, true);
   await shot(page, "4-single-bottle");
-  await page.getByTestId("compare-remove").click();
+  const callsBefore = await page.evaluate(() => [window.__snapCalls.length, window.__wineCalls.length]);
+  const fiveBefore = await page.locator(".space-y-3 > div span.font-semibold, .space-y-3 > div a.font-semibold").allTextContents();
+  await bottleOpen.click();
   await page.waitForTimeout(300);
-  check("× undoes it: no lines, no rings", [await page.locator("[data-vs-line]").count(), await page.getByTestId("taste-ring").count()], [0, 0]);
+  check("unchecking removes every trace: no lines, no rings", [await page.locator("[data-vs-line]").count(), await page.getByTestId("taste-ring").count()], [0, 0]);
+  check("…the row reads Compare to Kendall-Jackson Vintner's ☐", [((await bottleOpen.textContent()) || "").trim(), await bottleOpen.getAttribute("aria-pressed")], ["Compare to Kendall-Jackson Vintner's", "false"]);
+  await bottleOpen.click();
+  await page.waitForTimeout(300);
+  check("checking again restores the lines and rings", [await page.locator("[data-vs-line]").count(), (await ringLefts(page)).length >= 6], [3, true]);
+  check("…with no new call and the same five", [await page.evaluate(() => [window.__snapCalls.length, window.__wineCalls.length]), await page.locator(".space-y-3 > div span.font-semibold, .space-y-3 > div a.font-semibold").allTextContents()], [callsBefore, fiveBefore]);
   check("no page errors", errors, []);
 
   await browser.close();

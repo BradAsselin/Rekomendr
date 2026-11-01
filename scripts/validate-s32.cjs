@@ -233,7 +233,7 @@ const lineDiff = (a, b) => {
   ], [2, true]);
   // S33 superseded S32's "re-roll ends the seed": a title's re-roll now seeds on the title itself (validate-s33).
   check("an anchor re-roll replaces the chained seed with the anchor's own", /"chain",\s*\/\/ S33 — the re-rolled title is the More like this seed[^]*?seed\s*\);/.test(snapSrc), true);
-  check("a new snap starts with no chained seed", /setWinePending\(startOff \? autoRef\[0\] : null\);\s*setChainSeed\(null\);/.test(snapSrc), true);
+  check("a new snap starts with no chained seed", /setWinePending\(autoRef\[0\] \?\? null\);\s*setChainSeed\(null\);/.test(snapSrc), true);
   check("the Compare to row uses the chained seed first", /const activeSeed = chainSeed \?\? \(mltSeed/.test(snapSrc), true);
   const hook = read("src/components/MltCompare.tsx");
   check("the seed never gets a line against itself", /key\(i\.title\) !== key\(seed\.name\)/.test(hook), true);

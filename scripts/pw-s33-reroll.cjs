@@ -131,7 +131,8 @@ const chainAndCheck = async (page, log, label) => {
     const L = await leads(page);
     check('each card gets "vs. your Heat:" (a starred go-to)', L.length >= 5 && L.every((l) => l.trim() === "vs. your Heat:"), true);
     check("…no re-ranking: no new re-roll", log.chains.length, 1);
-    await row.getByTestId("compare-remove").click();
+    check("…the row reads Compare to Heat ☑", await row.getByTestId("compare-open").getAttribute("aria-pressed"), "true");
+    await row.getByTestId("compare-open").click();
     await page.waitForTimeout(300);
     check("unchecking removes the lines; the five are as they were", [await page.locator("[data-vs-line]").count(), await page.getByText(drifter).allTextContents()], [0, order]);
     await ctx.close();

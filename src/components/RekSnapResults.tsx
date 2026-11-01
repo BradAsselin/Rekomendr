@@ -40,6 +40,7 @@ import PosterThumb from "./PosterThumb";
 import { setPostersHidden, usePostersOn } from "../lib/posterPref";
 import { markKey, useServerMarks } from "../lib/useServerMarks";
 import { recordLike, undoSignal } from "../lib/userPrefs";
+import { noteRecent } from "../lib/recent";
 import { isGoTo, logGoToEvent, onGoTosChange } from "../lib/goTos";
 import HaulConfirm from "./HaulConfirm";
 import {
@@ -266,6 +267,8 @@ const RekSnapResults: React.FC<Props> = ({
   // S31 — wine More like this: the bottle the set came from, offered
   // unchecked as "Compare to [Bottle]" (the server already wrote its lines).
   const [winePending, setWinePending] = useState<WineRef | null>(null);
+  const winePendingRef = useRef<WineRef | null>(null);
+  winePendingRef.current = winePending;
   // S32 — the card a chain pursued, when it is a Movies/TV/Books title.
   const [chainSeed, setChainSeed] = useState<MltSeed | null>(null);
   // Thumb marks and saves are independent per item name (a card can be
@@ -575,9 +578,12 @@ const RekSnapResults: React.FC<Props> = ({
             ]
           : [];
       // S31 — a More like this wine set starts off: the bottle waits,
-      // unchecked, in the Compare to row.
+      // unchecked, in the Compare to row. S37 (charter §2.14) — a typed or
+      // snapped single bottle starts on, as "Compare to [Bottle] ☑": the
+      // row always names the bottle, so unchecking and checking again
+      // only hide and show the lines and ring the server already wrote.
       const startOff = mltWineRef.current && autoRef.length > 0;
-      setWinePending(startOff ? autoRef[0] : null);
+      setWinePending(autoRef[0] ?? null);
       setChainSeed(null);
       wineRefsRef.current = startOff ? [] : autoRef;
       setWineRefs(startOff ? [] : autoRef);
@@ -730,7 +736,9 @@ const RekSnapResults: React.FC<Props> = ({
       // S26b — the comparison reference (the first Compare to pick, or the
       // snapped bottle on a single-bottle snap; none by default) and the
       // starred go-to by name only.
-      favorite: refPayload(wineRefsRef.current[0], forResult.detected_item.description),
+      // S37 — unchecked, the snapped bottle still rides: its lines are
+      // written but hidden, so checking it again needs no call.
+      favorite: refPayload(wineRefsRef.current[0] ?? winePendingRef.current, forResult.detected_item.description),
       goTo: getWineFavorite()?.name ?? null,
       ...extra,
     };
@@ -1699,7 +1707,10 @@ const RekSnapResults: React.FC<Props> = ({
     const firstSame = !!prev[0] && sameRef(prev[0], next[0]);
     const grew = next.some((r) => !prev.some((p) => sameRef(p, r)));
     if (firstSame && !grew) return; // only a later reference left: nothing to re-run
-    if (prev.length === 0 && !preCompareRef.current) preCompareRef.current = listsRef.current?.similar ?? null;
+    // S37 — the five measured against the snapped bottle count as "before"
+    // too: clearing the references brings them (and their lines) back.
+    const fromBottle = prev.length === 1 && !!winePendingRef.current && sameRef(prev[0], winePendingRef.current);
+    if ((prev.length === 0 || fromBottle) && !preCompareRef.current) preCompareRef.current = listsRef.current?.similar ?? null;
     chainBusyRef.current = true;
     setChainError(null);
     if (activeMode !== "similar") setActiveMode("similar");
@@ -1809,11 +1820,26 @@ const RekSnapResults: React.FC<Props> = ({
     }
   };
 
+  // S37 — opening a card lands it in Recent (this device only, never
+  // sent), as in the search lane: the entry's pick then shows its dot.
+  const noteOpened = (card: { name: string; category?: string; year?: number | null }) => {
+    const r = resultRef.current;
+    const f = cardFacts[markKey(card.name)];
+    noteRecent({
+      category: card.category || r?.detected_item.category,
+      title: card.name,
+      year: card.year ?? null,
+      posterPath: f?.posterPath ?? null,
+      facts: f?.facts ?? null,
+    });
+  };
+
   const toggleAnchorDetails = () => {
     if (!result) return;
     const opening = !anchorOpen;
     setAnchorOpen(opening);
     if (!opening) return;
+    noteOpened({ name: result.detected_item.name, category: result.detected_item.category, year: result.detected_item.year ?? null });
     if (!anchorExpandSignaled) {
       setAnchorExpandSignaled(true);
       recordSnapSignal({
@@ -2625,11 +2651,12 @@ const RekSnapResults: React.FC<Props> = ({
                   short={mltShort(entry.rek)}
                   long={entry.rek.long || undefined}
                   detailsOpen={openRek === entry.rek.name}
-                  onToggleDetails={() =>
+                  onToggleDetails={() => {
+                    if (openRek !== entry.rek.name) noteOpened(entry.rek);
                     setOpenRek((cur) =>
                       cur === entry.rek.name ? null : entry.rek.name
-                    )
-                  }
+                    );
+                  }}
                   titleHref={titleLinkFor(entry.rek.name, entry.rek.category)}
                   thumbSignal={thumbSignals[entry.rek.name] ?? null}
                   saved={!!savedNames[entry.rek.name]}
@@ -2781,7 +2808,7 @@ const RekSnapResults: React.FC<Props> = ({
             )}
             <CompareHeader
               refs={wineRefs.map((r) => ({ name: shortWineName(r.name) }))}
-              pendingName={!wineRefs.length && winePending ? shortWineName(winePending.name) : undefined}
+              pendingName={winePending ? shortWineName(winePending.name) : undefined}
               onOpen={() => {
                 if (chainBusyRef.current) return;
                 // S31 — checking the bottle turns on the lines the server
@@ -2838,9 +2865,10 @@ const RekSnapResults: React.FC<Props> = ({
                 short={mltShort(rek)}
                 long={rek.long || undefined}
                 detailsOpen={openRek === rek.name}
-                onToggleDetails={() =>
-                  setOpenRek((cur) => (cur === rek.name ? null : rek.name))
-                }
+                onToggleDetails={() => {
+                  if (openRek !== rek.name) noteOpened(rek);
+                  setOpenRek((cur) => (cur === rek.name ? null : rek.name));
+                }}
                 titleHref={titleLinkFor(rek.name, rek.category)}
                 // Swipe grammar (touch only): a committed swipe in either
                 // direction dismisses + backfills (thumbs-down). Liked or
