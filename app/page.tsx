@@ -52,7 +52,21 @@ import {
 import WineBought from "../src/components/WineBought";
 import WineFollowup from "../src/components/WineFollowup";
 import type { GoToTarget } from "../src/components/GoTosList";
-import { onOpenSavedItem } from "../src/components/SavedPage";
+import { onOpenSavedItem, onOpenSearchEntry } from "../src/components/SavedPage";
+import {
+  getSearchEntries,
+  newEntryId,
+  noteEntryFacts,
+  picksFromReks,
+  picksFromSnap,
+  upsertSearchEntry,
+  type EntryPick,
+  type FactsByTitle,
+  type SearchEntry,
+  type SearchKind,
+  type SearchRestore,
+} from "../src/lib/recentSearches";
+import { isHealthMedical } from "../src/lib/categoryGates";
 import { goTosFor, logGoToEvent, syncGoTos } from "../src/lib/goTos";
 import { BAR_CATEGORY } from "../src/lib/goToCategory";
 
@@ -574,6 +588,8 @@ export default function Page() {
   // S17 — the results header: what this set answers (the chips, or the
   // typed/spoken words in quotes). Data, never copy.
   const [resultsHeader, setResultsHeader] = useState<string | null>(null);
+  const resultsHeaderRef = useRef<string | null>(null);
+  resultsHeaderRef.current = resultsHeader;
 
   const [snapLoading, setSnapLoading] = useState(false);
   const [snapResult, setSnapResult] = useState<SnapResult | null>(null);
@@ -595,6 +611,11 @@ export default function Page() {
     setMltSeed(null);
     setMltWine(false);
   };
+  const mltSeedRef = useRef(mltSeed);
+  mltSeedRef.current = mltSeed;
+  // S36 — the Recent entry the set on screen came from: the cards' facts
+  // and posters land on it, and a reopened set keeps pointing at its own.
+  const activeEntryRef = useRef<string | null>(null);
   // S28c — the hasSnapped gate is gone. It hid the old hero snap button
   // after a session's first snap; S24b made that hero Say it / Snap it and
   // kept the gate, and it lived in sessionStorage, so after any snap a
@@ -646,12 +667,63 @@ export default function Page() {
   // S12b — the set on screen came from the slot recipe: its request, the
   // title the words named, and (S24a) the refs it was built with — a
   // backfill matches its own set, not a later Compare to change.
-  const slotReqRef = useRef<{ req: SlotRequest; named: RefIn | null; refs: RefIn[] } | null>(null);
+  // S36 — `standalone`: a named title steers, its lines start off (§2.14).
+  const slotReqRef = useRef<{ req: SlotRequest; named: RefIn | null; refs: RefIn[]; standalone?: boolean } | null>(null);
   // S24a — the last search as asked (a Compare to change re-runs it), and
   // the five on screen (an AI set gets its compare lines in place).
   const lastSearchRef = useRef<{ query: string; cat: string; meta?: { chip: Chip; refiner: Refiner | null }; parsedMood?: any } | null>(null);
   const pageReksRef = useRef<Rek[]>([]);
   pageReksRef.current = reks;
+
+  // S36 — Recent remembers every search (docs/S35_RECENT_SEARCHES.md): one
+  // entry per voice, typed, chip, snap or More like this set, on this
+  // device only; a Compare to re-run is never one. The same id fills in as
+  // the set completes (its lines, a typed title's late five).
+  type EntryDraft = { id: string; kind: SearchKind; label: string; at: string };
+  const draftOf = (kind: SearchKind, label: string): EntryDraft => ({
+    id: newEntryId(),
+    kind,
+    label,
+    at: new Date().toISOString(),
+  });
+  // A vibe tapped right after its genre refines that search: "Comedy"
+  // becomes "Comedy · Feel-good" in the same entry, not a second one.
+  const lastChipsRef = useRef<{ draft: EntryDraft; chip: string; searchId: number } | null>(null);
+  const chipsDraft = (chip: string, label: string, searchId: number): EntryDraft => {
+    const last = lastChipsRef.current;
+    const draft =
+      last && last.chip === chip && last.searchId === searchId - 1
+        ? { ...last.draft, label }
+        : draftOf("chips", label);
+    lastChipsRef.current = { draft, chip, searchId };
+    return draft;
+  };
+  const rememberSet = (draft: EntryDraft, category: string, picks: EntryPick[], restore: SearchRestore) => {
+    // Health wall (§2.2): a health set never becomes a Recent entry.
+    if (!picks.length || isHealthMedical(category.trim().toLowerCase())) return;
+    activeEntryRef.current = draft.id;
+    upsertSearchEntry({ ...draft, category, picks, restore, facts: {} });
+  };
+  const searchRestoreOf = (list: Rek[], cat: string, header: string | null): SearchRestore => {
+    const seed = mltSeedRef.current;
+    const last = lastSearchRef.current;
+    return {
+      lane: "search",
+      reks: list,
+      header,
+      mltSeed: seed && seed.category === cat ? seed : null,
+      screen: screenRef.current ? { titles: screenRef.current.titles, service: screenRef.current.service } : null,
+      last: last ? { query: last.query, cat: last.cat, meta: last.meta, parsedMood: last.parsedMood } : null,
+      slot: slotReqRef.current,
+    };
+  };
+  const snapRestoreOf = (result: SnapResult, seed: MltSeed | null, wine: boolean): SearchRestore => {
+    const { facts: _facts, ...base } = result;
+    return { lane: "snap", result: base, mltSeed: seed, mltWine: wine };
+  };
+  const shownList = (r: SnapResult) => r.results[isWineCategory(r.detected_item.category) ? "similar" : r.mode] ?? [];
+  const onCardFacts = (facts: FactsByTitle) => noteEntryFacts(activeEntryRef.current, facts);
+
   const [compareOpen, setCompareOpen] = useState(false);
   const [refsVersion, setRefsVersion] = useState(0);
   useEffect(() => onRefsChange(() => setRefsVersion((v) => v + 1)), []);
@@ -880,14 +952,16 @@ export default function Page() {
   // its name, said in the log.
   const openMediaGoTo = async (t: { category: "movies" | "tv"; name: string; tmdbKind: "movie" | "tv" | null; tmdbId: number | null }) => {
     const snapId = ++snapIdRef.current;
-    setMltWine(false);
-    setMltSeed({
+    const draft = draftOf("mlt", `More like ${t.name}`);
+    const seed: MltSeed = {
       category: BAR_CATEGORY[t.category] as MltSeed["category"],
       name: t.name,
       year: null,
       tmdbKind: t.tmdbKind ?? (t.category === "movies" ? "movie" : "tv"),
       tmdbId: t.tmdbId,
-    });
+    };
+    setMltWine(false);
+    setMltSeed(seed);
     searchIdRef.current++;
     lastActivityRef.current = Date.now();
     setSnapError(null);
@@ -920,7 +994,7 @@ export default function Page() {
     if (!anchor?.media) {
       console.warn("[go-to-open] fallback to the typed search", { category: t.category });
       setSnapLoading(false);
-      void handleSearch(`${BAR_CATEGORY[t.category]}||||${t.name}||mode:ai`, BAR_CATEGORY[t.category], undefined, undefined, undefined, undefined, { mlt: true });
+      void handleSearch(`${BAR_CATEGORY[t.category]}||||${t.name}||mode:ai`, BAR_CATEGORY[t.category], undefined, undefined, undefined, undefined, { mlt: true, mltName: t.name });
       return;
     }
     setSnapResult(anchor);
@@ -930,6 +1004,12 @@ export default function Page() {
     if (snapId !== snapIdRef.current) return;
     setLateReks(late);
     setReksPending(false);
+    rememberSet(
+      draft,
+      seed.category,
+      picksFromSnap(late.reks, seed.category),
+      snapRestoreOf({ ...anchor, results: { ...anchor.results, similar: late.reks } }, seed, false)
+    );
   };
 
   // S12 — "+ More like this" on a go-to tile (and on a "Wine you bought"
@@ -952,7 +1032,7 @@ export default function Page() {
       setMltSeed({ category: bar as MltSeed["category"], name: t.name, year: null, tmdbKind: null, tmdbId: null });
     }
     setBarCategoryHint((h) => ({ value: bar, n: h.n + 1 }));
-    void handleSearch(`${bar}||||${t.name}||mode:ai`, bar, undefined, undefined, undefined, undefined, { mlt: true });
+    void handleSearch(`${bar}||||${t.name}||mode:ai`, bar, undefined, undefined, undefined, undefined, { mlt: true, mltName: t.name });
   };
 
   // S17c — a title tapped on the Saved page opens its card here, by the
@@ -1058,6 +1138,12 @@ export default function Page() {
       if (snapId !== snapIdRef.current) return; // dismissed while in flight
       setSnapResult(data);
       incrementSnapCount();
+      rememberSet(
+        draftOf("snap", `Snapped: ${data.detected_item.name}`),
+        data.detected_item.category,
+        picksFromSnap(shownList(data), data.detected_item.category),
+        snapRestoreOf(data, null, false)
+      );
       const barCat = barCategoryForSnap(data.detected_item.category);
       if (barCat) setBarCategoryHint((h) => ({ value: barCat, n: h.n + 1 }));
     } catch (err) {
@@ -1103,6 +1189,11 @@ export default function Page() {
     setCategory(cat);
     noteSetShown(cat, screen.reks.map((r) => r.title));
     setReks(screen.reks);
+    // S36 — what was read: the service whose screen it was, else its first title.
+    const read = screen.service || screen.reks[0]?.title;
+    if (read) {
+      rememberSet(draftOf("snap", `Snapped: ${read}`), cat, picksFromReks(screen.reks, cat), searchRestoreOf(screen.reks, cat, null));
+    }
   };
 
   // S24a — compare lines for an AI search's five (the words chose them;
@@ -1110,9 +1201,9 @@ export default function Page() {
   // keeps its own text in `baseShort` so clearing can put it back.
   // S25 — Books get their lines the same way, each card's text standing
   // in for a synopsis.
-  const addCompareLines = async (list: Rek[], cat: "Movies" | "TV Shows" | "Books", searchId: number) => {
+  const addCompareLines = async (list: Rek[], cat: "Movies" | "TV Shows" | "Books", searchId: number): Promise<Rek[] | null> => {
     const refs = refsPayload(refsFor(cat));
-    if (!refs.length || !list.length) return;
+    if (!refs.length || !list.length) return null;
     setLinesPending(true);
     const lines = await fetchCompareLines(
       cat,
@@ -1123,15 +1214,15 @@ export default function Page() {
         ...(cat === "Books" ? { overview: r.long || r.short || "" } : {}),
       }))
     );
-    if (searchId !== searchIdRef.current) return;
+    if (searchId !== searchIdRef.current) return null;
     setLinesPending(false);
     const by = new Map(lines.map((l) => [l.title.trim().toLowerCase(), l]));
-    setReks(
-      list.map((r) => {
-        const l = by.get(r.title.trim().toLowerCase());
-        return l ? { ...r, baseShort: r.baseShort ?? r.short, short: l.short, vsGoTo: l.vsGoTo } : r;
-      })
-    );
+    const merged = list.map((r) => {
+      const l = by.get(r.title.trim().toLowerCase());
+      return l ? { ...r, baseShort: r.baseShort ?? r.short, short: l.short, vsGoTo: l.vsGoTo } : r;
+    });
+    setReks(merged);
+    return merged;
   };
   const stripCompareLines = (list: Rek[]): Rek[] =>
     list.map((r) => (r.vsGoTo ? { ...r, short: r.baseShort ?? r.short, vsGoTo: null } : r));
@@ -1144,12 +1235,13 @@ export default function Page() {
     setRefs(cat, next);
     const last = lastSearchRef.current;
     if (!last || screenRef.current || categoryFromQuery(last.query) !== cat && !slotReqRef.current) return;
+    // S36 — a Compare to re-run is not a new search: no Recent entry.
     if (slotReqRef.current) {
-      void handleSearch(last.query, last.cat, last.meta, { req: slotReqRef.current.req, named: slotReqRef.current.named }, undefined, last.parsedMood);
+      void handleSearch(last.query, last.cat, last.meta, { req: slotReqRef.current.req, named: slotReqRef.current.named }, undefined, last.parsedMood, { rerun: true });
       return;
     }
     if (cat === "Books") {
-      void handleSearch(last.query, last.cat, last.meta, undefined, undefined, last.parsedMood);
+      void handleSearch(last.query, last.cat, last.meta, undefined, undefined, last.parsedMood, { rerun: true });
       return;
     }
     const searchId = ++searchIdRef.current;
@@ -1176,7 +1268,9 @@ export default function Page() {
     parsedMood?: any,
     // S31 — a More like this set (the caller set its seed): stored
     // Compare to references don't steer it or add lines; it starts off.
-    opts?: { mlt?: boolean }
+    // S36 — `mltName`: the title a More like this started from (Recent's
+    // "More like [Title]"); `rerun`: a Compare to re-run, never an entry.
+    opts?: { mlt?: boolean; mltName?: string; rerun?: boolean }
   ) => {
     const searchId = ++searchIdRef.current;
     const mlt = !!opts?.mlt;
@@ -1202,20 +1296,40 @@ export default function Page() {
     lastSearchRef.current = { query, cat: _cat, meta, parsedMood };
     // S17 — the header: spoken words, else the chips, else the typed words.
     // A steer re-run keeps the header it had. Wine keeps its own layout.
+    const typedWords = typedTextFromQuery(query);
+    const chipsLabel = meta ? [meta.chip.label, meta.refiner?.label].filter(Boolean).join(" · ") : "";
+    let header: string | null = resultsHeaderRef.current;
     if (!steerOpts || voice) {
-      const typed = typedTextFromQuery(query);
-      setResultsHeader(
+      header =
         nextCategory === "Wine"
           ? null
           : voice?.said
             ? `“${voice.said}”`
-            : meta
-              ? [meta.chip.label, meta.refiner?.label].filter(Boolean).join(" · ")
-              : typed
-                ? `“${typed}”`
-                : null
-      );
+            : chipsLabel
+              ? chipsLabel
+              : typedWords
+                ? `“${typedWords}”`
+                : null;
+      setResultsHeader(header);
     }
+    // S36 — this search's Recent entry: what started it, in the header's
+    // own words. A re-run (Compare to, a steer) is never one.
+    const draft: EntryDraft | null =
+      opts?.rerun || (steerOpts && !voice)
+        ? null
+        : voice?.said
+          ? draftOf("voice", `“${voice.said}”`)
+          : mlt && opts?.mltName
+            ? draftOf("mlt", `More like ${opts.mltName}`)
+            : chipsLabel
+              ? chipsDraft(meta!.chip.label, chipsLabel, searchId)
+              : typedWords
+                ? draftOf("typed", `“${typedWords}”`)
+                : null;
+    const remember = (cat: string, picks: EntryPick[], restore: SearchRestore) => {
+      if (draft && searchId === searchIdRef.current) rememberSet(draft, cat, picks, restore);
+    };
+    const rememberReks = (list: Rek[], cat: string) => remember(cat, picksFromReks(list, cat), searchRestoreOf(list, cat, header));
     // S12b — Movies/TV chip taps (and every steer) run the slot recipe.
     const slotReq: SlotRequest | null =
       steerOpts?.req ??
@@ -1257,12 +1371,39 @@ export default function Page() {
         const needsReks = !!typedAnchor.media && typedAnchor.results.similar.length === 0;
         setReksPending(needsReks);
         setLoading(false);
-        if (needsReks && typedAnchor.media) {
+        // S36 (charter §2.14) — a typed or spoken title is met on its own
+        // terms first: the five stay seeded on it, their lines stand alone
+        // (S31's swap and backstop), and "Compare to [Title] ☐" sits over
+        // them, unchecked. A typed wine still compares automatically.
+        const media = typedAnchor.media;
+        const titleSeed: MltSeed | null = media
+          ? {
+              category: media.kind === "tv" ? "TV Shows" : "Movies",
+              name: typedAnchor.detected_item.name,
+              year: typedAnchor.detected_item.year ?? null,
+              tmdbKind: media.kind,
+              tmdbId: media.id,
+            }
+          : null;
+        const seed = mlt ? mltSeedRef.current ?? titleSeed : titleSeed;
+        if (titleSeed && !mlt) {
+          setMltWine(false);
+          setMltSeed(titleSeed);
+        }
+        const anchorCat = typedAnchor.detected_item.category;
+        if (needsReks && media) {
           const lane = laneFromQuery(query);
-          const late = await fetchTypedReks(typedAnchor.media, lane, mlt);
+          const late = await fetchTypedReks(media, lane, true);
           if (searchId !== searchIdRef.current || snapId !== snapIdRef.current) return;
           setLateReks(late);
           setReksPending(false);
+          remember(
+            seed?.category ?? anchorCat,
+            picksFromSnap(late.reks, seed?.category ?? anchorCat),
+            snapRestoreOf({ ...typedAnchor, results: { ...typedAnchor.results, similar: late.reks } }, seed, false)
+          );
+        } else {
+          remember(anchorCat, picksFromSnap(shownList(typedAnchor), anchorCat), snapRestoreOf(typedAnchor, seed, mlt && !media));
         }
         return;
       }
@@ -1331,18 +1472,30 @@ export default function Page() {
         const named = runSteer?.named ?? null;
         // S24a — only the person's own words and Compare to steer.
         const refs = steeringRefs(named, runCat);
+        // S36 (charter §2.14) — a title named in the words still steers
+        // the five, but the comparison starts off: no lines are written,
+        // each card keeps its synopsis, and "Compare to [Title] ☐" sits
+        // over them. References the person chose in Compare to keep their
+        // lines as before.
+        const standalone = !!named && runCat !== "Wine" && refsPayload(refsFor(runCat)).length === 0;
+        if (standalone && named && runCat !== "Wine") {
+          setMltWine(false);
+          setMltSeed({ category: runCat, name: named.name, year: null, tmdbKind: named.tmdbKind ?? null, tmdbId: named.tmdbId ?? null });
+        }
         // S16 — early paint: the five land with TMDb's synopses as soon as
         // they exist; the "vs." lines follow onto the same cards.
         const show = (list: Rek[]) => {
-          slotReqRef.current = { req, named, refs };
+          slotReqRef.current = { req, named, refs, ...(standalone ? { standalone: true } : {}) };
           noteSetShown(runCat, list.map((r) => r.title));
           if (voice) setVoiceSet(voice.moodId, list.map((r) => r.title));
           setReks(list);
+          rememberReks(list, runCat);
         };
         let painted = false;
         const ans = await fetchSlots(req, {
           steer: named?.name ?? null,
           refs,
+          ...(standalone ? { lines: false as const } : {}),
           onCards: (c) => {
             if (searchId !== searchIdRef.current || c.reks.length === 0) return;
             painted = true;
@@ -1355,8 +1508,10 @@ export default function Page() {
         setLinesPending(false);
         if (ans && ans.reks.length > 0) {
           // Same cards, lines merged in (ResultsV4 merges by id).
-          if (painted) setReks(ans.reks);
-          else show(ans.reks);
+          if (painted) {
+            setReks(ans.reks);
+            rememberReks(ans.reks, runCat);
+          } else show(ans.reks);
           return;
         }
         // Named, never silent: fetchSlots logged the reason (or the pools
@@ -1401,6 +1556,7 @@ export default function Page() {
       noteSetShown(nextCategory, next.reks.map((r) => r.title));
       if (voice) setVoiceSet(voice.moodId, next.reks.map((r) => r.title));
       setReks(next.reks);
+      rememberReks(next.reks, nextCategory);
       // S1.5 — two different empties, two different voices. A set the
       // real-title guard emptied carries its own plain-voice notice (the
       // model invented every title; a retry will invent again). Anything
@@ -1410,10 +1566,12 @@ export default function Page() {
       } else if ((nextCategory === "Movies" || nextCategory === "TV Shows") && !mlt) {
         // S24a — the words chose these five; Compare to adds the lines.
         setLoading(false);
-        await addCompareLines(next.reks, nextCategory, searchId);
+        const merged = await addCompareLines(next.reks, nextCategory, searchId);
+        if (merged) rememberReks(merged, nextCategory);
       } else if (nextCategory === "Books" && bookRefs.length) {
         setLoading(false);
-        await addCompareLines(next.reks, "Books", searchId);
+        const merged = await addCompareLines(next.reks, "Books", searchId);
+        if (merged) rememberReks(merged, "Books");
       }
     } catch (err) {
       if (searchId !== searchIdRef.current) return;
@@ -1443,6 +1601,8 @@ export default function Page() {
       count: 1,
       slot: removed.slot,
       extraSeen: current.map((r) => r.title),
+      // S36 — a standalone set's replacement stands alone too.
+      ...(s.standalone ? { lines: false as const } : {}),
     }).catch(() => null);
     return ans?.reks[0] ?? null;
   };
@@ -1618,6 +1778,81 @@ export default function Page() {
   };
   resetToHomeRef.current = resetToHome;
 
+  // S36 — an entry tapped in Recent: that set comes back exactly as it was,
+  // from what this device stored. No model call, no request: no search runs,
+  // no voice "shown" is sent, and the cards' facts come from the entry.
+  const reopenEntry = (e: SearchEntry) => {
+    lastActivityRef.current = Date.now();
+    searchIdRef.current++; // discard in-flight search responses
+    snapIdRef.current++; // discard in-flight snap responses
+    leaveScreen();
+    clearVoiceSet();
+    setSearchError(null);
+    setSnapError(null);
+    setSnapLimitReached(false);
+    setSnapLoading(false);
+    setLoading(false);
+    setLinesPending(false);
+    setReksPending(false);
+    setLateReks(null);
+    setShelfPreview(null);
+    setCompareOpen(false);
+    activeEntryRef.current = e.id;
+    const r = e.restore;
+    if (r.lane === "snap") {
+      slotReqRef.current = null;
+      lastSearchRef.current = null;
+      setReks([]);
+      setResultsHeader(null);
+      setMltSeed(r.mltSeed);
+      setMltWine(r.mltWine);
+      setSnapResult({ ...r.result, facts: e.facts });
+      const barCat = barCategoryForSnap(r.result.detected_item.category);
+      if (barCat) setBarCategoryHint((h) => ({ value: barCat, n: h.n + 1 }));
+      return;
+    }
+    const cat = (["Movies", "TV Shows", "Books", "Wine"].includes(e.category) ? e.category : "Movies") as Category;
+    setSnapResult(null);
+    slotReqRef.current = r.slot;
+    lastSearchRef.current = r.last as typeof lastSearchRef.current;
+    if (r.screen) {
+      screenRef.current = { titles: r.screen.titles, service: r.screen.service };
+      setScreenOn(true);
+    }
+    setCategory(cat);
+    setBarCategoryHint((h) => ({ value: cat, n: h.n + 1 }));
+    setResultsHeader(r.header);
+    setMltWine(false);
+    setMltSeed(r.mltSeed);
+    setHasSearched(true);
+    // A card whose facts never came back stays without them: reopening asks nothing.
+    setReks(r.reks.map((k) => (k.tmdbId != null && k.facts === undefined ? { ...k, facts: e.facts[k.title.trim().toLowerCase()]?.facts ?? [] } : k)));
+  };
+  const reopenEntryRef = useRef(reopenEntry);
+  reopenEntryRef.current = reopenEntry;
+  useEffect(
+    () =>
+      onOpenSearchEntry((id) => {
+        const e = getSearchEntries().find((x) => x.id === id);
+        if (e) reopenEntryRef.current(e);
+      }),
+    []
+  );
+
+  // S36 — a card's More like this inside a set is a search too.
+  const rememberCardMlt = (seedTitle: string, list: Rek[], seed: MltSeed | null) => {
+    const cat = category;
+    rememberSet(draftOf("mlt", `More like ${seedTitle}`), cat, picksFromReks(list, cat), {
+      ...searchRestoreOf(list, cat, resultsHeaderRef.current),
+      mltSeed: seed,
+      slot: null,
+    } as SearchRestore);
+  };
+  const rememberChain = (chainedName: string, set: SnapResult, seed: MltSeed | null) => {
+    const cat = set.detected_item.category;
+    rememberSet(draftOf("mlt", `More like ${chainedName}`), seed?.category ?? cat, picksFromSnap(shownList(set), cat), snapRestoreOf(set, seed, false));
+  };
+
   // S24a — "Compare to" in the results header: Movies/TV/Books sets with a
   // header (chips, typed or spoken words), never wine or a screen set.
   const compareCat = compareCategoryOf(category);
@@ -1696,6 +1931,8 @@ export default function Page() {
               mltWine={mltWine}
               onHaulSaved={() => void refreshWineState(false)}
               onWatchedChange={handleWatchedChange}
+              onChainSet={rememberChain}
+              onFacts={onCardFacts}
             />
           ) : !hasSearched && !loading ? (
             <div className="flex flex-1 flex-col">
@@ -1755,6 +1992,8 @@ export default function Page() {
                   ) : undefined
                 }
                 backfillOverride={slotBackfill}
+                onMoreLikeThisSet={rememberCardMlt}
+                onFacts={onCardFacts}
               />
             </>
           )}
