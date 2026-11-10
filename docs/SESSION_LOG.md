@@ -453,3 +453,82 @@ Promote `main → release/v2` (yours). There are no env, SQL or migration change
 Promote `main → release/v2` (yours). No env, SQL or migration changes. Revert: `git revert -m 1 182927e`.
 
 **§0 check: consistent.** The person meets each pick on its own terms first, comparison only where they're holding the reference, and nothing new leaves the device.
+
+## Session 38 — Housekeeping: charter truth-up, lighter log, CURRENT_STATE.md, test-row report — 2026-11-10 — branch auto/s38-housekeeping — PR #128
+
+**Brief:** `docs/2026-11-10_housekeeping_launch.md` (Build 1 of `docs/ACTION_PLAN_nov10.md`). Brad approved the §1 charter edits word for word (§11.6) and said merge when green. Docs only; nothing in `src/` or `app/` changed.
+
+### SHIPPED
+**#128 → 13f4cdc**
+- **Charter:** §2.10 replaced (Claude per step by env var; `/api/health` is the truth; OpenAI moderation only). §2.3 gets the single-instruction exception. The exception sentence is added to §3.9, §10.4 and §11.6. New §3.13 Names and §3.14 Current state. There are no other charter changes.
+- **Session log:** Sessions 0–25 moved unchanged to `docs/archive/SESSION_LOG_through_S25.md`, with one pointer line. 455 + 3,145 = 3,600 lines = the original 3,599 + the pointer.
+- **`docs/CURRENT_STATE.md`:** the one-page present. Next free session number: 39.
+- The launch doc and the Nov 10 action plan are now committed.
+
+### TESTS
+- New `validate-s38-housekeeping`: 25/25. It checks the charter equals main @0dea5fa plus exactly the six approved edits, byte for byte, and that the log split loses nothing.
+- All 60 suites, tsc, lint and build pass. Vercel preview is green.
+
+### PRODUCTION VS MAIN
+`origin/release/v2` (f6a42f8, PR #127, 2026-11-01) contains all of `origin/main` up to 0dea5fa. Sessions 36 and 37 are live. Only S38's docs are waiting, and they don't need promotion.
+
+### TEST-ROW REPORT (read-only transaction; nothing deleted)
+The database is shared by previews and production. Real clients are `anon_<uuid>` (137 ids, 1,832 rows) or the old `anon_<base36>_<rand>` form (4 ids, 466 rows).
+
+| table | `anon_agent_` rows (ids) | other test prefixes |
+|---|---|---|
+| api_usage | 1,884 (571) | `s27test-` 291 (123 ids), `anon_s3N-live`/`anon_s3N_live` 35 (7), `anon_test_` 6 (2) |
+| goto_events | 475 (198) | — |
+| voice_moods | 255 (31) | — |
+| voice_events | 252 (27) | — |
+| go_tos | 136 (56) | — |
+| user_likes | 54 (25) | — |
+| reksnap_signals | 30 (14) | — |
+| wine_marks | 29 (10) | — |
+| card_events | 22 (6) | — |
+| anchor_snapshots | 13 (9) | — |
+| client_profiles | 2 (2) | — |
+| account_devices | 0 | — |
+
+Total: 3,152 `anon_agent_` rows + 332 other test rows = 3,484.
+
+- **Shared cards (§2.13):** 10 of the 13 agent `anchor_snapshots` were shared, and all 10 are revoked (0 links still open). Deleting them still deletes shared cards, so it needs Brad's explicit approval under §2.13.
+- **Links:** `card_events.card_id` references `anchor_snapshots`, with no cascade. All 18 events on agent cards are agent events, so no real person's open would be lost. 2 agent events sit on real people's cards, and deleting them corrects those cards' open counts. `voice_events` cascade from `voice_moods`, and no real rows reference agent moods.
+- **`/api/stats` excludes only `anon_agent*`.** The 332 `s27test-`/`anon_s3N-live`/`anon_test_` api_usage rows are counted as real people today.
+- **Not separable:** earlier fresh Playwright clients (S2 chain, 2026-10-11) used real-format `anon_<uuid>` ids, so they look like real phones.
+
+Proposed DELETEs (Brad's call, §11.7; take a `pg_dump` first per §11.2):
+```sql
+begin;
+delete from card_events      where client_id like 'anon\_agent\_%';            -- 22
+delete from anchor_snapshots where client_id like 'anon\_agent\_%';            -- 13 (10 shared, all revoked) — §2.13 approval
+delete from voice_events     where client_id like 'anon\_agent\_%';            -- 252
+delete from voice_moods      where client_id like 'anon\_agent\_%';            -- 255
+delete from goto_events      where client_id like 'anon\_agent\_%';            -- 475
+delete from go_tos           where client_id like 'anon\_agent\_%';            -- 136
+delete from user_likes       where client_id like 'anon\_agent\_%';            -- 54
+delete from reksnap_signals  where client_id like 'anon\_agent\_%';            -- 30
+delete from wine_marks       where client_id like 'anon\_agent\_%';            -- 29
+delete from client_profiles  where client_id like 'anon\_agent\_%';            -- 2
+delete from api_usage        where client_id like 'anon\_agent\_%'
+                                or client_id like 's27test-%'
+                                or client_id like 'anon\_test\_%'
+                                or client_id ~ '^anon_s3[0-9]+[-_]live';        -- 1,884 + 332
+-- check the counts above match, then:
+commit;
+```
+From now on every test client id starts with `anon_agent_` (in CURRENT_STATE.md).
+
+### CHARTER STILL OUT OF STEP (listed, not changed)
+- §2.8 still says sessions never push to main and "Brad merges". §4 says "Brad merges" too. In practice sessions self-merge under §10.3/§11.4.
+- §10.4 still bars self-merging any §2 change. This session merged one on Brad's explicit instruction.
+- §2.10 says OpenAI is moderation only. But `src/lib/llm.ts` falls back to OpenAI for generation when `ANTHROPIC_API_KEY` is missing, and `REKS_MODEL_PROVIDER=openai` is the rollback (Build 5).
+- The header ("Phase: September 2026"), §0 "How to use" ("one session from §6"), §6 sequence, §7 calls and §9 definition of done describe the September plan. Sessions now come from launch docs.
+- §3.10's stale-bundle rule and the `[prompt-diag]` markers (`hasSimulationClose`…) refer to the 4o-mini search prompt era.
+- §8's log format (`SHIPPED:` lines) no longer matches the `### SHIPPED` sections sessions actually write.
+- §3.3's "the spec" list names July–September blueprints, most of them built or superseded.
+
+### BRAD MUST
+- Decide on the test-row DELETEs above. Deleting the 13 agent cards needs your §2.13 approval. They can also be left in place and the other deletes run.
+
+**§0 check: consistent.** No user-facing change. Nothing new is stored or sent. The test-row report keeps stats honest, which serves "measure, don't estimate."
