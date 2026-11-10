@@ -5,7 +5,7 @@ One page. Read it at the top of every session, before the session log; update it
 **Updated:** 2026-11-10, Session 39.
 
 ## Last session
-- **Session 39** — test-row cleanup + charter part 2 — 2026-11-10 — branch `auto/s39-cleanup-charter2` — merge SHA in its log entry.
+- **Session 39** — test-row cleanup + charter part 2 — 2026-11-10 — PR #130, merged as `d5d72b1`; cleanup run by Brad the same day (log entry).
 - Before it: **Session 38** — housekeeping (charter truth-up, lighter log, this page, test-row report) — 2026-11-10 — branch `auto/s38-housekeeping` — PR #128, merged as `13f4cdc`.
 - **Next free session number: 40.**
 
@@ -35,6 +35,7 @@ One page. Read it at the top of every session, before the session log; update it
 - Only Brad changes §0. §2 changes only as Brad authorizes (§11.6).
 - Single-instruction prompt changes Brad approves follow §2.3's exception; anything broader in voice is joint-session only.
 - Every test client id starts with `anon_agent_`. `/api/stats` and the readout exclude that prefix; any other prefix counts as a real person.
+- Test rows cleaned 2026-11-10 (Session 39): 3,484 rows deleted across 11 tables, backup `backups/2026-11-10-1221-s39.sql`; 0 test-pattern rows left.
 - Real-device counts before 2026-11-10 are overstated: early browser tests (S2 chain, 2026-10-11) used real-format ids and cannot be separated.
 
 ## Open items (found, not fixed, Sessions 26–37)
@@ -46,7 +47,6 @@ One page. Read it at the top of every session, before the session log; update it
 - `/api/openai`'s legacy `pick_from_candidates` mode has no caller (S35; Build 5 removes it).
 - The live shelf read and the top-card line are untested on a real shelf photo; every test used the stored sample (S27/S28).
 - `src/lib/llm.ts` still falls back to OpenAI for generation if the Anthropic key is missing; Build 5 removes it.
-- Test-row cleanup: Brad approved it on 2026-11-10 (including the 13 test cards, §2.13), and the backup `backups/2026-11-10-1221-s39.sql` is taken. The DELETE was NOT run: the session's permission check blocked it. Run `docs/sql/2026-11-10_s39-delete-test-rows.sql` (see the Session 39 log entry), then remove this item.
 
 ## Where things are
 - Launch docs: `docs/`, named by date and topic (charter §3.13), e.g. `docs/2026-11-10_housekeeping_launch.md`.
