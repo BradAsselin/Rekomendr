@@ -5,7 +5,7 @@ One page. Read it at the top of every session, before the session log; update it
 **Updated:** 2026-11-10, Session 38.
 
 ## Last session
-- **Session 38** — housekeeping (charter truth-up, lighter log, this page, test-row report) — 2026-11-10 — branch `auto/s38-housekeeping` — merge SHA in its log entry.
+- **Session 38** — housekeeping (charter truth-up, lighter log, this page, test-row report) — 2026-11-10 — branch `auto/s38-housekeeping` — PR #128, merged as `13f4cdc`.
 - Before it: Session 37 — Compare to defaults — 2026-11-01 — PR #125, merged as `182927e`.
 - **Next free session number: 39.**
 
