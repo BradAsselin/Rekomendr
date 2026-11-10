@@ -564,3 +564,29 @@ From now on every test client id starts with `anon_agent_` (in CURRENT_STATE.md)
 - All 61 suites, tsc, lint and build pass.
 
 **§0 check: consistent.** No user-facing change, and nothing new is stored or sent.
+
+## Session 39b — Test-row cleanup run + readback — 2026-11-10 — branch auto/s39b-cleanup-done
+**Brad ran** `bash scripts/run-s39-delete.sh` (`docs/sql/2026-11-10_s39-delete-test-rows.sql`) himself, after the session's permission check blocked it. It ran as one transaction, every count matched its re-count, and it ended in `COMMIT`.
+
+### DELETED (per table)
+- api_usage 2,216 · goto_events 475 · voice_moods 255 · voice_events 252
+- go_tos 136 · user_likes 54 · reksnap_signals 30 · wine_marks 29
+- card_events 22 · anchor_snapshots 13 (the agent test cards, approved under §2.13) · client_profiles 2
+- **Total: 3,484.** Backup: `backups/2026-11-10-1221-s39.sql`.
+
+### READBACK (read-only)
+- 0 rows left matching any test pattern.
+- Real clients are unchanged: 137 uuid ids / 1,832 rows, and 4 old-format ids / 466 rows. No ids of any other shape remain.
+
+### PRODUCTION CHECKS
+- **Save, saved list and remove:** all OK on www.rekomendr.ai (`/api/signals` → `/api/saved` → `/api/signals/undo` removed 1), using client `anon_agent_s39check_1794333095`. Its `api_usage` row is agent-tagged and excluded.
+- **Share link:** a real shared card (`/a/7da27455-…`) returned 200.
+- **`/api/stats` on Production:** 404 with the `.env.local` key. Production's `STATS_KEY` is Brad's and evidently differs; the route answers 404 for any wrong key.
+- **`/api/stats` on the main preview** (same database): 200. The readout loads, and `&agents=1` is all zeros.
+
+### BRAD MUST
+- Open `https://www.rekomendr.ai/api/stats?key=<your Production STATS_KEY>` once to confirm the Production readout.
+
+`scripts/run-s39-delete.sh` is committed alongside, as the record of what was run.
+
+**§0 check: consistent.** The numbers are more honest now, and no real person's data or links were touched.
