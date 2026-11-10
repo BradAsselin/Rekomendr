@@ -532,3 +532,35 @@ From now on every test client id starts with `anon_agent_` (in CURRENT_STATE.md)
 - Decide on the test-row DELETEs above. Deleting the 13 agent cards needs your §2.13 approval. They can also be left in place and the other deletes run.
 
 **§0 check: consistent.** No user-facing change. Nothing new is stored or sent. The test-row report keeps stats honest, which serves "measure, don't estimate."
+
+## Session 39 — Test-row cleanup (approved, NOT run) + charter part 2 — 2026-11-10 — branch auto/s39-cleanup-charter2
+**Brief:** `docs/2026-11-10_test_row_cleanup_and_charter_part2.md`. Brad approved §A (the eleven Session 38 DELETEs, including the 13 agent cards under §2.13) and the §B charter edits word for word. Merge when green. No app change.
+
+### SHIPPED
+- **Charter (§B):** §2.8 reworded, §4's "Brad merges." sentence, the §10.4 exception for Brad-approved §2 wording, and the "How sessions run now" note above §0. There are no other changes.
+- **CURRENT_STATE.md (§C):** the real-device overcount line, the `llm.ts` OpenAI fallback open item, and the cleanup marked approved but not run. Next free session number: 40.
+- **`docs/sql/2026-11-10_s39-delete-test-rows.sql`:** the eleven approved DELETEs in order, in one transaction. Each is checked against its re-count; any mismatch raises, and nothing commits.
+
+### TEST-ROW CLEANUP — steps 1–3 done, step 4 BLOCKED
+1. **Backup:** `backups/2026-11-10-1221-s39.sql`, 996,529 bytes, with data for all 12 public tables (`COPY public.*`).
+2. **Re-count (read-only), identical to Session 38:**
+   - card_events 22, anchor_snapshots 13, voice_events 252, voice_moods 255
+   - goto_events 475, go_tos 136, user_likes 54, reksnap_signals 30, wine_marks 29, client_profiles 2
+   - api_usage 2,216 (1,884 agent + 332 other test ids)
+   - No tests have run since S38.
+3. **Real ids are safe:**
+   - 0 real-format ids match any pattern (137 uuid ids / 1,832 rows; 4 old ids / 466 rows).
+   - The `voice_moods` cascade would take 0 non-agent rows.
+   - 0 non-agent events sit on agent cards.
+4. **The DELETE was not run.** The session's permission check (auto mode) blocked the command. Nothing was deleted; the database is as it was.
+
+### BRAD MUST
+- Run the cleanup yourself, or allow the session to run it. It checks every count and rolls back on any mismatch:
+  `! bash -c 'cd "F:/Rekomendr/Rekomendr-App" && "/c/Program Files/PostgreSQL/17/bin/psql" "$(grep -E "^SUPABASE_DB_URL=" .env.local | cut -d= -f2- | tr -d "\"\r")" -X -f docs/sql/2026-11-10_s39-delete-test-rows.sql'`
+- After that, the next session does the readback (§A steps 5–6) and removes the open item from CURRENT_STATE.md.
+
+### TESTS
+- New `validate-s39-charter2`: 8/8. The charter equals main @aac610e plus exactly the four B edits, byte for byte.
+- All 61 suites, tsc, lint and build pass.
+
+**§0 check: consistent.** No user-facing change, and nothing new is stored or sent.
