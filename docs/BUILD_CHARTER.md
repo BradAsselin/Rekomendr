@@ -2,6 +2,8 @@
 **Phase: "Taste memory that illuminates" — September 2026**
 **Read this document in full at the top of every autonomous session. It is the goal, the fence, and the route.**
 
+**How sessions run now (added 2026-11-10).** Work comes from dated launch docs in `docs/` (§3.13), and `docs/CURRENT_STATE.md` is the present (§3.14). The "Phase" line above, "0. How to use this document", §6, §7 and §9 describe the September 2026 plan and are kept as history. §3.3's list of spec documents, §3.10's prompt markers and §8's log format are from the same period. Where any of them disagrees with a launch doc, `CURRENT_STATE.md` or current practice in the session log, the newer one wins. §0 (the one aim), §2 (invariants), §10, §11 and §12 are current and binding.
+
 ---
 
 ## §0. The one aim
@@ -75,7 +77,7 @@ Field validation is the only validation. Six wows on the ledger share one beat: 
 5. **Anchor grammar holds.** The snapped/typed item is the subject; it never dismisses; its identity doesn't flip when the pills do; it reads as an answer, not a menu (at most one instinctive verb collapsed). Position is meaning: LEFT learn / MIDDLE complete / RIGHT continue; top-right = verdict cluster (Save + thumbs); decided trail above, undecided frontier below.
 6. **One new affordance per feature, maximum.** If the collapsed UI of any surface grows more than one new tap target from a session, the design is wrong. Modes are forbidden; slots are allowed.
 7. **Human recommendations only.** No platform imports of a user's saved lists. Public recommendation webs (e.g. TMDb recommendations/similar) may be used as candidate pools; Rekomendr picks, ranks and explains.
-8. **Production is untouchable from a session.** `release/v2` deploys production. Sessions never push to `release/v2` or `main`. Branch → PR → preview → Brad merges, except as §10.3 allows. No exceptions, including "tiny."
+8. **Production is untouchable from a session.** `release/v2` deploys production. Sessions never push or merge to `release/v2`, and never push directly to `main`. The path is branch → PR → preview; a session merges its own PR into `main` only under §10.3 and §11.4. Brad alone promotes `main` to `release/v2`. No exceptions, including "tiny." *(Reworded 2026-11-10 to match §10.3 and §11.4; approved by Brad.)*
 9. **Schema changes ship as SQL in the PR, never executed by the session, except as §11 allows.** Every `CREATE TABLE` includes explicit GRANTs and REVOKEs (anon/authenticated) and RLS enabled with zero client policies unless the charter says otherwise. Every policy that joins through another table gets that table a matching read policy. Every adversarial suite includes a **positive control**.
 10. **The models are Anthropic Claude, assigned per step by environment variable** (`REKS_MODEL_PROVIDER`, `REKS_PROVIDER_<STEP>`, `REKS_MODEL_<STEP>`): Opus 5.5 reads the shelf; Sonnet 5.5 handles vision, wine, lines, search and snap; Haiku 5.5 handles mood, detail, recipe and classify. `/api/health` reports the live assignment and is the source of truth. OpenAI is used for moderation only. A session never changes a Production model assignment (Production env vars are Brad's). A model change on Preview needs Brad's OK and a counted before-and-after report. *(Replaced 2026-11-10; the app moved to Claude on 2026-10-24. Approved by Brad.)*
 11. **Timeouts sit above the p99 of legitimate completions** — hang protection, never a latency SLA. Any timeout extension re-audits every response landing site (a request that lives longer arrives later).
@@ -125,7 +127,7 @@ Every PR ends in a section titled **"Brad's twenty minutes"** written in user te
 
 The pass criterion for any feel-level change is **counted, not felt on one screen**: three generations minimum, and the target construction counted across all of them. Brad's own rule: at polish level, the model's variance equals the defect size; single screenshots prove nothing.
 
-Brad merges. Production promotion is a separate PR from `main` → `release/v2` that Brad opens when a batch of merged PRs has been validated on preview.
+The session merges into `main` under §10.3 and §11.4; otherwise Brad merges. Production promotion is a separate PR from `main` → `release/v2` that Brad opens when a batch of merged PRs has been validated on preview.
 
 ---
 
@@ -267,7 +269,7 @@ Then: the ops dashboard session (SMTP, Supabase tripwire verification, usage ale
 
 **10.3 Self-merge, bounded.** A session may merge its own PR into main when all of: checks green; tsc --noEmit clean; the diff matches the plan and stays inside the fence; no BLOCKED:; §10.2 verified; and the session's own acceptance items that are machine-checkable pass. Record the merge commit SHA in the log entry so any single session is individually revertible.
 
-**10.4 What may never self-merge.** Anything touching prompt text, voice, register, or the feel of output (§3.9, §5) — those PRs stay open, labeled VOICE — joint session required. The one exception is a single-instruction change approved under §2.3. Anything requiring a migration Brad has not yet run. Anything that changes this charter's §2 invariants. And never, under any circumstance, a merge into release/v2: production promotion is Brad's alone, by a PR he opens.
+**10.4 What may never self-merge.** Anything touching prompt text, voice, register, or the feel of output (§3.9, §5) — those PRs stay open, labeled VOICE — joint session required. The one exception is a single-instruction change approved under §2.3. Anything requiring a migration Brad has not yet run. Anything that changes this charter's §2 invariants, unless Brad has approved the exact wording in chat or in a launch doc (§11.6). And never, under any circumstance, a merge into release/v2: production promotion is Brad's alone, by a PR he opens.
 
 **10.5 Stop conditions for a chain.** Halt the chain, write, and end the run if: any session hits BLOCKED:; two consecutive sessions logging NEW found-not-fixed items in the same file; a session's plan would require crossing an invariant; or a pending migration blocks a later session's acceptance.
 

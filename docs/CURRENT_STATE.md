@@ -2,16 +2,16 @@
 
 One page. Read it at the top of every session, before the session log; update it at the end (charter §3.14). The session log is the history; this page is the present.
 
-**Updated:** 2026-11-10, Session 38.
+**Updated:** 2026-11-10, Session 39.
 
 ## Last session
-- **Session 38** — housekeeping (charter truth-up, lighter log, this page, test-row report) — 2026-11-10 — branch `auto/s38-housekeeping` — PR #128, merged as `13f4cdc`.
-- Before it: Session 37 — Compare to defaults — 2026-11-01 — PR #125, merged as `182927e`.
-- **Next free session number: 39.**
+- **Session 39** — test-row cleanup + charter part 2 — 2026-11-10 — branch `auto/s39-cleanup-charter2` — merge SHA in its log entry.
+- Before it: **Session 38** — housekeeping (charter truth-up, lighter log, this page, test-row report) — 2026-11-10 — branch `auto/s38-housekeeping` — PR #128, merged as `13f4cdc`.
+- **Next free session number: 40.**
 
 ## Production
 - `origin/release/v2` contains all of `origin/main` as of 2026-11-01 (promotion PR #127, `f6a42f8`; main was at `0dea5fa`). Sessions 26–37 are live.
-- Waiting on main: only Session 38's docs and its check script (no app change, nothing to test on the phone).
+- Waiting on main: only Sessions 38–39's docs and check scripts (no app change, nothing to test on the phone).
 
 ## Models (as `/api/health` reports, 2026-11-10)
 - Opus 5.5: shelf.
@@ -35,6 +35,7 @@ One page. Read it at the top of every session, before the session log; update it
 - Only Brad changes §0. §2 changes only as Brad authorizes (§11.6).
 - Single-instruction prompt changes Brad approves follow §2.3's exception; anything broader in voice is joint-session only.
 - Every test client id starts with `anon_agent_`. `/api/stats` and the readout exclude that prefix; any other prefix counts as a real person.
+- Real-device counts before 2026-11-10 are overstated: early browser tests (S2 chain, 2026-10-11) used real-format ids and cannot be separated.
 
 ## Open items (found, not fixed, Sessions 26–37)
 - A wine description can still carry a referent-free comparative mid-sentence ("the bubbles are bigger and firmer"); the backstop catches openers and "than" only (S37).
@@ -44,7 +45,8 @@ One page. Read it at the top of every session, before the session log; update it
 - A failed search-lane backfill can now take two model calls inside the client's 90s abort; watch for aborts (S35).
 - `/api/openai`'s legacy `pick_from_candidates` mode has no caller (S35; Build 5 removes it).
 - The live shelf read and the top-card line are untested on a real shelf photo; every test used the stored sample (S27/S28).
-- Test leftovers in the shared database: see the Session 38 log entry for counts and proposed DELETEs (Brad's call, §11.7).
+- `src/lib/llm.ts` still falls back to OpenAI for generation if the Anthropic key is missing; Build 5 removes it.
+- Test-row cleanup: Brad approved it on 2026-11-10 (including the 13 test cards, §2.13), and the backup `backups/2026-11-10-1221-s39.sql` is taken. The DELETE was NOT run: the session's permission check blocked it. Run `docs/sql/2026-11-10_s39-delete-test-rows.sql` (see the Session 39 log entry), then remove this item.
 
 ## Where things are
 - Launch docs: `docs/`, named by date and topic (charter §3.13), e.g. `docs/2026-11-10_housekeeping_launch.md`.
