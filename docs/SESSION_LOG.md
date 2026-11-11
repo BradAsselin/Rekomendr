@@ -662,3 +662,15 @@ From now on every test client id starts with `anon_agent_` (in CURRENT_STATE.md)
 
 **§0 check: consistent.** No app change. One agent-tagged test row was written to prove the grant.
 
+## Session 40c — House devices confirmed, search count approved — 2026-11-10 — branch auto/s40c-house-confirmed
+- **Brad approved** the per-search `search` count as built (S40).
+- **House devices:** Brad confirmed `anon_89c…` (Brad) and `anon_3f5…` (Katrina) and added `anon_4fe…` (an older house id).
+  - The session ran this in one transaction; the permission check did not block it: two note updates and one insert. The `anon_4fe` prefix matches exactly one device.
+  - Readback: three rows — Brad, Katrina, older house id.
+- **Readout after the change:** unchanged. `anon_4fe…` has shared and opened no cards.
+  - THE TEST, everyone: cards shared 3 / 1 / 2 / 0 / 0, and opened by another device 3 / 1 / 0 / 0 / 0, for the weeks of 10-12 / 10-19 / 10-26 / 11-02 / 11-09. Receivers: 3 (all in the week of 10-12). Made their own: 0.
+  - Outside the house: 0 cards shared, 4 opened, 3 receivers, 0 made their own.
+  - Quality and Use (week of 11-09): all zeros. There have been no real searches or snaps since the start of 11-10 New York time.
+
+**§0 check: consistent.** No app change.
+
