@@ -590,3 +590,45 @@ From now on every test client id starts with `anon_agent_` (in CURRENT_STATE.md)
 `scripts/run-s39-delete.sh` is committed alongside, as the record of what was run.
 
 **§0 check: consistent.** The numbers are more honest now, and no real person's data or links were touched.
+
+## Session 40 — Measure: THE TEST, quality and use counters; "Did you watch one of these?" — 2026-11-10 — branch auto/s40-measure — PR #132
+**Brief:** `docs/2026-11-10_measure_launch.md` (Build 2). Brad approved the one new Compare to event and the wording "Did you watch one of these?" / "Not yet". Merge when green.
+
+### SHIPPED
+- **Stats page:** three new blocks (THE TEST from 10-16; Quality and Use from 11-10). Each is by week (Monday, New York), newest first, for everyone and outside the house. Every existing number stays. "Voice: cards ignored" is now "Voice: cards with no tap", and "ignored (%)" is now "no tap (%)". The Session 38 overcount note is on the page.
+- **Server counters** (`src/lib/measure.ts`):
+  - parse retries and retry failures, inside `parseWithRetry`;
+  - 5xx answers from openai, slots, anchor, mood, screen and reksnap;
+  - backfills that land after the 90 s client abort ("gave up", a proxy).
+- **Client counts** (`/api/signals` kind `measure`, `src/lib/measureRow.ts` allow-lists):
+  - `search` (origin, category, lane, picks, ms) — **flagged for Brad's approval in the PR**;
+  - `compare_on` (category);
+  - `nudge_asked`, `nudge_poster`, `nudge_not_yet` (no device stored).
+- **Home:** "Did you watch one of these?"
+  - When: the newest Movies/TV search in Recent is 3 h to 7 days old and none of its picks is marked Watched.
+  - Shows: up to five posters plus "Not yet", in the nudge line's space.
+  - A poster tap writes the usual Watched mark, with Undo. It asks once per search, ever. It skips when posters are hidden.
+
+### MIGRATION — BLOCKED, Brad runs it
+- Backup taken: **`backups/2026-11-10-1921-s40.sql`** (647,228 bytes, dump-complete footer, 50 tables).
+- The permission check blocked the DDL, as in S39. Nothing was created.
+- **BRAD MUST:** `! bash scripts/run-s40-measure.sh` (Blocks 1→4 of `docs/sql/2026-11-10_s40-measure.sql`; Block 1 stops it if either table exists). Then check the output against the EXPECTED lines. Block 2b seeds the house list.
+- The house seed is the two most active real devices since 10-16:
+  - `anon_89c…`: 407 events, 272 searches/snaps, 6 cards sent, 50 home-screen launches, last 11-11 UTC;
+  - `anon_3f5…`: 58 events, 37 searches/snaps, 7 home-screen launches, last 11-01.
+- Over all time, `anon_4fe…` is second (190 rows, almost all likes since June; 10 rows since 10-16). Brad confirms which are his and Katrina's.
+
+### FIRST REAL READOUT (preview, same database, Block 1 only)
+- Cards shared: week of 10-12 **3**, 10-19 **1**, 10-26 **2**, 11-02 **0**, 11-09 **0** (total 6).
+- Shared cards opened by another device: 10-12 **3**, 10-19 **1**, others 0 (total 4).
+- Receiving devices (first event is someone else's card): **3**, all in the week of 10-12. Receivers who made their own: **0** (0%).
+- Outside the house: not shown until `house_devices` exists.
+- Voice: cards with no tap **57**, no tap **93.4%**.
+
+### TESTS
+- `validate-s40` 85/85; `pw-s40-watch-ask` 25/25 (three runs); `pw-s29-home-square` 53/53.
+- All 62 validator suites (with `npx-shim` on Windows), tsc, lint and build pass.
+- Preview: a wrong or missing key gets 404; the right key gets 200.
+- s16b, s24a and s25 got a pass-through `measure` stub.
+
+**§0 check: consistent.** Counts only: no titles, words, photos or names. Server and nudge rows can't hold a device id. The ask appears once per search, takes one tap, can be waved off, and exists to learn what the person chose.
