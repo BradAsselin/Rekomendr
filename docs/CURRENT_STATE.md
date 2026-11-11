@@ -5,7 +5,7 @@ One page. Read it at the top of every session, before the session log; update it
 **Updated:** 2026-11-10, Session 40.
 
 ## Last session
-- **Session 40** — Measure (Build 2): THE TEST, quality and use blocks on the stats page; "Did you watch one of these?" on home — 2026-11-10 — PR #132. **Migration not yet run:** Brad runs `bash scripts/run-s40-measure.sh` (backup `backups/2026-11-10-1921-s40.sql`), then confirms the two house devices.
+- **Session 40** — Measure (Build 2): THE TEST, quality and use blocks on the stats page; "Did you watch one of these?" on home — 2026-11-10 — PR #132, merged as `f5c0ee1`. Migration run by Brad the same day (backup `backups/2026-11-10-1921-s40.sql`); the grant was proven through `/api/signals` (S40b). Brad still has to confirm the two house devices.
 - Before it: **Session 39** — test-row cleanup + charter part 2 — 2026-11-10 — PR #130, merged as `d5d72b1`; cleanup run by Brad the same day (log entry).
 - **Next free session number: 41.**
 
@@ -39,7 +39,7 @@ One page. Read it at the top of every session, before the session log; update it
 - Real-device counts before 2026-11-10 are overstated: early browser tests (S2 chain, 2026-10-11) used real-format ids and cannot be separated.
 
 ## Open items (Session 40)
-- `measure_events` and `house_devices` don't exist until Brad runs `scripts/run-s40-measure.sh`. Until then the counters log `[measure] not recorded`, and Blocks 2–3 say "Unavailable right now".
+- Brad still has to confirm that the house devices `anon_89c…` and `anon_3f5…` are his and Katrina's.
 - Brad still has to approve or veto the `search` count (origin, category, lane, picks, ms). It is the one new client record beyond the approved Compare to and nudge counts.
 - "Gave up" is a server proxy: a backfill that lands after 90 s. A function killed before it finishes is not counted.
 - Voice searches are timed from the parsed mood, not from the moment the person spoke.

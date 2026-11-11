@@ -632,3 +632,33 @@ From now on every test client id starts with `anon_agent_` (in CURRENT_STATE.md)
 - s16b, s24a and s25 got a pass-through `measure` stub.
 
 **§0 check: consistent.** Counts only: no titles, words, photos or names. Server and nudge rows can't hold a device id. The ask appears once per search, takes one tap, can be waved off, and exists to learn what the person chose.
+
+## Session 40b — Measure migration run + grant proof — 2026-11-10 — branch auto/s40b-migration-done
+**Brad ran** `bash scripts/run-s40-measure.sh` after the session's permission check blocked the DDL. Backup: `backups/2026-11-10-1921-s40.sql`.
+
+### READBACK (against the SQL file's EXPECTED lines)
+- Block 1: `|` (neither table existed). Block 2: the twelve expected lines, ending in `COMMIT`.
+- Block 2b: seeded `anon_89c…` and `anon_3f5…`.
+- Block 3:
+  - RLS `t` on both tables, 0 policies, 0 anon/authenticated grants;
+  - sequence usage `t`;
+  - service_role holds DELETE, INSERT, SELECT and UPDATE, and also REFERENCES, TRIGGER and TRUNCATE. Those three extras are Supabase defaults still applied to service_role, one difference from the file's EXPECTED line; nothing is widened for clients.
+- Block 4: both POSITIVE CONTROLs `t`, 11 PASS, 0 FAIL, then ROLLBACK.
+
+### GRANT PROVEN THROUGH THE SERVER PATH (§11.2a)
+- The S40 preview's `/api/signals` wrote `{kind: measure, event: compare_on, category: tv, title: …}` as client `anon_agent_s40proof_…`. Answer: `{ok:true}`.
+- The stored row is `compare_on | tv` only; the title was dropped.
+- A title sent as the category was refused (`bad_request`).
+- `/api/stats?agents=1` reads it back as Compare to 1 (1 device). The agent row is excluded from the real readout.
+
+### FIRST FULL READOUT (real devices)
+- **THE TEST, everyone:**
+  - cards shared: 3 / 1 / 2 / 0 / 0 for the weeks of 10-12 / 10-19 / 10-26 / 11-02 / 11-09;
+  - opened by another device: 3 / 1 / 0 / 0 / 0;
+  - receivers: 3, all in the week of 10-12; made their own: 0.
+- **Outside the house:** cards shared 0 (all 6 came from house devices). Opened by another device: 4, with the same 3 receivers.
+- **Quality and Use (week of 11-09):** all zeros. Since the start of 11-10 New York time, the only real activity is one home-screen launch on `anon_89c…`; there have been no searches or snaps since.
+- Pre-11-10 device counts are overstated (S38), so the 3 receivers in the week of 10-12 may include early browser tests.
+
+**§0 check: consistent.** No app change. One agent-tagged test row was written to prove the grant.
+
