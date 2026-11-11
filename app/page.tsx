@@ -3,6 +3,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import SearchBar, { type VoiceAnswer } from "../src/components/SearchBar";
 import ResultsV4 from "../src/components/ResultsV4";
+import { measureCategory, measureSearchOnce, sendMeasure } from "../src/lib/measureClient";
 import SayOrSnap from "../src/components/SayOrSnap";
 import { HOME_EVENT } from "../src/components/HomeWordmark";
 import RekSnapResults, {
@@ -704,6 +705,9 @@ export default function Page() {
     if (!picks.length || isHealthMedical(category.trim().toLowerCase())) return;
     activeEntryRef.current = draft.id;
     upsertSearchEntry({ ...draft, category, picks, restore, facts: {} });
+    // S40 — a count that this search reached the screen: how it started,
+    // its category, how many picks showed, and how long it took. No title.
+    measureSearchOnce(draft.id, draft.kind, category, picks.length, draft.at);
   };
   const searchRestoreOf = (list: Rek[], cat: string, header: string | null): SearchRestore => {
     const seed = mltSeedRef.current;
@@ -1245,6 +1249,8 @@ export default function Page() {
   // the refs' webs), a Books set re-runs (seeded or not), and an AI
   // search's five keep their places and get (or lose) their lines.
   const applyRefs = (cat: CompareRef["category"], next: CompareRef[]) => {
+    // S40 — Compare to switched on (off → on): the category, counted.
+    if (refsFor(cat).length === 0 && next.length > 0) sendMeasure({ event: "compare_on", category: measureCategory(cat) });
     setRefs(cat, next);
     const last = lastSearchRef.current;
     if (!last || screenRef.current || categoryFromQuery(last.query) !== cat && !slotReqRef.current) return;

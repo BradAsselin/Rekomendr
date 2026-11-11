@@ -1,3 +1,4 @@
+import { CLIENT_ABORT_MS, countErrors, recordServer } from "../../../src/lib/measure";
 import { runEnvCheck, isProductionRuntime } from "../../../src/lib/envCheck";
 import {
   maybeSimulateOpenAIFailure,
@@ -46,12 +47,16 @@ export async function POST(req: Request) {
   return withLlmContext(req, () => handle(req));
 }
 
+// S40 — a 5xx answer is counted as a server error shown to the person.
+const handle = countErrors("search", handleSearch);
+
 // The prompt mode had no max_tokens on OpenAI. Claude needs one: this sits
 // above the ~4,800-token ceiling of a 12-item backfill ask
 // (rekomendrEngine.ts sizing note).
 const SEARCH_MAX_TOKENS = 6000;
 
-async function handle(req: Request): Promise<Response> {
+async function handleSearch(req: Request): Promise<Response> {
+  const t0 = Date.now();
   try {
     // Dev/preview-only: REKOMENDR_SIMULATE_OPENAI_FAILURE throws the
     // matching OpenAI-shaped error so the honest copy can be seen.
@@ -106,6 +111,9 @@ async function handle(req: Request): Promise<Response> {
       );
 
       const text = searchRead.last.text;
+      // S40 — the client stops waiting for a backfill (the JSON ask) at
+      // 90 s; one that lands later than that was given up on.
+      if (useJson && Date.now() - t0 >= CLIENT_ABORT_MS) await recordServer("late", "search");
 
       return new Response(text, {
         status: 200,

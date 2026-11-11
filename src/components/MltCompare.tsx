@@ -18,6 +18,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import CompareSheet, { CompareHeader } from "./CompareSheet";
 import { refsPayload, setRefs, type CompareCategory, type CompareRef } from "../lib/compareTo";
 import { fetchCompareLines, goToShortName } from "../lib/slotsClient";
+import { measureCategory, sendMeasure } from "../lib/measureClient";
 import { isGoTo } from "../lib/goTos";
 
 export type MltSeed = {
@@ -109,7 +110,12 @@ export function useMltCompare(
           <CompareHeader
             refs={refs}
             pendingName={seed.name}
-            onOpen={() => (refs.length ? setSheetOpen(true) : setRefList([seedRef(seed)]))}
+            onOpen={() => {
+              if (refs.length) return setSheetOpen(true);
+              // S40 — Compare to switched on: the category, counted.
+              sendMeasure({ event: "compare_on", category: measureCategory(seed.category) });
+              setRefList([seedRef(seed)]);
+            }}
             onRemove={(name) => setRefList((l) => l.filter((r) => r.name !== name))}
           />
           {sheetOpen && (
@@ -119,6 +125,7 @@ export function useMltCompare(
               onClose={() => setSheetOpen(false)}
               onDone={(next) => {
                 setSheetOpen(false);
+                if (!refs.length && next.length) sendMeasure({ event: "compare_on", category: measureCategory(seed.category) });
                 setRefList(next);
                 setRefs(seed.category, next);
               }}

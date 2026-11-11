@@ -30,6 +30,7 @@ import WineFacts from "./WineFacts";
 import WineTopCard, { firstSentence } from "./WineTopCard";
 import WineCompareSheet from "./WineCompareSheet";
 import { CompareHeader } from "./CompareSheet";
+import { sendMeasure } from "../lib/measureClient";
 import { useMltCompare, vsLeadFor, type MltSeed } from "./MltCompare";
 import { refPayload, sameRef, type WineRef } from "../lib/wineCompare";
 import GoToStar from "./GoToStar";
@@ -1688,6 +1689,8 @@ const RekSnapResults: React.FC<Props> = ({
     const forResult = resultRef.current;
     if (!forResult || chainBusyRef.current) return;
     const prev = wineRefsRef.current;
+    // S40 — Compare to switched on (off → on): counted, category only.
+    if (prev.length === 0 && next.length > 0) sendMeasure({ event: "compare_on", category: "wine" });
     wineRefsRef.current = next;
     setWineRefs(next);
     setWineSheetOpen(false);
@@ -2813,6 +2816,8 @@ const RekSnapResults: React.FC<Props> = ({
                 if (chainBusyRef.current) return;
                 // S31 — checking the bottle turns on the lines the server
                 // already wrote against it: no re-run.
+                // S40 — Compare to switched on: counted, category only.
+                if (!wineRefs.length && winePending) sendMeasure({ event: "compare_on", category: "wine" });
                 if (!wineRefs.length && winePending) {
                   wineRefsRef.current = [winePending];
                   setWineRefs([winePending]);

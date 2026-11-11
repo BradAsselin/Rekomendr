@@ -7,6 +7,12 @@
 // each with the caller's context plus attempt, of, chars, finishReason and
 // the parse error. Only a PARSE miss retries: a transport error from the
 // call itself propagates as before.
+//
+// S40 — each retry is also counted (measure_events "retry", and
+// "retry_failed" when the second try misses too), by the tag's lane.
+// Counts only; the counter never changes the outcome.
+
+import { laneForTag, recordServer } from "./measure";
 
 export type ParseAttempt = { text: string; finishReason?: string | null };
 
@@ -48,8 +54,10 @@ export async function parseWithRetry<T>(
       };
       if (attempt < PARSE_ATTEMPTS) {
         console.warn(`[${tag}] parse failed — retrying`, detail);
+        await recordServer("retry", laneForTag(tag));
       } else {
         console.error(`[${tag}] parse failed — giving up`, detail);
+        await recordServer("retry_failed", laneForTag(tag));
         return { ok: false, value: null, attempt, last, error };
       }
     }
