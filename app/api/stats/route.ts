@@ -13,6 +13,11 @@ import { timingSafeEqual } from "crypto";
 import { runEnvCheck } from "../../../src/lib/envCheck";
 import { getSnapshotStore } from "../../../src/lib/anchorSnapshots";
 import { computeReadout, loadEvents, type Readout } from "../../../src/lib/testReadout";
+import {
+  BLOCK1_LABELS, BLOCK1_SINCE, BLOCK2_LABELS, BLOCK3_LABELS, LANES, MEASURE_SINCE,
+  computeBlock1, computeBlock2, computeBlock3, houseLines, loadAllCards, loadHouse, loadMeasure, loadUsage,
+  type HouseLine,
+} from "../../../src/lib/measureReadout";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -206,8 +211,8 @@ const VOICE_LABELS: [Exclude<keyof VoiceReadout, "voice_recent">, string][] = [
   ["voice_shared", "Voice: cards shared"],
   ["voice_saved", "Voice: cards saved"],
   ["voice_starred", "Voice: cards starred"],
-  ["voice_ignored", "Voice: cards ignored"],
-  ["voice_ignored_pct", "Voice: ignored (%)"],
+  ["voice_ignored", "Voice: cards with no tap"],
+  ["voice_ignored_pct", "Voice: no tap (%)"],
 ];
 
 const esc = (s: string) =>
@@ -299,6 +304,114 @@ async function watchedReadout(
   return { watched: rows.length };
 }
 
+// S40 — the three measure blocks (docs/2026-11-10_measure_launch.md):
+// THE TEST (cards), Quality, Use. By week (Monday, New York), newest
+// first, each shown for everyone and "outside the house". A block whose
+// table can't be read shows "unavailable", never an error page.
+type Measure = {
+  house: HouseLine[] | null;
+  block1: { everyone: ReturnType<typeof computeBlock1>; outside: ReturnType<typeof computeBlock1> | null } | null;
+  block2: ReturnType<typeof computeBlock2> | null;
+  block3: { everyone: ReturnType<typeof computeBlock3>; outside: ReturnType<typeof computeBlock3> | null } | null;
+};
+
+async function soft<T>(label: string, p: Promise<T>): Promise<T | null> {
+  try {
+    return await p;
+  } catch (err) {
+    console.warn("[stats] measure read unavailable", { label, error: err instanceof Error ? err.message : String(err) });
+    return null;
+  }
+}
+
+async function measureBlocks(
+  store: NonNullable<Awaited<ReturnType<typeof getSnapshotStore>>>,
+  agentsOnly: boolean
+): Promise<Measure> {
+  const now = Date.now();
+  const [house, cards, usage, rows] = await Promise.all([
+    soft("house", loadHouse(store)),
+    soft("cards", loadAllCards(store)),
+    soft("usage", loadUsage(store)),
+    soft("measure", loadMeasure(store, MEASURE_SINCE)),
+  ]);
+  const none = new Set<string>();
+  const home = house ? new Set(house) : null;
+  return {
+    house: house && cards && usage ? houseLines(house, cards, usage, BLOCK1_SINCE) : null,
+    block1:
+      cards && usage
+        ? {
+            everyone: computeBlock1(cards, usage, { since: BLOCK1_SINCE, now, exclude: none, agentsOnly }),
+            outside: home ? computeBlock1(cards, usage, { since: BLOCK1_SINCE, now, exclude: home, agentsOnly }) : null,
+          }
+        : null,
+    block2: rows ? computeBlock2(rows, { since: MEASURE_SINCE, now, agentsOnly }) : null,
+    block3:
+      rows && usage
+        ? {
+            everyone: computeBlock3(rows, usage, { since: MEASURE_SINCE, now, exclude: none, agentsOnly }),
+            outside: home ? computeBlock3(rows, usage, { since: MEASURE_SINCE, now, exclude: home, agentsOnly }) : null,
+          }
+        : null,
+  };
+}
+
+const cell = (v: unknown) => (v === null || v === undefined ? "—" : String(v));
+const secs = (ms: number | null) => (ms === null ? null : Math.round(ms / 100) / 10);
+
+function twoColumn<W extends object>(
+  labels: [keyof W, string][],
+  everyone: Record<string, W>,
+  outside: Record<string, W> | null
+): string {
+  return Object.keys(everyone)
+    .map(
+      (w) =>
+        `<h3>Week of ${w}</h3><table class="m"><tr><th></th><th>Everyone</th><th>Outside the house</th></tr>` +
+        labels
+          .map(([k, label]) => `<tr><td>${label}</td><td>${cell(everyone[w][k])}</td><td>${outside ? cell(outside[w]?.[k]) : "—"}</td></tr>`)
+          .join("") +
+        `</table>`
+    )
+    .join("");
+}
+
+function measureHtml(m: Measure): string {
+  const unavailable = `<p>Unavailable right now.</p>`;
+  const house = m.house
+    ? m.house.length
+      ? `<p>House devices (left out of “outside the house”): ${m.house
+          .map((h) => `<b>${esc(h.id8)}…</b> ${h.rows} events since ${BLOCK1_SINCE}, last ${h.last ?? "—"}`)
+          .join("; ")}.</p>`
+      : `<p>House devices: none listed, so “outside the house” equals everyone.</p>`
+    : `<p>House devices: unavailable, so “outside the house” is not shown.</p>`;
+  const b1 = m.block1 ? twoColumn(BLOCK1_LABELS, m.block1.everyone, m.block1.outside) : unavailable;
+  const b2 = m.block2
+    ? Object.keys(m.block2)
+        .map(
+          (w) =>
+            `<h3>Week of ${w}</h3><table class="m"><tr><th></th>${LANES.map((l) => `<th>${l[0].toUpperCase()}${l.slice(1)}</th>`).join("")}</tr>` +
+            BLOCK2_LABELS.map(
+              ([k, label]) =>
+                `<tr><td>${label}</td>${LANES.map((l) => {
+                  const v = m.block2![w][l][k];
+                  return `<td>${cell(k === "median_ms" || k === "p90_ms" ? secs(v as number | null) : v)}</td>`;
+                }).join("")}</tr>`
+            ).join("") +
+            `</table>`
+        )
+        .join("")
+    : unavailable;
+  const b3 = m.block3 ? twoColumn(BLOCK3_LABELS, m.block3.everyone, m.block3.outside) : unavailable;
+  return (
+    `<h2>THE TEST (cards)</h2><p>From ${BLOCK1_SINCE}. Weeks start Monday, New York time, newest first. The primary number is “Receivers who made their own”.</p>${house}${b1}` +
+    `<h2>Quality</h2><p>From ${MEASURE_SINCE}. Sets and times are what reached the screen: picks shown, and the time from the ask to the set. Retries, gave-up and errors are counted on the server and hold no device.</p>${b2}` +
+    `<h2>Use</h2><p>From ${MEASURE_SINCE}. The “Did you watch one of these?” counts hold no device, so “outside the house” shows —.</p>${b3}` +
+    `<p>Device counts before 2026-11-10 are overstated: early browser tests used real-format ids (Session 38).</p>`
+  );
+}
+
 export async function GET(req: Request): Promise<Response> {
   const url = new URL(req.url);
   if (!keyOk(url.searchParams.get("key"))) return notFound();
@@ -331,10 +444,12 @@ export async function GET(req: Request): Promise<Response> {
     watchedReadout(store, since, agentsOnly),
   ]);
 
+  const measure = await measureBlocks(store, agentsOnly);
+
   const headers = { "Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow" };
   if (url.searchParams.get("format") === "json") {
     return Response.json(
-      { ...readout, ...(watched ?? {}), ...(wine ?? {}), ...(goTos ?? {}), ...(voice ?? {}) },
+      { ...readout, ...(watched ?? {}), ...(wine ?? {}), ...(goTos ?? {}), ...(voice ?? {}), measure },
       { headers }
     );
   }
@@ -353,8 +468,8 @@ export async function GET(req: Request): Promise<Response> {
       : "");
   return new Response(
     `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex"><title>Rekomendr test readout</title>
-<style>body{font-family:-apple-system,system-ui,sans-serif;margin:16px;color:#111827}table{border-collapse:collapse;width:100%;max-width:28rem}td{padding:8px 4px;border-bottom:1px solid #e5e7eb;font-size:16px}td:last-child{text-align:right;font-variant-numeric:tabular-nums;font-weight:600}p{color:#4b5563;font-size:14px}</style>
-</head><body><h1 style="font-size:20px">Test readout</h1><p>Since ${since.slice(0, 10)} (UTC). Agent test traffic excluded.</p><table>${rows}</table></body></html>`,
+<style>body{font-family:-apple-system,system-ui,sans-serif;margin:16px;color:#111827}table{border-collapse:collapse;width:100%;max-width:28rem}td,th{padding:8px 4px;border-bottom:1px solid #e5e7eb;font-size:16px}td:last-child{text-align:right;font-variant-numeric:tabular-nums;font-weight:600}table.m td,table.m th{font-size:14px;padding:6px 4px}table.m td+td,table.m th+th{text-align:right;font-variant-numeric:tabular-nums;font-weight:600;white-space:nowrap}table.m th{font-weight:600;color:#4b5563;text-align:left}h2{font-size:18px;margin:28px 0 4px}h3{font-size:15px;margin:16px 0 2px;color:#374151}p{color:#4b5563;font-size:14px}</style>
+</head><body><h1 style="font-size:20px">Test readout</h1><p>Since ${since.slice(0, 10)} (UTC). Agent test traffic excluded.</p><table>${rows}</table>${measureHtml(measure)}</body></html>`,
     { status: 200, headers: { ...headers, "Content-Type": "text/html; charset=utf-8", "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'" } }
   );
 }

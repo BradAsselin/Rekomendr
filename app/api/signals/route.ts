@@ -13,7 +13,17 @@
 // Body: { clientId, kind: "like", category, title, year?, action }
 //    or { clientId, kind: "snap", itemName, itemCategory, action,
 //         flipToMode?, chainDepth?, chainOrigin? }
+//    or { clientId, kind: "measure", event, ... }   (S40, counts only)
+//
+// S40 — "measure" (docs/2026-11-10_measure_launch.md, §0: counts, never
+// content). Every field is an allow-listed word or a bounded number; any
+// other field in the body is ignored, never stored. No titles.
+//   event "search":     origin, category, lane, picks (0-5), ms
+//   event "compare_on": category
+//   event "nudge_asked" | "nudge_poster" | "nudge_not_yet": nothing else;
+//                       the device id is NOT stored for these.
 
+import { measureRow } from "../../../src/lib/measureRow";
 import { runEnvCheck } from "../../../src/lib/envCheck";
 import { capGate } from "../../../src/lib/apiUsage";
 import { cleanClientId, getSnapshotStore } from "../../../src/lib/anchorSnapshots";
@@ -49,9 +59,14 @@ export async function POST(req: Request): Promise<Response> {
   const clientId = cleanClientId(body?.clientId);
   if (!clientId) return bad();
 
-  let table: "user_likes" | "reksnap_signals";
+  let table: "user_likes" | "reksnap_signals" | "measure_events";
   let row: Record<string, unknown>;
-  if (body?.kind === "like") {
+  if (body?.kind === "measure") {
+    const m = measureRow(body, clientId);
+    if (!m) return bad();
+    table = "measure_events";
+    row = m;
+  } else if (body?.kind === "like") {
     const category = text(body.category, 100);
     const title = text(body.title, 300);
     const action = typeof body.action === "string" && LIKE_ACTIONS.has(body.action) ? body.action : null;
@@ -92,9 +107,9 @@ export async function POST(req: Request): Promise<Response> {
   }
   const { error } = await store.from(table).insert(row);
   if (error) {
-    const reason = logDbError(`signals ${body.kind} insert`, error, { action: row.action });
+    const reason = logDbError(`signals ${body.kind} insert`, error, { action: row.action ?? row.kind });
     return Response.json({ ok: false, reason }, { status: 200 });
   }
-  console.info("[signals] ok", { kind: body.kind, action: row.action });
+  console.info("[signals] ok", { kind: body.kind, action: row.action ?? row.kind });
   return Response.json({ ok: true }, { status: 200 });
 }

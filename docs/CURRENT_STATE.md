@@ -2,12 +2,12 @@
 
 One page. Read it at the top of every session, before the session log; update it at the end (charter §3.14). The session log is the history; this page is the present.
 
-**Updated:** 2026-11-10, Session 39.
+**Updated:** 2026-11-10, Session 40.
 
 ## Last session
-- **Session 39** — test-row cleanup + charter part 2 — 2026-11-10 — PR #130, merged as `d5d72b1`; cleanup run by Brad the same day (log entry).
-- Before it: **Session 38** — housekeeping (charter truth-up, lighter log, this page, test-row report) — 2026-11-10 — branch `auto/s38-housekeeping` — PR #128, merged as `13f4cdc`.
-- **Next free session number: 40.**
+- **Session 40** — Measure (Build 2): THE TEST, quality and use blocks on the stats page; "Did you watch one of these?" on home — 2026-11-10 — PR #132. **Migration not yet run:** Brad runs `bash scripts/run-s40-measure.sh` (backup `backups/2026-11-10-1921-s40.sql`), then confirms the two house devices.
+- Before it: **Session 39** — test-row cleanup + charter part 2 — 2026-11-10 — PR #130, merged as `d5d72b1`; cleanup run by Brad the same day (log entry).
+- **Next free session number: 41.**
 
 ## Production
 - `origin/release/v2` contains all of `origin/main` as of 2026-11-01 (promotion PR #127, `f6a42f8`; main was at `0dea5fa`). Sessions 26–37 are live.
@@ -37,6 +37,12 @@ One page. Read it at the top of every session, before the session log; update it
 - Every test client id starts with `anon_agent_`. `/api/stats` and the readout exclude that prefix; any other prefix counts as a real person.
 - Test rows cleaned 2026-11-10 (Session 39): 3,484 rows deleted across 11 tables, backup `backups/2026-11-10-1221-s39.sql`; 0 test-pattern rows left.
 - Real-device counts before 2026-11-10 are overstated: early browser tests (S2 chain, 2026-10-11) used real-format ids and cannot be separated.
+
+## Open items (Session 40)
+- `measure_events` and `house_devices` don't exist until Brad runs `scripts/run-s40-measure.sh`. Until then the counters log `[measure] not recorded`, and Blocks 2–3 say "Unavailable right now".
+- Brad still has to approve or veto the `search` count (origin, category, lane, picks, ms). It is the one new client record beyond the approved Compare to and nudge counts.
+- "Gave up" is a server proxy: a backfill that lands after 90 s. A function killed before it finishes is not counted.
+- Voice searches are timed from the parsed mood, not from the moment the person spoke.
 
 ## Open items (found, not fixed, Sessions 26–37)
 - A wine description can still carry a referent-free comparative mid-sentence ("the bubbles are bigger and firmer"); the backstop catches openers and "than" only (S37).

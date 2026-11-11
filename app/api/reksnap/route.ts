@@ -41,6 +41,7 @@ import { normalizeTitle } from "../../../src/lib/tmdbVerify";
 import { withRekTokens } from "../../../src/lib/rekTokens";
 import { goToCategoryFor } from "../../../src/lib/goToCategory";
 import { dropComparingSentences, dropComparingWineSentences } from "../../../src/lib/standaloneLine";
+import { recordServer } from "../../../src/lib/measure";
 import { parseWithRetry } from "../../../src/lib/parseRetry";
 import {
   bandFor,
@@ -2618,7 +2619,18 @@ async function wineSnap(args: {
 export async function POST(req: Request) {
   return withLlmContext(req, async () => {
     const body = await req.json().catch(() => ({}));
-    if (body?.stream !== "ndjson") return handlePost(req, { body });
+    // S40 — a 5xx answer is counted as a server error shown to the person.
+    const lane = body?.wine && typeof body.wine === "object" ? "wine" : "snap";
+    if (body?.stream !== "ndjson") {
+      try {
+        const res = await handlePost(req, { body });
+        if (res.status >= 500) await recordServer("error", lane);
+        return res;
+      } catch (err) {
+        await recordServer("error", lane);
+        throw err;
+      }
+    }
     const enc = new TextEncoder();
     const pipe = new TransformStream<Uint8Array, Uint8Array>();
     const w = pipe.writable.getWriter();
@@ -2639,6 +2651,7 @@ export async function POST(req: Request) {
         console.error("[reksnap] ndjson handler threw", err);
         res = Response.json({ error: "Server error" }, { status: 500 });
       }
+      if (res.status >= 500) await recordServer("error", lane);
       const json = await res.json().catch(() => null);
       const diag = currentDiag();
       await write({ type: "final", status: res.status, body: json, ...(diag ? { diag } : {}) });

@@ -58,6 +58,8 @@ const R = { ...R0, loadPools: async () => pools, loadGoTos: async (_kind, goTos)
 const writes = [];
 const route = load("app/api/slots/route.ts", {
   "../../../src/lib/envCheck": { runEnvCheck() {} },
+  // S40 — the 5xx counter is a pass-through here.
+  "../../../src/lib/measure": { countErrors: (_lane, h) => h, recordServer: async () => false, CLIENT_ABORT_MS: 90000 },
   "../../../src/lib/llm": { withLlmContext: (_req, fn) => fn() },
   "../../../src/lib/anchorSnapshots": { cleanClientId: (x) => (typeof x === "string" ? x : null) },
   "../../../src/lib/apiUsage": { capGate: async () => null },
