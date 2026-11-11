@@ -28,6 +28,7 @@
 // `unresolved` names the tags TMDb doesn't know by that exact name; the
 // client's gate sends such a mood to the AI search.
 
+import { countErrors } from "../../../src/lib/measure";
 import { runEnvCheck } from "../../../src/lib/envCheck";
 import { capGate } from "../../../src/lib/apiUsage";
 import { cleanClientId, getSnapshotStore } from "../../../src/lib/anchorSnapshots";
@@ -52,7 +53,7 @@ const names = (v: unknown, max = 40): string[] =>
 
 const DB_CATEGORY: Record<string, string> = { Movies: "movies", "TV Shows": "tv", Books: "books", Wine: "wine" };
 
-async function handlePost(req: Request): Promise<Response> {
+async function handlePostUncounted(req: Request): Promise<Response> {
   const body = await req.json().catch(() => ({}));
   const clientId = cleanClientId(body?.clientId);
   const capped = await capGate(clientId, "openai");
@@ -209,3 +210,6 @@ async function handlePost(req: Request): Promise<Response> {
 export async function POST(req: Request) {
   return withLlmContext(req, () => handlePost(req));
 }
+
+// S40 — a 5xx answer is counted as a server error shown to the person.
+const handlePost = countErrors("search", handlePostUncounted);

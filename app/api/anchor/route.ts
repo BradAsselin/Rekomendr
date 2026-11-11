@@ -17,6 +17,7 @@
 //               user. One OpenAI call → the reksnap-text daily cap.
 // Wine-by-name lives in /api/reksnap (it reuses the snap prompt).
 
+import { countErrors } from "../../../src/lib/measure";
 import { runEnvCheck } from "../../../src/lib/envCheck";
 import { withLlmContext } from "../../../src/lib/llm";
 import { signAnchor } from "../../../src/lib/mintToken";
@@ -261,7 +262,7 @@ async function reks(body: any): Promise<Response> {
   );
 }
 
-async function handlePost(req: Request): Promise<Response> {
+async function handlePostUncounted(req: Request): Promise<Response> {
   try {
     const body = await req.json().catch(() => ({}));
     if (body?.action === "resolve") return await resolve(body);
@@ -285,3 +286,6 @@ async function handlePost(req: Request): Promise<Response> {
 export async function POST(req: Request) {
   return withLlmContext(req, () => handlePost(req));
 }
+
+// S40 — a 5xx answer is counted as a server error shown to the person.
+const handlePost = countErrors("search", handlePostUncounted);

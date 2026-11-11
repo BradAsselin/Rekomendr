@@ -15,6 +15,7 @@
 // TMDb's first streaming service), "vs. your <go-to>: …" when a go-to
 // steers, and "Start with this one" on the best match.
 
+import { countErrors } from "../../../src/lib/measure";
 import { runEnvCheck } from "../../../src/lib/envCheck";
 import { withLlmContext } from "../../../src/lib/llm";
 import { cleanClientId } from "../../../src/lib/anchorSnapshots";
@@ -66,7 +67,7 @@ async function loadAllGoTos(goTos: GoToIn[]) {
   return [...movies, ...shows];
 }
 
-async function handlePost(req: Request): Promise<Response> {
+async function handlePostUncounted(req: Request): Promise<Response> {
   const started = Date.now();
   let body: any = null;
   try {
@@ -206,3 +207,6 @@ async function handlePost(req: Request): Promise<Response> {
 export async function POST(req: Request) {
   return withLlmContext(req, () => handlePost(req));
 }
+
+// S40 — a 5xx answer is counted as a server error shown to the person.
+const handlePost = countErrors("snap", handlePostUncounted);
