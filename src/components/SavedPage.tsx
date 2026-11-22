@@ -43,6 +43,7 @@ import {
   type SearchEntry,
 } from "../lib/recentSearches";
 import { usePostersOn } from "../lib/posterPref";
+import { useBarCategory, watchedTabLabel } from "../lib/barCategory";
 
 const OPEN_EVENT = "rekomendr:open-saved-item";
 // S36 — an entry tapped in Recent: the page reopens that set from storage.
@@ -128,6 +129,10 @@ const SavedPage: React.FC = () => {
   // S36 — this device's searches (never sent anywhere).
   const [searches, setSearches] = useState<SearchEntry[]>([]);
   const postersOn = usePostersOn();
+  // S42 — the Watched tile and tab read "Read" while the bar is on Books
+  // (Brad-approved); the list itself is unchanged (every category).
+  const barCategory = useBarCategory();
+  const tabLabel = (t: Tab) => (t === "Watched" ? watchedTabLabel(barCategory) : t);
   // Saved/Watched say "empty" only once a read has actually answered — a
   // list still loading (or a failed read) is not an empty list.
   const [loaded, setLoaded] = useState(false);
@@ -353,7 +358,7 @@ const SavedPage: React.FC = () => {
                 <Icon size={17} strokeWidth={1.8} aria-hidden="true" className={TAB_TINT[t]} />
                 {tabCount[t] > 0 && <span className="text-[12px] text-white/70">{tabCount[t]}</span>}
               </span>
-              <span className="truncate">{t}</span>
+              <span className="truncate">{tabLabel(t)}</span>
             </button>
           );
         })}
@@ -381,7 +386,7 @@ const SavedPage: React.FC = () => {
                     tab === t ? "border-[#3B6BD4] font-semibold text-gray-900" : "border-transparent text-gray-500"
                   }`}
                 >
-                  {t}
+                  {tabLabel(t)}
                   {tabCount[t] > 0 && <span className="text-[13px] font-normal text-gray-400">{tabCount[t]}</span>}
                 </button>
               ))}
@@ -415,7 +420,9 @@ const SavedPage: React.FC = () => {
                 )
               )}
             {tab === "Watched" &&
-              grouped(watched, (w, i) => row(`w${i}${w.title}`, w.category, w.title, w.year, <WatchedButton compact on onToggle={() => void unwatch(w)} />))}
+              grouped(watched, (w, i) =>
+                row(`w${i}${w.title}`, w.category, w.title, w.year, <WatchedButton compact on read={w.category === "Books"} onToggle={() => void unwatch(w)} />)
+              )}
             {tab === "Favorites" &&
               grouped(favorites, (f, i) =>
                 row(

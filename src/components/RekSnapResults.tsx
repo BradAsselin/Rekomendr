@@ -36,7 +36,7 @@ import { useMltCompare, vsLeadFor, type MltSeed } from "./MltCompare";
 import { refPayload, sameRef, wineColorOf, type WineRef } from "../lib/wineCompare";
 import GoToStar from "./GoToStar";
 import { BAR_CATEGORY, goToCategoryFor } from "../lib/goToCategory";
-import { WatchedButton, WatchedToast, UndoToast, type UndoToastLabel } from "./WatchedControl";
+import { WatchedButton, WatchedToast, UndoToast, isReadCategory, type UndoToastLabel } from "./WatchedControl";
 import { useWatchedMarks, watchedCategory, type WatchedItem, TOAST_MS } from "../lib/useWatchedMarks";
 import PosterThumb from "./PosterThumb";
 import { setPostersHidden, usePostersOn } from "../lib/posterPref";
@@ -1995,7 +1995,7 @@ const RekSnapResults: React.FC<Props> = ({
         restore = () => restoreRek(rek, mode, index);
       }
     }
-    showToast("Watched", () => {
+    showToast(isReadCategory(cat) ? "Read" : "Watched", () => {
       dropToast();
       watched.undo(item);
       if (restore) setTimeout(restore, 260);
@@ -2102,6 +2102,7 @@ const RekSnapResults: React.FC<Props> = ({
     return cat ? (
       <WatchedButton
         on={watched.isWatched(name)}
+        read={isReadCategory(cat)}
         onToggle={() => watched.toggle({ title: name, year: year ?? null, category: cat })}
       />
     ) : undefined;
@@ -2113,7 +2114,7 @@ const RekSnapResults: React.FC<Props> = ({
   // tappable line (WatchLine), so its facts line is the commitment only.
   const d2WatchedFor = (name: string, year: number | null | undefined, category?: string, rek?: SnapRek) =>
     watchCatFor(category) ? (
-      <WatchedButton on={watched.isWatched(name)} onToggle={() => d2ToggleWatched(name, year, category, rek)} />
+      <WatchedButton on={watched.isWatched(name)} read={isReadCategory(watchCatFor(category))} onToggle={() => d2ToggleWatched(name, year, category, rek)} />
     ) : undefined;
   const hidePosters = () => {
     setPostersHidden(true);

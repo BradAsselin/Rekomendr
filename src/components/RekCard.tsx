@@ -262,6 +262,13 @@ const RekCard: React.FC<Props> = ({
                 </div>
               </div>
               {factsLine && <div className="mt-0.5 text-[13px] text-gray-600">{factsLine}</div>}
+              {/* S42 — Books' "You liked this in November." (ResultsV4
+                  passes it only for Books; Movies/TV pass none). */}
+              {markerLine && (
+                <div className="mt-0.5 text-[13px] text-gray-600" data-testid="marker-line">
+                  {markerLine}
+                </div>
+              )}
               <p className={`mt-2 text-[15px] leading-relaxed text-gray-900${shortLead ? VS_BAND : ""}`} data-vs-line={shortLead ? "" : undefined}>
                 {shortLead && <span className={VS_LEAD}>{shortLead} </span>}
                 {short}

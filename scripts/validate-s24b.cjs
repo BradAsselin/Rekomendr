@@ -41,7 +41,8 @@ check("tabs Favorites · Watched · Recent · Saved", /const TABS: Tab\[\] = \["
 check("icons ★ ✓ ↺ 🔖", /const TAB_ICON: Record<Tab, LucideIcon> = \{ Favorites: Star, Watched: CircleCheck, Recent: RotateCcw, Saved: Bookmark \};/.test(sp), true);
 check("each button opens the page on its tab", /onClick=\{\(\) => \{\s*setTab\(t\);\s*setOpen\(true\);\s*void reload\(\);\s*\}\}/.test(sp) && /data-testid=\{`topbar-\$\{t\}`\}/.test(sp), true);
 check("each shows its count where it has one", /\{tabCount\[t\] > 0 && <span className="text-\[12px\] text-white\/70">\{tabCount\[t\]\}<\/span>\}/.test(sp), true);
-check("the label is the tab's own word", /<span className="truncate">\{t\}<\/span>\s*<\/button>/.test(sp), true);
+// S42 — the Watched tile reads "Read" while the bar is on Books.
+check("the label is the tab's own word", /<span className="truncate">\{(t|tabLabel\(t\))\}<\/span>\s*<\/button>/.test(sp), true);
 check("the Saved page's posters footer is gone", /role="switch"|Show posters|setPostersHidden/.test(sp), false);
 
 console.log("\n2. The ⋯ menu");
@@ -76,10 +77,10 @@ check("the snap tips are gone from under the pair (S26a)", /SnapTips/.test(strip
 
 console.log("\n5. Watched it pill");
 check("outlined pill, check circle 16", /rounded-full border px-3 py-1/.test(watched) && /<CircleCheck size=\{16\}/.test(watched), true);
-check("reads Watched it, marked reads Watched", /\{on \? "Watched" : "Watched it"\}/.test(watched), true);
+check("reads Watched it, marked reads Watched", /\{on \? "Watched" : "Watched it"\}/.test(watched) || (/WATCHED_WORDS = \{ verb: "Watched it", done: "Watched"/.test(watched) && /: on \? WATCHED_WORDS\.done : WATCHED_WORDS\.verb\}/.test(watched)), true);
 check("marked fills navy", /border-\[#1E3A8A\] bg-\[#1E3A8A\] text-white/.test(watched), true);
 check("S16 behavior unchanged (toggle, pressed, stopPropagation)", (watched.match(/e\.stopPropagation\(\);\s*(\/\/[^\n]*\s*)?onToggle\(\);/g) || []).length >= 1 && /aria-pressed=\{on\}/.test(watched), true);
-check("Saved page rows keep the bare check", /<WatchedButton compact on onToggle=/.test(sp), true);
+check("Saved page rows keep the bare check", /<WatchedButton compact on (read=\{w\.category === "Books"\} )?onToggle=/.test(sp), true);
 
 console.log("\n6. Approved wording only");
 const jsxText = (src) =>

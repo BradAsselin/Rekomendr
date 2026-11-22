@@ -221,7 +221,8 @@ for (const level of ["log", "warn", "info", "error"]) console[level] = () => {};
   const bar = read("src/components/SearchBar.tsx");
   const thumb = read("src/components/PosterThumb.tsx");
   const swipe = read("src/lib/useSwipeToAction.ts");
-  check("D2 is Movies and TV only", /d2 = category === "Movies" \|\| category === "TV Shows"/.test(rv), true);
+  // S42 — Books joined the D2 card (docs/2026-11-22_books_card_launch.md).
+  check("D2 is Movies and TV (S42: and Books)", /d2 = category === "Movies" \|\| category === "TV Shows"/.test(rv) || (/const tmdbLane = category === "Movies" \|\| category === "TV Shows";/.test(rv) && /const d2 = tmdbLane \|\| books;/.test(rv)), true);
   check("posters only rendered while on", /postersOn \?/.test(rv) || /!postersOn/.test(rv), true);
   check("poster: w185, lazy, async, 76×114", [/\/t\/p\/w185/.test(thumb), /loading="lazy"/.test(thumb), /decoding="async"/.test(thumb), /h-\[114px\] w-\[76px\]/.test(thumb)], [true, true, true, true]);
   check("poster ×: 44px target", /h-11 w-11/.test(thumb), true);
@@ -243,7 +244,8 @@ for (const level of ["log", "warn", "info", "error"]) console[level] = () => {};
 
   say("\n6. Wording: the toasts and labels are the approved ones");
   const toast = read("src/components/WatchedControl.tsx");
-  check("toast labels", /UndoToastLabel = "Not for me" \| "Saved" \| "Watched" \| "Posters hidden"/.test(toast), true);
+  // S42 — "Read" for a book (Brad-approved).
+  check("toast labels", /UndoToastLabel = "Not for me" \| "Saved" \| "Watched" \| ("Read" \| )?"Posters hidden"/.test(toast), true);
   check("toast shape: {label} · Undo", /\{label\} ·/.test(toast) || /`\$\{label\} ·/.test(toast), true);
   check("card labels", [/NOT_FOR_ME = "Not for me"/.test(card), /SAVE_FOR_LATER = "Save for later"/.test(card)], [true, true]);
 

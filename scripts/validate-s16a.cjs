@@ -263,7 +263,8 @@ const tick = () => new Promise((r) => setTimeout(r, 0));
     .filter(Boolean);
   check("new JSX text = Watched / Watched · / Undo", Array.from(new Set(jsxText)).sort(), ["Undo", "Watched", "Watched ·"]);
   const control = read("src/components/WatchedControl.tsx");
-  check("aria-label is the approved word", /aria-label="Watched"/.test(control), true);
+  // S42 — the words moved into WATCHED_WORDS (a book reads READ_WORDS).
+  check("aria-label is the approved word", /aria-label="Watched"/.test(control) || /label: "Watched" \} as const;/.test(control) && /aria-label=\{read \? READ_WORDS\.done : WATCHED_WORDS\.label\}/.test(control), true);
 
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);

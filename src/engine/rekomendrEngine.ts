@@ -77,6 +77,9 @@ export interface Rek {
   // card shows a neutral placeholder). AI-search reks get it, and their
   // tmdbId, from the real-title check's match.
   posterPath?: string | null;
+  // S42 — a book card's cover (Open Library's full URL; null = none, the
+  // poster placeholder shows). Unset until the lookup answers.
+  coverUrl?: string | null;
 }
 
 export type Category = "Movies" | "TV Shows" | "Books" | "Wine";

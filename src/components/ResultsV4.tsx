@@ -201,8 +201,12 @@ const ResultsV4: React.FC<ResultsProps> = ({
 
   /* -----------------------------
    * S17 — THE D2 CARD (Movies/TV; docs/s17-mood-first-plan.md)
+   * S42 — Books too (docs/2026-11-22_books_card_launch.md): the cover
+   * from Open Library, the author in the facts line, "Read it".
    * ----------------------------- */
-  const d2 = category === "Movies" || category === "TV Shows";
+  const books = category === "Books";
+  const tmdbLane = category === "Movies" || category === "TV Shows";
+  const d2 = tmdbLane || books;
   const postersOn = usePostersOn();
 
   // One toast for the lane: the newest act replaces the last; ~4 s; a new
@@ -248,7 +252,7 @@ const ResultsV4: React.FC<ResultsProps> = ({
   // lands by id, and a late answer for a replaced set is dropped (epoch).
   const factsAskedRef = useRef(new Set<number>());
   useEffect(() => {
-    if (!d2) return;
+    if (!tmdbLane) return;
     const kind = category === "TV Shows" ? "tv" : "movie";
     const need = [...reks, ...trail].filter(
       (r) => r.tmdbId != null && r.facts === undefined && !factsAskedRef.current.has(r.id)
@@ -289,7 +293,48 @@ const ResultsV4: React.FC<ResultsProps> = ({
         if (Object.keys(learned).length) onFactsRef.current?.(learned);
       })
       .catch(() => console.warn("[facts] request failed — cards keep no line"));
-  }, [d2, category, reks, trail]);
+  }, [tmdbLane, category, reks, trail]);
+
+  // S42 — a book card's cover and author (Open Library, through
+  // /api/covers): the title only goes out (the cards carry no author or
+  // ISBN); the year stays here and only picks between editions. One
+  // batched read per set, landing by id; a replaced set's late answer is
+  // dropped (epoch). A miss keeps the placeholder and no facts line.
+  const coversAskedRef = useRef(new Set<number>());
+  useEffect(() => {
+    if (!books) return;
+    const need = [...reks, ...trail].filter((r) => r.coverUrl === undefined && !coversAskedRef.current.has(r.id)).slice(0, 12);
+    if (need.length === 0) return;
+    need.forEach((r) => coversAskedRef.current.add(r.id));
+    const epoch = frontierEpochRef.current;
+    void fetch("/api/covers", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ items: need.map((r) => ({ title: r.title, year: r.year || null })) }),
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (epoch !== frontierEpochRef.current) return;
+        const by = new Map<string, { coverUrl: string | null; author: string | null }>();
+        for (const c of Array.isArray(data?.covers) ? data.covers : []) {
+          if (typeof c?.title === "string") by.set(c.title, { coverUrl: typeof c.coverUrl === "string" ? c.coverUrl : null, author: typeof c.author === "string" ? c.author : null });
+        }
+        const ids = new Set(need.map((r) => r.id));
+        const fill = (list: Rek[]) => {
+          let changed = false;
+          const next = list.map((r) => {
+            if (!ids.has(r.id) || r.coverUrl !== undefined) return r;
+            const c = by.get(r.title);
+            changed = true;
+            return { ...r, coverUrl: c?.coverUrl ?? null, facts: r.facts ?? (c?.author ? [c.author] : []) };
+          });
+          return changed ? next : list;
+        };
+        setReks(fill);
+        setTrail(fill);
+      })
+      .catch(() => console.warn("[covers] request failed — cards keep the placeholder"));
+  }, [books, reks, trail]);
 
   // Put a dismissed card back where it was (Undo). The frontier may hold
   // six for a moment if its backfill already landed — the existing
@@ -921,7 +966,7 @@ const ResultsV4: React.FC<ResultsProps> = ({
         setExiting(null);
       }, 250);
     }
-    showToast("Watched", () => {
+    showToast(books ? "Read" : "Watched", () => {
       dropToast();
       watched.undo(item);
       if (leaves) setTimeout(() => restoreToFrontier(rek, index), 260);
@@ -929,7 +974,7 @@ const ResultsV4: React.FC<ResultsProps> = ({
   };
   const watchedFor = (rek: Rek, inFrontier = false): React.ReactNode =>
     watchCat ? (
-      <WatchedButton on={watched.isWatched(rek.title)} onToggle={() => toggleWatched(rek, inFrontier)} />
+      <WatchedButton on={watched.isWatched(rek.title)} read={books} onToggle={() => toggleWatched(rek, inFrontier)} />
     ) : undefined;
 
   // S17 — the poster column (or nothing: posters hidden → D1, full-width
@@ -942,7 +987,13 @@ const ResultsV4: React.FC<ResultsProps> = ({
     });
   };
   const posterFor = (rek: Rek): React.ReactNode =>
-    postersOn ? <PosterThumb key={rek.posterPath ?? "none"} path={rek.posterPath} onHide={hidePosters} /> : undefined;
+    postersOn ? (
+      books ? (
+        <PosterThumb key={rek.coverUrl ?? "none"} url={rek.coverUrl} onHide={hidePosters} />
+      ) : (
+        <PosterThumb key={rek.posterPath ?? "none"} path={rek.posterPath} onHide={hidePosters} />
+      )
+    ) : undefined;
   const factsOf = (rek: Rek) => (rek.facts && rek.facts.length > 0 ? rek.facts.join(" · ") : undefined);
 
   return (
@@ -1057,7 +1108,7 @@ const ResultsV4: React.FC<ResultsProps> = ({
                     }
                     title={rek.title}
                     year={rek.year}
-                    markerLine={d2 ? undefined : rek.resurfacedNote ?? rek.screenNote}
+                    markerLine={d2 ? (books ? rek.resurfacedNote : undefined) : rek.resurfacedNote ?? rek.screenNote}
                     layout={d2 ? "d2" : "classic"}
                     poster={d2 ? posterFor(rek) : undefined}
                     factsLine={d2 ? factsOf(rek) : undefined}
@@ -1127,7 +1178,7 @@ const ResultsV4: React.FC<ResultsProps> = ({
                    on the D2 card (it lived beside the Shortlist strip, which
                    is gone); the slot itself still runs. A screen set's
                    "Start with this one" stays — it's that set's answer. */
-                markerLine={d2 ? rek.screenNote : rek.resurfacedNote ?? rek.screenNote}
+                markerLine={d2 ? (books ? rek.resurfacedNote : undefined) : rek.resurfacedNote ?? rek.screenNote}
                 short={view(rek).short}
                 long={rek.long}
                 watchedSlot={watchedFor(rek, true)}
