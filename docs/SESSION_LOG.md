@@ -758,3 +758,13 @@ _(Session 41 merged as `3baa0bc`, PR #136, after the preview check: `pw-s41-get-
 
 **§0 check: consistent.** Book cards now read and act like the rest; the lookup carries a book's title and nothing about the person.
 
+## Session 42b — S41 migration run by Brad — 2026-11-22 — branch auto/s42b-migration-done
+- _(Session 42 merged as `9016b34`, PR #137.)_
+- Brad ran `scripts/run-s41-get-app-counts.sh` on backup `backups/2026-11-22-1659-s41.sql` (722,195 bytes, footer present). Every line matched EXPECTED:
+  - Block 1: '1'.
+  - Block 2: BEGIN, three ALTER TABLEs, COMMIT.
+  - Block 3: `measure_events_getapp_no_device` and `measure_events_kind_check`, client grants 0, RLS on.
+  - Block 4: positive controls 1 and 2 both true; five PASS (unknown kind, get-app row with a device id, card-open row with a device id, nudge row with a device id, anon INSERT); ROLLBACK.
+- No live write through `/api/signals` was made to prove the path. These rows hold no device id, so a test row could not be told apart from a real one in the stats. Positive control 1 covers the write.
+- No app change.
+
