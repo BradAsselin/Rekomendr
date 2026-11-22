@@ -29,10 +29,11 @@ import QuietTip from "./QuietTip";
 import WineFacts from "./WineFacts";
 import WineTopCard, { firstSentence } from "./WineTopCard";
 import WineCompareSheet from "./WineCompareSheet";
+import { fromLabel } from "../lib/cardShare";
 import { CompareHeader } from "./CompareSheet";
 import { sendMeasure } from "../lib/measureClient";
 import { useMltCompare, vsLeadFor, type MltSeed } from "./MltCompare";
-import { refPayload, sameRef, type WineRef } from "../lib/wineCompare";
+import { refPayload, sameRef, wineColorOf, type WineRef } from "../lib/wineCompare";
 import GoToStar from "./GoToStar";
 import { BAR_CATEGORY, goToCategoryFor } from "../lib/goToCategory";
 import { WatchedButton, WatchedToast, UndoToast, type UndoToastLabel } from "./WatchedControl";
@@ -114,6 +115,9 @@ export type SnapResult = {
   // S4b — client-only: the anchor arrived already saved (a shared card the
   // person tapped Save on). The Save mark starts lit.
   saved?: boolean;
+  // S41 — a shared card opened in the app: the name it was sent under (or
+  // null). The anchor is labeled "From [Name]".
+  from?: string | null;
   // S36 — client-only: a set reopened from Recent carries the card facts
   // and posters it had, so nothing is asked again.
   facts?: Record<string, { facts: string[]; posterPath: string | null }>;
@@ -198,6 +202,8 @@ type Props = {
   // and the cards learned their facts and posters (Recent keeps those too).
   onChainSet?: (chainedName: string, set: SnapResult, seed: MltSeed | null) => void;
   onFacts?: (facts: Record<string, { facts: string[]; posterPath: string | null }>) => void;
+  // S41 — one quiet line under the picks (the page decides when).
+  after?: React.ReactNode;
 };
 
 // S18b — the D2 card is Movies/TV's (books and wine keep theirs).
@@ -258,6 +264,7 @@ const RekSnapResults: React.FC<Props> = ({
   mltWine = false,
   onChainSet,
   onFacts,
+  after,
 }) => {
   const mltWineRef = useRef(mltWine);
   mltWineRef.current = mltWine;
@@ -2405,6 +2412,7 @@ const RekSnapResults: React.FC<Props> = ({
             the client twin of the server-side 403 in /api/reksnap. */}
         <RekCard
           accent
+          fromLine={result.from ? fromLabel(result.from) : undefined}
           layout={d2 ? "d2" : undefined}
           poster={d2 ? posterFor(result.detected_item.name) : undefined}
           factsLine={d2 ? factsLineFor(result.detected_item.name, true) : undefined}
@@ -2951,6 +2959,8 @@ const RekSnapResults: React.FC<Props> = ({
         </div>
       </div>
 
+      {after && <div className="mt-4 w-full max-w-xl">{after}</div>}
+
       {!limitReached && (
         <button
           onClick={() => onSnapAgain?.()}
@@ -2965,6 +2975,7 @@ const RekSnapResults: React.FC<Props> = ({
           shelf={wineMeta?.shelfSnap ? wineMeta.shelf : null}
           applied={wineRefs}
           tasteFor={tasteFor}
+          color={wineColorOf(result.detected_item.name, result.detected_item.category, result.detected_item.description)}
           onClose={() => setWineSheetOpen(false)}
           onDone={(next) => {
             const key = (l: WineRef[]) => l.map((r) => r.name.trim().toLowerCase()).join("|");

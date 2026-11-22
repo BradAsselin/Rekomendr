@@ -57,6 +57,9 @@ export async function POST(req: Request): Promise<Response> {
         category: card.item_category,
       },
       ...(token ? { detected_item_token: token } : {}),
+      // S41 — who sent it (the name on the card, or null): the app labels
+      // the anchor "From [Name]".
+      from: card.sender_name ?? null,
       mode: "similar",
       results: { similar: [], uses: [], alternatives: [] },
       ...(media?.kind && media.id

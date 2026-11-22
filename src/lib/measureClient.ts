@@ -6,6 +6,7 @@
 //   search      — origin, category, lane, picks shown (0-5), ms to the set
 //   compare_on  — category
 //   nudge_*     — nothing but the event
+//   getapp_* / install_* / home_ask_* / card_open_app (S41) — the same
 // Fire-and-forget; a failed send is one console line, never a UI change.
 
 import { getAnonymousClientId } from "./clientId";
@@ -14,11 +15,22 @@ import type { SearchKind } from "./recentSearches";
 export type MeasureCategory = "movies" | "tv" | "books" | "wine" | "other";
 export type MeasureLane = "search" | "snap" | "wine";
 export type NudgeEvent = "nudge_asked" | "nudge_poster" | "nudge_not_yet";
+// S41 — Get the app: counts only, nothing but the event (no device stored).
+export type GetAppEvent =
+  | "getapp_open"
+  | "install_accepted"
+  | "install_dismissed"
+  | "getapp_got_it"
+  | "home_ask_shown"
+  | "home_ask_how"
+  | "home_ask_x"
+  | "card_open_app";
 
 export type MeasureBody =
   | { event: "search"; origin: SearchKind; category: MeasureCategory; lane: MeasureLane; picks: number; ms: number }
   | { event: "compare_on"; category: MeasureCategory }
-  | { event: NudgeEvent };
+  | { event: NudgeEvent }
+  | { event: GetAppEvent };
 
 export function measureCategory(raw: unknown): MeasureCategory {
   const c = typeof raw === "string" ? raw.trim().toLowerCase() : "";
