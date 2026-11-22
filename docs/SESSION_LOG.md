@@ -768,3 +768,27 @@ _(Session 41 merged as `3baa0bc`, PR #136, after the preview check: `pw-s41-get-
 - No live write through `/api/signals` was made to prove the path. These rows hold no device id, so a test row could not be told apart from a real one in the stats. Positive control 1 covers the write.
 - No app change.
 
+
+## Session 43 — Book follow-ups — 2026-11-22 — branch auto/s43-book-followups
+- _(Brad approved as built: the Safari 26, older-Safari and Android steps; the in-app browser line with Copy link / Link copied; the stats labels; the bare author name; no page count.)_
+
+### WHAT CHANGED
+1. **Empty Read list.** In Books, the empty Read tab says "Nothing marked read yet." Other categories keep "Nothing marked watched yet."
+2. **Share on book cards.** Typed book cards (frontier and trail) get Share.
+   - The shared text is the card's own description line (`baseShort`, never a "vs." line).
+   - `/api/anchor` action `book-card` signs it only if Open Library has a book with that exact (normalized) title; otherwise `not_found`, and no card. Then `/api/save` and the `/api/share` flip as for every card (moderation on name and text, fails closed; 30 mints and 20 flips a day).
+   - The card page (`/a/<id>`) and its link image show the Open Library cover and the author. They are looked up once by title and stored on the row (`poster_path` = the cover URL, `providers` = `{ book: { author } }`), like a movie's poster. The card's text columns are never written (§2.13). CSP allows `https://covers.openlibrary.org`.
+   - The lookup sends the title only.
+3. **Snapped books use the typed-book card.** D2 now covers Movies, TV and Books in the snap lane. Snapped books ask `/api/covers` (title and year) instead of TMDb's facts. Server marks follow the anchor's kind: a book anchor reads Books rows, a movie or show anchor reads Movies/TV rows, so a saved film never lights a same-named book.
+4. **"You liked this in …" on Movies/TV.** Every D2 card in the search lane passes its resurfaced note.
+
+### THE SHARE TRADE-OFF (Ledger #19 amendment, for Brad)
+- Movies/TV cards sign TMDb's synopsis, which the server fetched. The search lane's book line is written in the browser's request, so the server cannot prove it wrote it.
+- Guards instead: the book must exist on Open Library under that title; the text passes moderation at the flip (fails closed); the existing mint and flip caps hold. A person could still share a made-up but clean line about a real book.
+
+### TESTS
+- New `validate-s43-book-followups` 24/24 and `pw-s43-books` 12/12.
+- `pw-s42-books` 20/20, `pw-s41-get-app` 26/26, `pw-s31-mlt` 36/36, `pw-s36-recent` 40/40, `pw-s26a-home` 41/41, `pw-s26b-shelf` 45/45.
+- All 65 validator suites, tsc, lint and build pass. s15-screen, s18b, s18c, s42-books, s4a and s7 were updated where they pinned the old behavior.
+
+**§0 check: consistent.** Books now share and read like the rest; the cover lookup carries a title and nothing about the person.

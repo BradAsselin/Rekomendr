@@ -206,11 +206,20 @@ type Props = {
   after?: React.ReactNode;
 };
 
-// S18b — the D2 card is Movies/TV's (books and wine keep theirs).
+// S18b — the D2 card is Movies/TV's (wine keeps its own).
+// S43 — books too (Brad, 2026-11-22): a snapped book's cards match a typed
+// book's — the Open Library cover and author instead of TMDb's facts.
 const isD2Category = (raw: unknown) => {
   const c = goToCategoryFor(raw);
-  return c === "movies" || c === "tv";
+  return c === "movies" || c === "tv" || c === "books";
 };
+const isBookCategory = (raw: unknown) => goToCategoryFor(raw) === "books";
+// The server's marks that may light a D2 card: a book anchor's cards read
+// Books rows, a movie/show anchor's read Movies/TV rows — a saved book
+// "Dune" never lights the film "Dune".
+const MEDIA_MARKS = new Set(["Movies", "TV Shows"]);
+const BOOK_MARKS = new Set(["Books"]);
+const marksFor = (anchorCategory: unknown) => (isBookCategory(anchorCategory) ? BOOK_MARKS : MEDIA_MARKS);
 
 // S32 — "+ More like this" on a Movies/TV/Books card under a snapped or
 // typed title: the chained card becomes the More like this seed (S31's
@@ -467,7 +476,7 @@ const RekSnapResults: React.FC<Props> = ({
 
   // Commitment + where and the poster, by name (snap cards carry no TMDb
   // id; /api/facts matches them with the title check's own lookup).
-  const [cardFacts, setCardFacts] = useState<Record<string, { facts: string[]; posterPath: string | null }>>({});
+  const [cardFacts, setCardFacts] = useState<Record<string, { facts: string[]; posterPath: string | null; coverUrl?: string | null }>>({});
   const factsAskedRef = useRef(new Set<string>());
   // The like-table writes in flight, by "action|name": an Undo waits for
   // its write before deleting (the search lane's rule).
@@ -627,10 +636,16 @@ const RekSnapResults: React.FC<Props> = ({
     const anchorCat = forResult.detected_item.category;
     const kindOf = (c?: string) => (goToCategoryFor(c ?? anchorCat) === "tv" ? "tv" : "movie");
     const ask: Record<string, unknown>[] = [];
-    const add = (name: string, body: Record<string, unknown>) => {
+    // S43 — books ask Open Library (/api/covers: the title only goes out).
+    const bookAsk: { title: string; year: number | null }[] = [];
+    const add = (name: string, body: Record<string, unknown>, category?: string) => {
       const k = markKey(name);
       if (factsAskedRef.current.has(k)) return;
       factsAskedRef.current.add(k);
+      if (isBookCategory(category ?? anchorCat)) {
+        bookAsk.push({ title: name, year: typeof body.year === "number" ? body.year : null });
+        return;
+      }
       ask.push(body);
     };
     const anchorName = forResult.detected_item.name;
@@ -638,7 +653,8 @@ const RekSnapResults: React.FC<Props> = ({
       anchorName,
       forResult.media
         ? { kind: forResult.media.kind, id: forResult.media.id }
-        : { kind: kindOf(), title: anchorName, year: forResult.detected_item.year ?? undefined }
+        : { kind: kindOf(), title: anchorName, year: forResult.detected_item.year ?? undefined },
+      forResult.media ? "Movies" : anchorCat
     );
     const shown = [
       ...(lists?.similar ?? []),
@@ -648,7 +664,29 @@ const RekSnapResults: React.FC<Props> = ({
     ];
     for (const r of shown) {
       if (!isD2Category(r.category ?? anchorCat)) continue;
-      add(r.name, { kind: kindOf(r.category), title: r.name, year: r.year ?? undefined });
+      add(r.name, { kind: kindOf(r.category), title: r.name, year: r.year ?? undefined }, r.category ?? anchorCat);
+    }
+    for (let i = 0; i < bookAsk.length; i += 12) {
+      void fetch("/api/covers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ items: bookAsk.slice(i, i + 12) }),
+      })
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => {
+          if (resultRef.current !== forResult) return;
+          const next: Record<string, { facts: string[]; posterPath: string | null; coverUrl: string | null }> = {};
+          for (const c of Array.isArray(data?.covers) ? data.covers : []) {
+            if (typeof c?.title !== "string") continue;
+            next[markKey(c.title)] = {
+              facts: typeof c.author === "string" && c.author ? [c.author] : [],
+              posterPath: null,
+              coverUrl: typeof c.coverUrl === "string" ? c.coverUrl : null,
+            };
+          }
+          if (Object.keys(next).length > 0) setCardFacts((p) => ({ ...p, ...next }));
+        })
+        .catch(() => console.warn("[covers] request failed — cards keep the placeholder"));
     }
     for (let i = 0; i < ask.length; i += 12) {
       void fetch("/api/facts", {
@@ -685,7 +723,7 @@ const RekSnapResults: React.FC<Props> = ({
   // Newest first (the Saved page's order); the prompt list stays bounded.
   serverWatchedRef.current = d2
     ? serverMarks.watched
-        .filter((x) => x.category === "Movies" || x.category === "TV Shows")
+        .filter((x) => marksFor(result?.detected_item.category).has(x.category))
         .slice(0, 60)
         .map((x) => x.title)
     : [];
@@ -693,7 +731,7 @@ const RekSnapResults: React.FC<Props> = ({
   useEffect(() => {
     if (!d2 || !result || !serverMarks.ready) return;
     const media = (l: { category: string; title: string }[]) =>
-      new Set(l.filter((x) => x.category === "Movies" || x.category === "TV Shows").map((x) => markKey(x.title)));
+      new Set(l.filter((x) => marksFor(result.detected_item.category).has(x.category)).map((x) => markKey(x.title)));
     const savedKeys = media(serverMarks.saved);
     const watchedKeys = media(serverMarks.watched);
     const names = [
@@ -2126,7 +2164,11 @@ const RekSnapResults: React.FC<Props> = ({
   const factsFor = (name: string) => cardFacts[markKey(name)];
   const posterFor = (name: string): React.ReactNode =>
     postersOn ? (
-      <PosterThumb key={factsFor(name)?.posterPath ?? "none"} path={factsFor(name)?.posterPath} onHide={hidePosters} />
+      factsFor(name)?.coverUrl ? (
+        <PosterThumb key={factsFor(name)?.coverUrl ?? "none"} url={factsFor(name)?.coverUrl} onHide={hidePosters} />
+      ) : (
+        <PosterThumb key={factsFor(name)?.posterPath ?? "none"} path={factsFor(name)?.posterPath} onHide={hidePosters} />
+      )
     ) : undefined;
   const factsLineFor = (name: string, isAnchor = false) => {
     const all = factsFor(name)?.facts ?? [];

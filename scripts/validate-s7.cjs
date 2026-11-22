@@ -204,7 +204,10 @@ const cardReq = (over = {}) =>
   const r4 = fs.readFileSync(path.join(ROOT, "src/components/ResultsV4.tsx"), "utf8");
   check("frontier AND trail search cards carry Share", (r4.match(/shareSlot=\{shareFor\(rek\)\}/g) || []).length, 2);
   check("Movies and TV Shows lanes only", r4.includes('category === "Movies" || category === "TV Shows" ? category : null'), true);
-  check("the card is minted via TMDb, never from rek.short", [r4.includes("tmdbCardSnapshot("), /getSnapshot=[\s\S]{0,200}rek\.short/.test(r4)], [true, false]);
+  // S43 — Brad: book cards share their own line (bookCardSnapshot, a real Open Library book, moderated at the flip);
+  // movies and TV still mint TMDb's synopsis, never rek.short.
+  const mediaShare = r4.slice(r4.indexOf(") : shareLane ? ("), r4.indexOf("// S12 — the go-to star"));
+  check("the card is minted via TMDb, never from rek.short", [r4.includes("tmdbCardSnapshot("), /getSnapshot=[\s\S]{0,200}rek\.short/.test(mediaShare)], [true, false]);
   const route = fs.readFileSync(path.join(ROOT, "app/api/anchor/route.ts"), "utf8");
   check("the server signs TMDb's overview, nothing from the request body", /signAnchor\(\{ name: hit\.title, category, short, long: null, clientId \}\)/.test(route), true);
 

@@ -33,6 +33,7 @@ import { MEDIA_CATEGORIES } from "../../../src/lib/categoryGates";
 import { posterUrl, type WatchInfo } from "../../../src/lib/tmdbMedia";
 // S4 — live where-to-watch (12h refresh, stored fallback), poster, trailer.
 import { cardMediaWithin, type CardMediaView } from "../../../src/lib/cardMedia";
+import { bookMediaWithin, type BookView } from "../../../src/lib/bookCard";
 import {
   firstSentence,
   loadPublicSnapshot,
@@ -76,6 +77,7 @@ main{max-width:36rem;margin:0 auto;padding:16px 16px 56px}
 .card{background:#fff;border:3px solid #1E3A8A;border-radius:16px;padding:18px;box-shadow:0 10px 15px -3px rgba(0,0,0,.2)}
 .cat{font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:#2D5AB5;margin-bottom:4px}
 .pick{font-size:14px;font-weight:600;color:#2D5AB5;margin-bottom:4px}
+.by{font-size:14px;color:#4b5563;margin:2px 0 6px}
 h1{font-size:20px;font-weight:600;line-height:1.25;margin:0}
 h1 a{color:inherit;text-decoration:none}
 p{font-size:16px;line-height:1.625;font-weight:400;color:#111827;margin:0 0 8px}
@@ -133,7 +135,7 @@ function htmlResponse(html: string, status: number): Response {
       // S4: one same-origin script (/card.js — opens and taps for the test
       // readout) and TMDb's poster host. Still no inline script at all.
       "Content-Security-Policy":
-        "default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'unsafe-inline'; img-src 'self' https://image.tmdb.org; manifest-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+        "default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'unsafe-inline'; img-src 'self' https://image.tmdb.org https://covers.openlibrary.org; manifest-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
       "X-Robots-Tag": "noindex, nofollow",
       "Referrer-Policy": "no-referrer",
       // Shares are immutable except for revocation, which must take hold:
@@ -167,7 +169,7 @@ function primaryAction(watch: WatchInfo | null): { href: string; label: string }
   return null;
 }
 
-function cardPage(row: SnapshotRow, origin: string, media: CardMediaView | null): Response {
+function cardPage(row: SnapshotRow, origin: string, media: CardMediaView | null, book: BookView | null = null): Response {
   const name = row.item_name;
   const category = row.item_category.trim().toLowerCase();
   const isMedia = MEDIA_CATEGORIES.has(category);
@@ -177,7 +179,8 @@ function cardPage(row: SnapshotRow, origin: string, media: CardMediaView | null)
   const title = sender ? `${name} · from ${sender}` : `${name} — Rekomendr`;
   const description = firstSentence(row.short_description);
   const pageUrl = `${origin}/a/${row.id}`;
-  const poster = isMedia ? media?.posterPath ?? row.poster_path ?? null : null;
+  // S43 — a book: its Open Library cover (looked up once, stored).
+  const poster = isMedia ? media?.posterPath ?? row.poster_path ?? null : book?.coverUrl ?? null;
   const imageUrl = `${origin}${ogImagePath(row.id, sender, poster)}`;
 
   const head = [
@@ -226,7 +229,7 @@ function cardPage(row: SnapshotRow, origin: string, media: CardMediaView | null)
     );
   }
 
-  const posterSrc = posterUrl(poster, "w342");
+  const posterSrc = book ? book.coverUrl : posterUrl(poster, "w342");
   const heading = isMedia
     ? `<h1>${link(googleSearch(name), esc(name))}</h1>`
     : `<h1>${esc(name)}</h1>`;
@@ -259,8 +262,10 @@ function cardPage(row: SnapshotRow, origin: string, media: CardMediaView | null)
   const body =
     `<article class="card">` +
     `<div class="top">` +
-    (posterSrc ? `<img class="poster" src="${esc(posterSrc)}" alt="" width="92" height="138">` : "") +
-    `<div class="tt">${label}${heading}${save}</div>` +
+    (posterSrc
+      ? `<img class="poster" src="${esc(posterSrc)}" alt="" width="92" height="138"${book ? ` referrerpolicy="no-referrer"` : ""}>`
+      : "") +
+    `<div class="tt">${label}${heading}${book?.author ? `<div class="by">${esc(book.author)}</div>` : ""}${save}</div>` +
     `</div>` +
     `<div class="actions">${actions}</div>` +
     (isMedia && !media?.watch && media?.availability
@@ -317,6 +322,6 @@ export async function GET(
 ): Promise<Response> {
   const row = await loadPublicSnapshot(params.id);
   if (!row) return notFoundPage();
-  const media = await cardMediaWithin(row, MEDIA_BUDGET_MS);
-  return cardPage(row, originOf(req), media);
+  const [media, book] = await Promise.all([cardMediaWithin(row, MEDIA_BUDGET_MS), bookMediaWithin(row, MEDIA_BUDGET_MS)]);
+  return cardPage(row, originOf(req), media, book);
 }

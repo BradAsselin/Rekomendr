@@ -262,8 +262,7 @@ const RekCard: React.FC<Props> = ({
                 </div>
               </div>
               {factsLine && <div className="mt-0.5 text-[13px] text-gray-600">{factsLine}</div>}
-              {/* S42 — Books' "You liked this in November." (ResultsV4
-                  passes it only for Books; Movies/TV pass none). */}
+              {/* S42 — "You liked this in November." S43: Movies/TV too. */}
               {markerLine && (
                 <div className="mt-0.5 text-[13px] text-gray-600" data-testid="marker-line">
                   {markerLine}

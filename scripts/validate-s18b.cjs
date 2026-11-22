@@ -87,7 +87,8 @@ for (const level of ["log", "warn", "info", "error"]) console[level] = () => {};
 
   say("\n3. The snap lane");
   const rs = read("src/components/RekSnapResults.tsx");
-  check("D2 only for Movies/TV (never health)", /const isD2Category = \(raw: unknown\) => \{\s*const c = goToCategoryFor\(raw\);\s*return c === "movies" \|\| c === "tv";/.test(rs) && /!isHealthMedical\(/.test(rs.slice(rs.indexOf("const d2 ="), rs.indexOf("const d2 =") + 300)), true);
+  // S43 — Brad: snapped books use the D2 card too.
+  check("D2 only for Movies/TV (S43: and Books; never health)", /const isD2Category = \(raw: unknown\) => \{\s*const c = goToCategoryFor\(raw\);\s*return c === "movies" \|\| c === "tv"( \|\| c === "books")?;/.test(rs) && /!isHealthMedical\(/.test(rs.slice(rs.indexOf("const d2 ="), rs.indexOf("const d2 =") + 300)), true);
   check("all three card sites use the D2 layout", (rs.match(/layout=\{d2 \? "d2" : undefined\}/g) || []).length, 3);
   check("the anchor is never dismissed (no ×)", /noDismiss=\{d2\}/.test(rs), true);
   check("saves write user_likes (the Saved page) beside the snap signal", /writeLike\(name, category, year, "save"\)/.test(rs) && /recordLike\(\{ category: cat, title: name/.test(rs), true);
@@ -96,7 +97,8 @@ for (const level of ["log", "warn", "info", "error"]) console[level] = () => {};
   check("swipe left = Not for me, right = Save for later; no old swipe", /onSwipeLeft=\{d2 \? \(\) => d2NotForMe\(rek\) : undefined\}/.test(rs) && /onSwipeRight=\{d2 \? \(\) => d2Save\(rek\.name, rek\.category, rek\.year\) : undefined\}/.test(rs) && /swipeable=\{!d2\}/.test(rs), true);
   check("Watched on a frontier card fades out + backfills, Undo restores", /leaveFrontier\(rek, mode\)/.test(rs) && /restore = \(\) => restoreRek\(rek, mode, index\)/.test(rs), true);
   check("server marks seed saved + watched, never over a tap this snap", /filter\(\(n\) => !touchedRef\.current\.has\(markKey\(n\)\)\)/.test(rs) && /seedWatched\(names\.filter/.test(rs), true);
-  check("only Movies/TV rows seed (a same-named book doesn't)", /x\.category === "Movies" \|\| x\.category === "TV Shows"/.test(rs), true);
+  // S43 — marks follow the anchor's kind: a book anchor reads Books rows, a movie/show anchor Movies/TV rows.
+  check("only Movies/TV rows seed (a same-named book doesn't)", /x\.category === "Movies" \|\| x\.category === "TV Shows"/.test(rs) || (/const MEDIA_MARKS = new Set\(\["Movies", "TV Shows"\]\);/.test(rs) && /const marksFor = \(anchorCategory: unknown\) => \(isBookCategory\(anchorCategory\) \? BOOK_MARKS : MEDIA_MARKS\);/.test(rs) && /marksFor\(result\.detected_item\.category\)\.has\(x\.category\)/.test(rs)), true);
   check("facts by title, by id for a TMDb anchor; late answers for an old anchor drop", /\{ kind: forResult\.media\.kind, id: forResult\.media\.id \}/.test(rs) && /if \(resultRef\.current !== forResult\) return;\s*const next/.test(rs), true);
   check("anchor's facts line skips where (its WatchLine has the links)", /isAnchor && result\.media\?\.watch \? all\.filter\(\(f\) => !\/\^on \/\.test\(f\)\)/.test(rs), true);
   check("one Undo toast on D2", /d2 \? \(\s*<UndoToast/.test(rs), true);

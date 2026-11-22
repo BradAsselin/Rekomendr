@@ -22,7 +22,8 @@ const rs = read("src/components/RekSnapResults.tsx");
 say("\n1. The lane remembers what was watched");
 check("a watch adds the title, an un-watch removes it", /if \(on\) watchedNamesRef\.current\.add\(item\.title\);\s*else watchedNamesRef\.current\.delete\(item\.title\);\s*onWatchedChange\?\.\(item, on\);/.test(rs), true);
 check("a new snap starts clean", /touchedRef\.current = new Set\(\);\s*watchedNamesRef\.current = new Set\(\);/.test(rs), true);
-check("server-known watches: Movies/TV only, newest 60", /serverMarks\.watched\s*\.filter\(\(x\) => x\.category === "Movies" \|\| x\.category === "TV Shows"\)\s*\.slice\(0, 60\)/.test(rs), true);
+// S43 — the anchor's kind: Movies/TV rows for a movie/show anchor, Books rows for a book anchor.
+check("server-known watches: Movies/TV only (S43: Books for a book anchor), newest 60", /serverMarks\.watched\s*\.filter\(\(x\) => (x\.category === "Movies" \|\| x\.category === "TV Shows"|marksFor\(result\?\.detected_item\.category\)\.has\(x\.category\))\)\s*\.slice\(0, 60\)/.test(rs), true);
 check("only on D2 (books/wine unchanged)", /serverWatchedRef\.current = d2\s*\?/.test(rs), true);
 
 say("\n2. Both requests carry them");

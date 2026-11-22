@@ -92,6 +92,9 @@ const EMPTY: Partial<Record<Tab, string>> = {
   Favorites: "No favorites yet. Tap ☆ on a card you love.",
 };
 
+// S43 — the empty Read list in Books (Brad-approved, 2026-11-22).
+const EMPTY_READ = "Nothing marked read yet.";
+
 // S30 — the one hint at the top of every list (Brad-approved, 2026-10-31).
 const LIST_HINT = "Tap any title for more like it, or to share it.";
 
@@ -399,7 +402,7 @@ const SavedPage: React.FC = () => {
           <div className="mx-auto w-full max-w-xl flex-1 overflow-y-auto overscroll-contain px-4 pb-6">
             {tabCount[tab] === 0 && (tab === "Favorites" || loaded) && EMPTY[tab] && (
               <p data-testid="saved-empty" className="pt-8 text-center text-[15px] leading-relaxed text-gray-500">
-                {EMPTY[tab]}
+                {tab === "Watched" && barCategory === "Books" ? EMPTY_READ : EMPTY[tab]}
               </p>
             )}
             {tabCount[tab] > 0 && (
