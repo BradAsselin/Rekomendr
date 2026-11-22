@@ -5,8 +5,8 @@ One page. Read it at the top of every session, before the session log; update it
 **Updated:** 2026-11-22, Session 42.
 
 ## Last session
-- **Session 42** — Books get the Movies/TV card: Open Library covers, author line, ☆ · Save · ×, "Read it" / "Read", the Watched tile reads Read in Books — 2026-11-22 — PR (see log).
-- **Session 41** — Get the app: shared card header, the home-screen sheet, Open Rekomendr lands in the app, the home ask, wine Compare to by color — 2026-11-22 — PR #136, merged as `3baa0bc`. **Migration pending Brad** (eight count kinds; backup `backups/2026-11-22-1659-s41.sql`; `! S41_BACKUP=backups/2026-11-22-1659-s41.sql bash scripts/run-s41-get-app-counts.sh`). Until it runs, the new counts are refused and logged; nothing changes for the person.
+- **Session 42** — Books get the Movies/TV card: Open Library covers, author line, ☆ · Save · ×, "Read it" / "Read", the Watched tile reads Read in Books — 2026-11-22 — PR #137, merged as `9016b34`.
+- **Session 41** — Get the app: shared card header, the home-screen sheet, Open Rekomendr lands in the app, the home ask, wine Compare to by color — 2026-11-22 — PR #136, merged as `3baa0bc`. Migration run by Brad 2026-11-22 (backup `backups/2026-11-22-1659-s41.sql`): eight count kinds live, every block as expected (S42b).
 - Before them: **Session 40** — Measure (Build 2) — 2026-11-10 — PR #132, `f5c0ee1`; migration run by Brad.
 - **Next free session number: 43.**
 
@@ -41,7 +41,7 @@ One page. Read it at the top of every session, before the session log; update it
 - Real-device counts before 2026-11-10 are overstated: early browser tests (S2 chain, 2026-10-11) used real-format ids and cannot be separated.
 
 ## Open items (Sessions 41–42)
-- S41 migration pending Brad (above). The iOS 27 Safari steps are verified against Apple's guide, not on a real iPhone.
+- S41 migration done (S42b). The iOS 27 Safari steps are verified against Apple's guide, not on a real iPhone.
 - D2 cards (Movies/TV) never draw their marker line, so a screen set's "Start with this one" and "You liked this in …" don't show on Movies/TV (found S42, not fixed; Books now shows its line).
 - Book cards have no Share: the search lane's share signs TMDb's synopsis, and books have no signed source yet (a minting decision, ledger #18/#19).
 - Snap-lane book cards (a snapped book's picks) keep the older card; the wording ("Read it") is updated there.
