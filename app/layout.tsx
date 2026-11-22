@@ -2,6 +2,7 @@
 import "./globals.css";
 import HomeWordmark from "../src/components/HomeWordmark";
 import InstallButton from "../src/components/InstallButton";
+import GetAppHost from "../src/components/GetAppHost";
 import MoreMenu from "../src/components/MoreMenu";
 import SavedPage from "../src/components/SavedPage";
 
@@ -109,6 +110,7 @@ export default function RootLayout({
         <StatusBarShield />
         <TopBar />
         {children}
+        <GetAppHost />
       </body>
     </html>
   );

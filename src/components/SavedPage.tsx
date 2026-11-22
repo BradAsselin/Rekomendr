@@ -43,6 +43,7 @@ import {
   type SearchEntry,
 } from "../lib/recentSearches";
 import { usePostersOn } from "../lib/posterPref";
+import { useBarCategory, watchedTabLabel } from "../lib/barCategory";
 
 const OPEN_EVENT = "rekomendr:open-saved-item";
 // S36 — an entry tapped in Recent: the page reopens that set from storage.
@@ -91,6 +92,9 @@ const EMPTY: Partial<Record<Tab, string>> = {
   Favorites: "No favorites yet. Tap ☆ on a card you love.",
 };
 
+// S43 — the empty Read list in Books (Brad-approved, 2026-11-22).
+const EMPTY_READ = "Nothing marked read yet.";
+
 // S30 — the one hint at the top of every list (Brad-approved, 2026-10-31).
 const LIST_HINT = "Tap any title for more like it, or to share it.";
 
@@ -128,6 +132,10 @@ const SavedPage: React.FC = () => {
   // S36 — this device's searches (never sent anywhere).
   const [searches, setSearches] = useState<SearchEntry[]>([]);
   const postersOn = usePostersOn();
+  // S42 — the Watched tile and tab read "Read" while the bar is on Books
+  // (Brad-approved); the list itself is unchanged (every category).
+  const barCategory = useBarCategory();
+  const tabLabel = (t: Tab) => (t === "Watched" ? watchedTabLabel(barCategory) : t);
   // Saved/Watched say "empty" only once a read has actually answered — a
   // list still loading (or a failed read) is not an empty list.
   const [loaded, setLoaded] = useState(false);
@@ -353,7 +361,7 @@ const SavedPage: React.FC = () => {
                 <Icon size={17} strokeWidth={1.8} aria-hidden="true" className={TAB_TINT[t]} />
                 {tabCount[t] > 0 && <span className="text-[12px] text-white/70">{tabCount[t]}</span>}
               </span>
-              <span className="truncate">{t}</span>
+              <span className="truncate">{tabLabel(t)}</span>
             </button>
           );
         })}
@@ -381,7 +389,7 @@ const SavedPage: React.FC = () => {
                     tab === t ? "border-[#3B6BD4] font-semibold text-gray-900" : "border-transparent text-gray-500"
                   }`}
                 >
-                  {t}
+                  {tabLabel(t)}
                   {tabCount[t] > 0 && <span className="text-[13px] font-normal text-gray-400">{tabCount[t]}</span>}
                 </button>
               ))}
@@ -394,7 +402,7 @@ const SavedPage: React.FC = () => {
           <div className="mx-auto w-full max-w-xl flex-1 overflow-y-auto overscroll-contain px-4 pb-6">
             {tabCount[tab] === 0 && (tab === "Favorites" || loaded) && EMPTY[tab] && (
               <p data-testid="saved-empty" className="pt-8 text-center text-[15px] leading-relaxed text-gray-500">
-                {EMPTY[tab]}
+                {tab === "Watched" && barCategory === "Books" ? EMPTY_READ : EMPTY[tab]}
               </p>
             )}
             {tabCount[tab] > 0 && (
@@ -415,7 +423,9 @@ const SavedPage: React.FC = () => {
                 )
               )}
             {tab === "Watched" &&
-              grouped(watched, (w, i) => row(`w${i}${w.title}`, w.category, w.title, w.year, <WatchedButton compact on onToggle={() => void unwatch(w)} />))}
+              grouped(watched, (w, i) =>
+                row(`w${i}${w.title}`, w.category, w.title, w.year, <WatchedButton compact on read={w.category === "Books"} onToggle={() => void unwatch(w)} />)
+              )}
             {tab === "Favorites" &&
               grouped(favorites, (f, i) =>
                 row(

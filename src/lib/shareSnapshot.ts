@@ -131,3 +131,31 @@ export async function tmdbCardSnapshot(
     post,
   });
 }
+
+// S43 — a search-lane book card: the server checks the title is a real
+// book (Open Library) and signs the card's own description line; the
+// share flip moderates it (fails closed). The cover and author are looked
+// up once by the card page and stored on the row (src/lib/bookCard.ts).
+export async function bookCardSnapshot(
+  rek: { title: string; year?: number | null; short: string },
+  clientId: string,
+  post: PostJson
+): Promise<MintOutcome> {
+  const data = await post("/api/anchor", {
+    action: "book-card",
+    title: rek.title,
+    year: rek.year ?? null,
+    short: rek.short,
+    clientId,
+  }).catch(() => null);
+  const token = asToken(data?.token);
+  const item = data?.item;
+  if (!data?.ok || !token || typeof item?.name !== "string" || typeof item?.category !== "string" || typeof item?.short !== "string") {
+    return { id: null, reason: typeof data?.reason === "string" ? data.reason : "unreachable" };
+  }
+  return snapshotForShare({
+    item: { name: item.name, category: item.category, short: item.short, token, mode: "similar" },
+    clientId,
+    post,
+  });
+}

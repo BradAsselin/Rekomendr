@@ -28,3 +28,13 @@ export function ogImagePath(id: string, sender: string | null, poster: string | 
 export function pickLabel(sender: string): string {
   return `${sender}’s pick`;
 }
+
+// S41 — the card page's header line (Brad's wording): "Brad sent you a pick".
+export function sentLabel(sender: string): string {
+  return `${sender} sent you a pick`;
+}
+
+// S41 — the label over a card opened in the app (Brad's wording).
+export function fromLabel(sender: string): string {
+  return `From ${sender}`;
+}

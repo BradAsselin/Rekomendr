@@ -22,6 +22,7 @@ import {
 } from "../../../../src/lib/anchorSnapshots";
 import { cardMediaWithin } from "../../../../src/lib/cardMedia";
 import { posterUrl } from "../../../../src/lib/tmdbMedia";
+import { bookMediaWithin, isOpenLibraryCover, largeCover } from "../../../../src/lib/bookCard";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -43,7 +44,8 @@ const clamp = (text: string, max: number) =>
 // host can never hang or break the render (satori would otherwise fetch it
 // itself, unbounded).
 async function posterDataUrl(path: string | null): Promise<string | null> {
-  const url = posterUrl(path, "w500");
+  // S43 — a book's cover is a full Open Library URL (the large size here).
+  const url = isOpenLibraryCover(path) ? largeCover(path as string) : posterUrl(path, "w500");
   if (!url) return null;
   try {
     const res = await fetch(url, { signal: AbortSignal.timeout(POSTER_BUDGET_MS), cache: "no-store" });
@@ -64,7 +66,9 @@ export async function GET(
 ): Promise<Response> {
   const row = await loadPublicSnapshot(params.id);
   const media = row ? await cardMediaWithin(row, MEDIA_BUDGET_MS) : null;
-  const poster = row ? await posterDataUrl(media?.posterPath ?? row.poster_path ?? null) : null;
+  const book = row ? await bookMediaWithin(row, MEDIA_BUDGET_MS) : null;
+  const posterRef = book ? book.coverUrl : media?.posterPath ?? row?.poster_path ?? null;
+  const poster = row ? await posterDataUrl(posterRef) : null;
 
   const name = row ? clamp(stripControl(row.item_name), 80) : "Rekomendr";
   const category = row ? stripControl(row.item_category).toUpperCase() : "";
@@ -164,7 +168,7 @@ export async function GET(
   // shared a moment later isn't stuck behind a year-long generic image.
   // A card whose poster exists but didn't download in time is cached
   // briefly too, so the art arrives on the next fetch.
-  const posterMissed = !!(media?.posterPath ?? row?.poster_path) && !poster;
+  const posterMissed = !!posterRef && !poster;
   image.headers.set(
     "Cache-Control",
     row && !posterMissed ? "public, max-age=31536000, immutable" : "public, max-age=300"

@@ -8,6 +8,19 @@ const MEASURE_ORIGINS = new Set(["voice", "typed", "chips", "snap", "mlt"]);
 const MEASURE_CATEGORIES = new Set(["movies", "tv", "books", "wine", "other"]);
 const MEASURE_LANES = new Set(["search", "snap", "wine"]);
 const NUDGE_EVENTS = new Set(["nudge_asked", "nudge_poster", "nudge_not_yet"]);
+// S41 — Get the app (docs/2026-11-22_get_the_app_launch.md, item 5): the
+// count only, like the nudge. No device id is stored for any of these.
+export const GET_APP_EVENTS = [
+  "getapp_open",
+  "install_accepted",
+  "install_dismissed",
+  "getapp_got_it",
+  "home_ask_shown",
+  "home_ask_how",
+  "home_ask_x",
+  "card_open_app",
+] as const;
+const COUNT_ONLY_EVENTS = new Set<string>([...Array.from(NUDGE_EVENTS), ...GET_APP_EVENTS]);
 const oneOf = (set: Set<string>, v: unknown): string | null => (typeof v === "string" && set.has(v) ? v : null);
 const intIn = (v: unknown, lo: number, hi: number): number | null =>
   typeof v === "number" && Number.isInteger(v) && v >= lo && v <= hi ? v : null;
@@ -27,7 +40,7 @@ export function measureRow(body: any, clientId: string): Record<string, unknown>
     const category = oneOf(MEASURE_CATEGORIES, body.category);
     return category ? { kind: "compare_on", category, client_id: clientId } : null;
   }
-  if (typeof event === "string" && NUDGE_EVENTS.has(event)) return { kind: event };
+  if (typeof event === "string" && COUNT_ONLY_EVENTS.has(event)) return { kind: event };
   return null;
 }
 

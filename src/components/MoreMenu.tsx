@@ -8,11 +8,13 @@
 // No new words: every label is an existing or approved one.
 
 import React, { useEffect, useRef, useState } from "react";
-import { Image as ImageIcon, ImageOff, MoreHorizontal, Share2 } from "lucide-react";
+import { Image as ImageIcon, ImageOff, MoreHorizontal, Share2, SquarePlus } from "lucide-react";
 
 import AuthControl, { useAuthEmail } from "./AuthControl";
 import { shareOrCopy } from "../lib/shareLink";
 import { setPostersHidden, usePostersOn } from "../lib/posterPref";
+import { openGetApp } from "../lib/getApp";
+import { isStandalone } from "../lib/installPrompt";
 
 const SHARE_URL = "https://rekomendr.ai";
 const SHARE_TEXT =
@@ -27,6 +29,9 @@ export default function MoreMenu({ attribution }: { attribution: React.ReactNode
   const rootRef = useRef<HTMLDivElement>(null);
   const userEmail = useAuthEmail();
   const postersOn = usePostersOn();
+  // S41 — "Add to Home Screen" opens Get the app; hidden when installed.
+  const [installed, setInstalled] = useState(true);
+  useEffect(() => setInstalled(isStandalone()), []);
 
   useEffect(() => {
     return () => {
@@ -93,6 +98,21 @@ export default function MoreMenu({ attribution }: { attribution: React.ReactNode
             <Share2 size={18} className="text-gray-500" aria-hidden="true" />
             Share
           </button>
+          {!installed && (
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setOpen(false);
+                void openGetApp();
+              }}
+              data-testid="menu-add-home"
+              className={ITEM}
+            >
+              <SquarePlus size={18} className="text-gray-500" aria-hidden="true" />
+              Add to Home Screen
+            </button>
+          )}
           <button
             type="button"
             role="menuitem"

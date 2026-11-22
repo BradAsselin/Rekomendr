@@ -10,9 +10,11 @@
 import React, { useState } from "react";
 import { X } from "lucide-react";
 
-const PosterThumb: React.FC<{ path: string | null | undefined; onHide: () => void }> = ({ path, onHide }) => {
+// S42 — a book's cover comes as a full URL (`url`, Open Library's medium
+// size), same box, same placeholder; its request carries no referrer.
+const PosterThumb: React.FC<{ path?: string | null; url?: string | null; onHide: () => void }> = ({ path, url, onHide }) => {
   const [failed, setFailed] = useState(false);
-  const src = path && !failed ? `https://image.tmdb.org/t/p/w185${path}` : null;
+  const src = failed ? null : url ? url : path ? `https://image.tmdb.org/t/p/w185${path}` : null;
   return (
     <div className="relative h-[114px] w-[76px] shrink-0">
       <div className="h-full w-full overflow-hidden rounded-lg bg-gray-200">
@@ -26,6 +28,7 @@ const PosterThumb: React.FC<{ path: string | null | undefined; onHide: () => voi
           loading="lazy"
           decoding="async"
           data-poster
+          referrerPolicy={url ? "no-referrer" : undefined}
           onError={() => setFailed(true)}
           className="h-full w-full object-cover"
         />

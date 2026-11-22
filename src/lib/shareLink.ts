@@ -70,3 +70,17 @@ export async function shareOrCopy(args: {
   // 4) Nothing can copy — the caller shows the URL for a manual copy
   return "manual";
 }
+
+// S41 — copy only (the Get the app sheet's "Copy link"): the same
+// clipboard → legacy cascade, with no share sheet in front of it.
+export async function copyText(text: string): Promise<boolean> {
+  if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      // fall through to legacy copy
+    }
+  }
+  return legacyCopy(text);
+}

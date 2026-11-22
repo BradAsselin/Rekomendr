@@ -674,3 +674,121 @@ From now on every test client id starts with `anon_agent_` (in CURRENT_STATE.md)
 
 **§0 check: consistent.** No app change.
 
+## Session 41 — Get the app (shared card → home screen) + wine Compare to by color — 2026-11-22 — branch auto/s41-get-the-app
+**Brief:** `docs/2026-11-22_get_the_app_launch.md` (boards H1–H4). Brad approved the wording listed in the doc. Merge when green.
+
+### SHIPPED
+- **Shared card page (H1):** the "Rekomendr" title bar is replaced by a header: the Rekomendr.AI logo, "[Name] sent you a pick", **Open Rekomendr** and **Get the app**, and "Free · no App Store needed · find more like this one". Save reads **Save it for later**. "Snap your own →" is now **Find more like this →** and goes where Open Rekomendr goes. In standalone mode Get the app and its line are hidden and Open Rekomendr fills the row. The snapshot text, og tags and the one same-origin script are unchanged (checked byte for byte against main's page and against production for two real cards).
+- **Get the app (H2):** one sheet, written once (`src/lib/getAppSheet.ts`) and shown both on the card page (`public/card.js`) and in the app (`GetAppHost.tsx`). Android uses Chrome's stored install prompt when there is one. Never shown when installed.
+- **Open Rekomendr (H3):** the card opens on top with **From [Name]**, its star and save, and its picks below as a More like this set: Compare to [Title] ☐ for movies and TV, standalone lines, and a Recent entry "More like [Title]". A wine card opens as the wine anchor (typed-bottle path), so Compare to starts checked. In the browser, after the picks: "Like it? Put Rekomendr on your home screen." with Get the app and ×.
+- **Home (H4):** "Put Rekomendr on your home screen" with How and ×, in the nudge line's place. It shows in the browser only, after the first search that showed results. After × or Got it it waits 14 days; after three dismissals it never returns (device only). "Did you watch one of these?" wins. **Add to Home Screen** is in the ⋯ menu (hidden when installed).
+- **Home-screen icon:** opens home, never the card. The per-save manifest now carries only the claim (`/?claim=…`). The app adopts the saving browser's id and lands on home. The card page links the static manifest (start_url "/"). The S4b coach that popped up after a Save is retired.
+- **Icon:** the 192/512 icons were marked "any maskable" but the ring runs to the edge, so Android would clip it. They are now "any", with padded maskable copies. Name ("Rekomendr") and splash color (#2D5AB5) checked; unchanged.
+- **Counts:** eight count-only kinds (getapp_open, install_accepted, install_dismissed, getapp_got_it, home_ask_shown, home_ask_how, home_ask_x, card_open_app) through `/api/signals` kind "measure". Each stores its kind only, no device id. They show in the stats page's Use block. Home-screen launches stay counted as before.
+- **Wine Compare to by color:** same color as the result first, the rest under "Other styles", on every tab. Color comes from the label's words (grape, style, region); an unknown bottle stays in the first group. Nothing is blocked.
+
+### iOS SAFARI STEPS AS BUILT, AND HOW THEY WERE VERIFIED
+- Safari 27+ (Brad's screenshot layout): 1. Tap the menu ≡ at the bottom of Safari. 2. Tap Share. 3. Tap Add to Home Screen, then Add. The arrow points bottom-left.
+- Safari 26: the same steps, starting with ⋯ at the bottom right.
+- Older Safari: Share at the bottom → Add to Home Screen → Add.
+- Chosen by Safari's own version in the user agent (`Version/27`); an unreadable version gets the newest steps.
+- Verified against Apple's iPhone User Guide ("Open as Web App": page menu → Share → Add to Home Screen → Add; Open as Web App is on by default) and reports on iOS 27's compact bar (the bottom-right button now opens tabs; Share moved during the betas). **Not verified on a real iPhone**: Brad's check, step 2.
+
+### MIGRATION — BLOCKED, Brad runs it
+- Backup taken: **`backups/2026-11-22-1659-s41.sql`** (722,195 bytes, dump-complete footer, 53 tables).
+- The permission check blocked the DDL, as in S39/S40. Nothing was changed.
+- **BRAD MUST:** `! S41_BACKUP=backups/2026-11-22-1659-s41.sql bash scripts/run-s41-get-app-counts.sh` (widens `measure_events_kind_check`; adds a no-device check for the new kinds; Block 4 ends in ROLLBACK). Compare the output with the EXPECTED lines in `docs/sql/2026-11-22_s41-get-app-counts.sql`.
+- Until then the new counts are refused by the table and logged (`[signals] … insert`); nothing changes for the person.
+
+### YOUR CALL (not in the approved list)
+- The sheet's other variants: Safari 26 (⋯ at the bottom right), older Safari (Share at the bottom), Android menu steps ("Tap the menu ⋮ at the top of Chrome", "Add to Home screen", "Install").
+- In another app's browser: "Open this page in Safari first, then tap Get the app." (Chrome on Android), "Copy link" → "Link copied".
+- People who moved Safari's tabs to Top or Bottom see Share directly; the steps assume the default compact bar.
+- Stats page labels for the eight counts.
+
+### TESTS
+- New `validate-s41-get-app` 80/80; new `pw-s41-get-app` 37/37 at 390×844 and 375×667 (a real movie card and a real wine card, read only).
+- `pw-s40-watch-ask` 25/25, `pw-s29-home-square` 53/53.
+- All 63 validator suites, tsc, lint and build pass. s4b and s24b updated where they pinned what this build changes (icon opens the card, "Snap your own →", the after-Save coach, menu and home words).
+
+**§0 check: consistent.** The ask is quiet, appears at most once every 14 days, stops for good after three no's, and never shows to someone who already has the app. Counts hold no device and no content. The card's text is untouched.
+
+_(Session 41 merged as `3baa0bc`, PR #136, after the preview check: `pw-s41-get-app` 37/37 on the preview; a live wine card opened in the app, `pw-s41-wine-live` 4/4.)_
+
+## Session 42 — Books get the Movies/TV card, with "Read it" — 2026-11-22 — branch auto/s42-books-card
+**Brief:** `docs/2026-11-22_books_card_launch.md`. Brad approved "Read it", "Read", "Mark as read" and the tile reading "Read" in Books. Merge when green.
+
+### SHIPPED
+- **The card:** Books results use the D2 card (`ResultsV4`, `layout="d2"`), the same component Movies/TV use. Cover on the left (the poster's box, 76×114, same radius; Show/Hide posters applies), title and year, the author in the facts line, the description, Show details, + More like this, Read it bottom left. Swipe left = Not for me, right = Save, each with Undo, as on Movies/TV.
+- **Top right:** ☆ · Save · ×, no thumbs.
+- **Tag line ("Mystery · Cozy"): dropped.** Movies/TV D2 cards have none.
+- **"You liked this in November."** stays on Books cards. The D2 card now draws its marker line, and only Books passes one.
+- **Covers:** Open Library (free, no key, no account), through `/api/covers` (`src/lib/openLibrary.ts`). It looks up the ISBN cover first, then searches by title plus author. Only the title (author and ISBN when known) leave the server: no cookies, no client id, a generic User-Agent. The year only picks between same-titled editions, on our server. Cached in memory (hits 30 days, misses 1 day) and through Next's fetch cache. An outage isn't remembered. A miss shows the poster placeholder. Covers load with no referrer.
+- **Read it:** the pill reads Read it, then Read; the screen-reader label is "Mark as read"; the toast is "Read · Undo". It is the same Watched mark (`/api/signals/watched`, category Books).
+- **Lists:** the top-bar tile and the sheet's tab read Read while the bar is on Books (`src/lib/barCategory.ts`, this visit only), Watched otherwise. The count and the list are unchanged. Book rows in the list are labeled Read. Compare to's Watched tab reads Read in Books.
+- **Snap lane:** book cards there say Read it / Read too (they keep their older card).
+- "Did you watch one of these?" stays Movies/TV (unchanged).
+
+### COVER HIT RATE (live Open Library, 20 books, title + year only)
+- **19/20 covers, 19/20 authors**, 166–1,960 ms each, uncached.
+- The miss, *A Man Called Ove*, is correct: Open Library's records of that book have no cover, and the only covered results are "Summary of…" knockoffs, which the matcher refuses.
+- Books tried: The Thursday Murder Club, Magpie Murders, The Maid, Arsenic and Adobo, Murder at the Vicarage, The No. 1 Ladies' Detective Agency, A Man Called Ove, Project Hail Mary, The House in the Cerulean Sea, Gone Girl, The Silent Patient, Tomorrow, and Tomorrow, and Tomorrow, Lessons in Chemistry, The Seven Husbands of Evelyn Hugo, Where the Crawdads Sing, Legends & Lattes, The Cuckoo's Calling, Dial A for Aunties, The Guest List, Death on the Nile.
+
+### HOW THE OLD THUMBS MAP
+- **Thumbs down → ×.** Both write `dislike` and dismiss with a backfill; × adds Undo (the row is removed again).
+- **Thumbs up → Save (bookmark).** Thumbs up wrote `like` and moved the card to the trail; Save writes `save` and does the same. Both count as a past like for "You liked this in …" and steering (`LIKE_ACTIONS`: like, save, more_like_this). ☆ (go-to) is the stronger mark.
+- **`like` is no longer written from book cards**, the same as Movies/TV since S17.
+- **Save → Save.** Unchanged, except that un-saving now removes the row (the D2 rule).
+
+### FOUND, NOT FIXED
+- D2 cards (Movies/TV) never drew their marker line, so "Start with this one" on a screen set and "You liked this in …" haven't shown on Movies/TV since S17. Left as is so Movies/TV stay unchanged.
+- **No Share on book cards.** The doc lists Share, but the search lane's Share signs TMDb's synopsis and books have no signed source. Signing Open Library text, or the line itself, is a minting decision (ledger #18/#19) for Brad.
+- Snap-lane book cards (a snapped book's picks) keep the older card with thumbs; only their wording changed.
+- The empty Watched list still says "Nothing marked watched yet." under a Read tab in Books (no approved wording for it).
+
+### YOUR CALL
+- The author line: the bare name ("Anthony Horowitz"), with no "by".
+- The facts line has no page count or series.
+- Books keep "You liked this in …" while Movies/TV don't show it (above).
+
+### TESTS
+- New `validate-s42-books` 33/33 and `pw-s42-books` 20/20.
+- `pw-s31-mlt` 36/36 (Movies, Books, Wine), `pw-s29-home-square` 53/53, `pw-s40-watch-ask` 25/25, `pw-s36-recent` 40/40, `pw-s30-list-hints` 35/35, `pw-s33-reroll` 10/10, `pw-s26b-shelf` 45/45, `pw-s41-get-app` 36/36.
+- All 64 validator suites, tsc, lint and build pass. s15, s16a, s17b and s24b were updated where they pinned "D2 = Movies/TV only" and the Watched wording.
+
+**§0 check: consistent.** Book cards now read and act like the rest; the lookup carries a book's title and nothing about the person.
+
+## Session 42b — S41 migration run by Brad — 2026-11-22 — branch auto/s42b-migration-done
+- _(Session 42 merged as `9016b34`, PR #137.)_
+- Brad ran `scripts/run-s41-get-app-counts.sh` on backup `backups/2026-11-22-1659-s41.sql` (722,195 bytes, footer present). Every line matched EXPECTED:
+  - Block 1: '1'.
+  - Block 2: BEGIN, three ALTER TABLEs, COMMIT.
+  - Block 3: `measure_events_getapp_no_device` and `measure_events_kind_check`, client grants 0, RLS on.
+  - Block 4: positive controls 1 and 2 both true; five PASS (unknown kind, get-app row with a device id, card-open row with a device id, nudge row with a device id, anon INSERT); ROLLBACK.
+- No live write through `/api/signals` was made to prove the path. These rows hold no device id, so a test row could not be told apart from a real one in the stats. Positive control 1 covers the write.
+- No app change.
+
+
+## Session 43 — Book follow-ups — 2026-11-22 — branch auto/s43-book-followups
+- _(Brad approved as built: the Safari 26, older-Safari and Android steps; the in-app browser line with Copy link / Link copied; the stats labels; the bare author name; no page count.)_
+
+### WHAT CHANGED
+1. **Empty Read list.** In Books, the empty Read tab says "Nothing marked read yet." Other categories keep "Nothing marked watched yet."
+2. **Share on book cards.** Typed book cards (frontier and trail) get Share.
+   - The shared text is the card's own description line (`baseShort`, never a "vs." line).
+   - `/api/anchor` action `book-card` signs it only if Open Library has a book with that exact (normalized) title; otherwise `not_found`, and no card. Then `/api/save` and the `/api/share` flip as for every card (moderation on name and text, fails closed; 30 mints and 20 flips a day).
+   - The card page (`/a/<id>`) and its link image show the Open Library cover and the author. They are looked up once by title and stored on the row (`poster_path` = the cover URL, `providers` = `{ book: { author } }`), like a movie's poster. The card's text columns are never written (§2.13). CSP allows `https://covers.openlibrary.org`.
+   - The lookup sends the title only.
+3. **Snapped books use the typed-book card.** D2 now covers Movies, TV and Books in the snap lane. Snapped books ask `/api/covers` (title and year) instead of TMDb's facts. Server marks follow the anchor's kind: a book anchor reads Books rows, a movie or show anchor reads Movies/TV rows, so a saved film never lights a same-named book.
+4. **"You liked this in …" on Movies/TV.** Every D2 card in the search lane passes its resurfaced note.
+
+### THE SHARE TRADE-OFF (Ledger #19 amendment, for Brad)
+- Movies/TV cards sign TMDb's synopsis, which the server fetched. The search lane's book line is written in the browser's request, so the server cannot prove it wrote it.
+- Guards instead: the book must exist on Open Library under that title; the text passes moderation at the flip (fails closed); the existing mint and flip caps hold. A person could still share a made-up but clean line about a real book.
+
+### TESTS
+- New `validate-s43-book-followups` 24/24 and `pw-s43-books` 12/12.
+- `pw-s42-books` 20/20, `pw-s41-get-app` 26/26, `pw-s31-mlt` 36/36, `pw-s36-recent` 40/40, `pw-s26a-home` 41/41, `pw-s26b-shelf` 45/45.
+- All 65 validator suites, tsc, lint and build pass. s15-screen, s18b, s18c, s42-books, s4a and s7 were updated where they pinned the old behavior.
+
+**§0 check: consistent.** Books now share and read like the rest; the cover lookup carries a title and nothing about the person.

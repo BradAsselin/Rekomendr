@@ -230,7 +230,28 @@ export type Block3Week = {
   asked: number | null;
   asked_poster: number | null;
   asked_not_yet: number | null;
+  // S41 — Get the app (counts only; no device, so no outside view).
+  getapp_open: number | null;
+  install_accepted: number | null;
+  install_dismissed: number | null;
+  getapp_got_it: number | null;
+  home_ask_shown: number | null;
+  home_ask_how: number | null;
+  home_ask_x: number | null;
+  card_open_app: number | null;
 };
+
+// S41 — the Get the app counts, each its own measure kind.
+const GET_APP_KINDS = [
+  "getapp_open",
+  "install_accepted",
+  "install_dismissed",
+  "getapp_got_it",
+  "home_ask_shown",
+  "home_ask_how",
+  "home_ask_x",
+  "card_open_app",
+] as const;
 
 export const BLOCK3_LABELS: [keyof Block3Week, string][] = [
   ["active_devices", "Active devices (any search or snap)"],
@@ -250,6 +271,14 @@ export const BLOCK3_LABELS: [keyof Block3Week, string][] = [
   ["asked", "“Did you watch one of these?” asked"],
   ["asked_poster", "…answered with a poster"],
   ["asked_not_yet", "…answered “Not yet”"],
+  ["card_open_app", "Open Rekomendr tapped on a shared card"],
+  ["getapp_open", "Get the app opened"],
+  ["install_accepted", "…Android install prompt accepted"],
+  ["install_dismissed", "…Android install prompt dismissed"],
+  ["getapp_got_it", "…“Got it” on the steps"],
+  ["home_ask_shown", "Home ask shown (“Put Rekomendr on your home screen”)"],
+  ["home_ask_how", "…“How” tapped"],
+  ["home_ask_x", "…× tapped"],
 ];
 
 // Routes that are a search or a snap (api_usage), for active devices.
@@ -272,6 +301,9 @@ export function computeBlock3(
       active_devices: 0, searches: 0, by_voice: 0, by_typed: 0, by_chips: 0, by_snap: 0, by_mlt: 0,
       cat_movies: 0, cat_tv: 0, cat_books: 0, cat_wine: 0, cat_other: 0, compare_on: 0, compare_on_devices: 0,
       asked: outside ? null : 0, asked_poster: outside ? null : 0, asked_not_yet: outside ? null : 0,
+      getapp_open: outside ? null : 0, install_accepted: outside ? null : 0, install_dismissed: outside ? null : 0,
+      getapp_got_it: outside ? null : 0, home_ask_shown: outside ? null : 0, home_ask_how: outside ? null : 0,
+      home_ask_x: outside ? null : 0, card_open_app: outside ? null : 0,
     };
     active[w] = new Set();
     compareDevs[w] = new Set();
@@ -301,6 +333,7 @@ export function computeBlock3(
     } else if (!outside && r.kind === "nudge_asked") W.asked!++;
     else if (!outside && r.kind === "nudge_poster") W.asked_poster!++;
     else if (!outside && r.kind === "nudge_not_yet") W.asked_not_yet!++;
+    else if (!outside && (GET_APP_KINDS as readonly string[]).includes(r.kind)) (W[r.kind as (typeof GET_APP_KINDS)[number]] as number)++;
   }
   for (const w of Object.keys(out)) {
     out[w].active_devices = active[w].size;

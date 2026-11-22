@@ -17,7 +17,7 @@ import { Circle, CircleCheck } from "lucide-react";
 import { fetchSavedLists } from "../lib/userPrefs";
 import { getRecent } from "../lib/recent";
 import { getWineFavorite } from "../lib/wineVisit";
-import { MAX_WINE_REFS, sameRef, shelfPriceLine, shelfRows, type WineRef, type WineRefSource } from "../lib/wineCompare";
+import { MAX_WINE_REFS, OTHER_STYLES, sameRef, shelfPriceLine, shelfRows, sortByColor, type WineColor, type WineRef, type WineRefSource } from "../lib/wineCompare";
 import type { ShelfBottle } from "../lib/wineShelf";
 
 type Tab = "This shelf" | "Favorites" | "Recent" | "Saved";
@@ -37,7 +37,9 @@ const WineCompareSheet: React.FC<{
   tasteFor: (name: string) => { dry: number | null; body: number | null } | null;
   onClose: () => void;
   onDone: (refs: WineRef[]) => void;
-}> = ({ shelf, applied, tasteFor, onClose, onDone }) => {
+  // S41 — the result's color: same-color bottles first, then "Other styles".
+  color?: WineColor | null;
+}> = ({ shelf, applied, tasteFor, onClose, onDone, color = null }) => {
   const shelfList = useMemo(() => shelfRows(shelf), [shelf]);
   const [picked, setPicked] = useState<WineRef[]>(applied);
   const [saved, setSaved] = useState<WineRef[] | null>(null);
@@ -74,8 +76,11 @@ const WineCompareSheet: React.FC<{
     };
   }, [lists]);
 
-  const rows: WineRef[] =
+  const tabRows: WineRef[] =
     tab === "This shelf" ? lists.shelf : tab === "Favorites" ? lists.favorites : tab === "Recent" ? lists.recent : (saved ?? []);
+  const grouped = sortByColor(tabRows, color);
+  const rows: WineRef[] = [...grouped.first, ...grouped.other];
+  const otherAt = grouped.other.length ? grouped.first.length : -1;
 
   // While the sheet is up the page under it doesn't scroll; Escape closes.
   const panelRef = useRef<HTMLDivElement>(null);
@@ -153,7 +158,13 @@ const WineCompareSheet: React.FC<{
             const full = !on && picked.length >= MAX_WINE_REFS;
             const price = r.priceSource === "tag" ? shelfPriceLine(r) : null;
             return (
-              <li key={`${tab}|${i}|${r.name}`}>
+              <React.Fragment key={`${tab}|${i}|${r.name}`}>
+              {i === otherAt && (
+                <li className="pb-1 pt-4 text-[12px] font-semibold uppercase tracking-wide text-gray-500" data-testid="compare-other-styles">
+                  {OTHER_STYLES}
+                </li>
+              )}
+              <li>
                 <button
                   type="button"
                   role="checkbox"
@@ -174,6 +185,7 @@ const WineCompareSheet: React.FC<{
                   )}
                 </button>
               </li>
+              </React.Fragment>
             );
           })}
         </ul>

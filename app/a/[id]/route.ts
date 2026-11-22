@@ -21,18 +21,28 @@
 // the same 404 page. Every stored string is HTML-escaped. The only script
 // is the same-origin /card.js (S4: opens and taps for the test readout);
 // the CSP forbids inline script outright.
+//
+// S41 (docs/2026-11-22_get_the_app_launch.md, board H1) — the page AROUND
+// the card changed: the header carries the logo, who sent it, and two
+// buttons, Open Rekomendr and Get the app; Save reads "Save it for later";
+// the last line is "Find more like this →". The snapshot text is printed
+// exactly as before (§2.13). The page links the static manifest, so an
+// icon added from here opens the app's home ("/"), never this card.
 
 import { MEDIA_CATEGORIES } from "../../../src/lib/categoryGates";
 import { posterUrl, type WatchInfo } from "../../../src/lib/tmdbMedia";
 // S4 — live where-to-watch (12h refresh, stored fallback), poster, trailer.
 import { cardMediaWithin, type CardMediaView } from "../../../src/lib/cardMedia";
+import { bookMediaWithin, type BookView } from "../../../src/lib/bookCard";
 import {
   firstSentence,
   loadPublicSnapshot,
   stripControl,
   type SnapshotRow,
 } from "../../../src/lib/anchorSnapshots";
-import { ogImagePath, pickLabel } from "../../../src/lib/cardShare";
+import { ogImagePath, pickLabel, sentLabel } from "../../../src/lib/cardShare";
+// S41 — the Get the app sheet, the same HTML and CSS the app shows.
+import { GET_APP_SHEET_CSS, getAppSheetHtml } from "../../../src/lib/getAppSheet";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -52,12 +62,22 @@ const googleSearch = (q: string) => `https://www.google.com/search?q=${encodeURI
 const STYLE = `
 *{box-sizing:border-box}
 body{margin:0;background:#0b1725;font-family:-apple-system,BlinkMacSystemFont,system-ui,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;font-weight:400;color:#111827;-webkit-text-size-adjust:100%;text-size-adjust:100%}
-header{border-bottom:1px solid rgba(255,255,255,.1);height:48px;display:flex;align-items:center;justify-content:center}
-header a{color:rgba(255,255,255,.9);font-weight:700;text-decoration:none;font-size:15px}
+header{border-bottom:1px solid rgba(255,255,255,.1);max-width:36rem;margin:0 auto;padding:12px 16px 12px}
+.hd-top{display:flex;align-items:baseline;justify-content:space-between;gap:12px;min-height:30px}
+.logo{color:#2D5AB5;font-weight:700;text-decoration:none;font-size:24px;letter-spacing:-.02em;line-height:1.2}
+.logo span{color:rgba(45,90,181,.7)}
+.sent{font-size:13px;color:#9ca3af;text-align:right;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hd-btns{display:flex;gap:10px;margin-top:12px}
+.hb{flex:1;display:flex;align-items:center;justify-content:center;gap:7px;height:46px;padding:0 10px;border-radius:12px;font:inherit;font-size:16px;font-weight:600;text-decoration:none;line-height:1.2;border:2px solid #3B6BD4;color:#fff;background:transparent;cursor:pointer;-webkit-appearance:none;appearance:none}
+.hb.primary{background:#3B6BD4}
+.free{margin-top:9px;font-size:12.5px;color:#9ca3af;text-align:center}
+@media (display-mode:standalone){.getapp,.free{display:none}}
+html.standalone .getapp,html.standalone .free{display:none}
 main{max-width:36rem;margin:0 auto;padding:16px 16px 56px}
 .card{background:#fff;border:3px solid #1E3A8A;border-radius:16px;padding:18px;box-shadow:0 10px 15px -3px rgba(0,0,0,.2)}
 .cat{font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:#2D5AB5;margin-bottom:4px}
 .pick{font-size:14px;font-weight:600;color:#2D5AB5;margin-bottom:4px}
+.by{font-size:14px;color:#4b5563;margin:2px 0 6px}
 h1{font-size:20px;font-weight:600;line-height:1.25;margin:0}
 h1 a{color:inherit;text-decoration:none}
 p{font-size:16px;line-height:1.625;font-weight:400;color:#111827;margin:0 0 8px}
@@ -67,7 +87,8 @@ p{font-size:16px;line-height:1.625;font-weight:400;color:#111827;margin:0 0 8px}
 .btn{flex:1;display:block;text-align:center;padding:13px 10px;border-radius:12px;font-size:16px;font-weight:600;text-decoration:none;border:2px solid #1E3A8A;color:#1E3A8A;background:#fff;line-height:1.2}
 .btn.primary{flex:2;background:#1E3A8A;color:#fff}
 .avail{font-size:15px;color:#111827;margin:-4px 0 12px}
-.save{margin-left:auto;flex:none;display:flex;align-items:center;gap:6px;padding:8px 12px;border:2px solid #1E3A8A;border-radius:999px;color:#1E3A8A;font-size:15px;font-weight:600;text-decoration:none;line-height:1}
+.tt{min-width:0;flex:1}
+.save{margin-top:10px;display:inline-flex;align-items:center;gap:6px;padding:8px 12px;border:2px solid #1E3A8A;border-radius:999px;color:#1E3A8A;font-size:15px;font-weight:600;text-decoration:none;line-height:1}
 .own{margin-top:14px;font-size:14px;text-align:right}
 .own a{color:#4b5563;text-decoration:none}
 .watch{margin-top:12px;font-size:15px;line-height:1.6;color:#111827}
@@ -77,21 +98,31 @@ p{font-size:16px;line-height:1.625;font-weight:400;color:#111827;margin:0 0 8px}
 .watch .src a{color:#4b5563}
 h1 a:hover,.own a:hover{text-decoration:underline}
 .notice{background:#fff;border:1px solid #fcd34d;border-radius:16px;padding:16px;font-size:14px;color:#111827}
-`;
+${GET_APP_SHEET_CSS}`;
+
+// "Get the app" wears a small add-to-home mark (a rounded square, a plus).
+const ADD_ICON =
+  `<svg aria-hidden="true" width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="14" height="14" rx="3.5"/><path d="M10 7v6M7 10h6"/></svg>`;
+
+const LOGO = `<a class="logo" href="/">Rekomendr<span>.AI</span></a>`;
 
 
-function shell(args: { head: string; body: string }): string {
+function shell(args: { head: string; body: string; header?: string }): string {
   return `<!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
 <meta name="theme-color" content="#2D5AB5">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Rekomendr">
 <link rel="apple-touch-icon" href="/rekomendr_icon_blue_180.png">
+<link rel="manifest" href="/manifest.json">
 ${args.head}
 <style>${STYLE}</style>
 </head><body>
-<header><a href="/">Rekomendr</a></header>
+<header>${args.header ?? `<div class="hd-top">${LOGO}</div>`}</header>
 <main>${args.body}</main>
 </body></html>`;
 }
@@ -104,7 +135,7 @@ function htmlResponse(html: string, status: number): Response {
       // S4: one same-origin script (/card.js — opens and taps for the test
       // readout) and TMDb's poster host. Still no inline script at all.
       "Content-Security-Policy":
-        "default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'unsafe-inline'; img-src 'self' https://image.tmdb.org; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+        "default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'unsafe-inline'; img-src 'self' https://image.tmdb.org https://covers.openlibrary.org; manifest-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
       "X-Robots-Tag": "noindex, nofollow",
       "Referrer-Policy": "no-referrer",
       // Shares are immutable except for revocation, which must take hold:
@@ -138,7 +169,7 @@ function primaryAction(watch: WatchInfo | null): { href: string; label: string }
   return null;
 }
 
-function cardPage(row: SnapshotRow, origin: string, media: CardMediaView | null): Response {
+function cardPage(row: SnapshotRow, origin: string, media: CardMediaView | null, book: BookView | null = null): Response {
   const name = row.item_name;
   const category = row.item_category.trim().toLowerCase();
   const isMedia = MEDIA_CATEGORIES.has(category);
@@ -148,7 +179,8 @@ function cardPage(row: SnapshotRow, origin: string, media: CardMediaView | null)
   const title = sender ? `${name} · from ${sender}` : `${name} — Rekomendr`;
   const description = firstSentence(row.short_description);
   const pageUrl = `${origin}/a/${row.id}`;
-  const poster = isMedia ? media?.posterPath ?? row.poster_path ?? null : null;
+  // S43 — a book: its Open Library cover (looked up once, stored).
+  const poster = isMedia ? media?.posterPath ?? row.poster_path ?? null : book?.coverUrl ?? null;
   const imageUrl = `${origin}${ogImagePath(row.id, sender, poster)}`;
 
   const head = [
@@ -197,7 +229,7 @@ function cardPage(row: SnapshotRow, origin: string, media: CardMediaView | null)
     );
   }
 
-  const posterSrc = posterUrl(poster, "w342");
+  const posterSrc = book ? book.coverUrl : posterUrl(poster, "w342");
   const heading = isMedia
     ? `<h1>${link(googleSearch(name), esc(name))}</h1>`
     : `<h1>${esc(name)}</h1>`;
@@ -210,16 +242,30 @@ function cardPage(row: SnapshotRow, origin: string, media: CardMediaView | null)
   // loading (the app does the save — a plain link, so it works with no
   // script at all). Top right: the anchor grammar's verdict corner (§2.5).
   const save =
-    `<a class="save" href="/?card=${esc(row.id)}&amp;save=1" aria-label="Save">` +
+    `<a class="save" href="/?card=${esc(row.id)}&amp;save=1" aria-label="Save it for later">` +
     `<svg aria-hidden="true" width="14" height="18" viewBox="0 0 14 18"><path d="M1.5 1.5h11v15L7 12.5 1.5 16.5z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>` +
-    `Save</a>`;
+    `Save it for later</a>`;
+
+  // S41 — Open Rekomendr: the app, with this card as the anchor on top and
+  // its picks below (no save). A plain link, so it works with no script.
+  const openHref = `/?card=${esc(row.id)}`;
+  const header =
+    `<div class="hd-top">${LOGO}` +
+    (sender ? `<span class="sent">${esc(sentLabel(sender))}</span>` : "") +
+    `</div>` +
+    `<div class="hd-btns">` +
+    `<a class="hb primary" href="${openHref}" data-open-app>Open Rekomendr</a>` +
+    `<button type="button" class="hb getapp" data-get-app>${ADD_ICON}Get the app</button>` +
+    `</div>` +
+    `<div class="free">Free · no App Store needed · find more like this one</div>`;
 
   const body =
     `<article class="card">` +
     `<div class="top">` +
-    (posterSrc ? `<img class="poster" src="${esc(posterSrc)}" alt="" width="92" height="138">` : "") +
-    `<div>${label}${heading}</div>` +
-    save +
+    (posterSrc
+      ? `<img class="poster" src="${esc(posterSrc)}" alt="" width="92" height="138"${book ? ` referrerpolicy="no-referrer"` : ""}>`
+      : "") +
+    `<div class="tt">${label}${heading}${book?.author ? `<div class="by">${esc(book.author)}</div>` : ""}${save}</div>` +
     `</div>` +
     `<div class="actions">${actions}</div>` +
     (isMedia && !media?.watch && media?.availability
@@ -228,13 +274,14 @@ function cardPage(row: SnapshotRow, origin: string, media: CardMediaView | null)
     `<p>${esc(row.short_description)}</p>` +
     (row.long_description ? `<p>${esc(row.long_description)}</p>` : "") +
     (isMedia && media?.watch ? watchBlock(media.watch, link) : "") +
-    // The quiet invitation (build plan, optional). "/" keeps the visitor on
-    // whatever host served the page — a preview stays a preview.
-    `<div class="own"><a href="/">Snap your own →</a></div>` +
+    // The quiet invitation: the same door as Open Rekomendr. A relative
+    // link keeps the visitor on whatever host served the page.
+    `<div class="own"><a href="${openHref}" data-open-app>Find more like this →</a></div>` +
     `</article>` +
+    getAppSheetHtml(null) +
     `<script src="/card.js" defer data-card="${esc(row.id)}"></script>`;
 
-  return htmlResponse(shell({ head, body }), 200);
+  return htmlResponse(shell({ head, body, header }), 200);
 }
 
 // Stream first, then rent or buy; each provider a direct link; the
@@ -275,6 +322,6 @@ export async function GET(
 ): Promise<Response> {
   const row = await loadPublicSnapshot(params.id);
   if (!row) return notFoundPage();
-  const media = await cardMediaWithin(row, MEDIA_BUDGET_MS);
-  return cardPage(row, originOf(req), media);
+  const [media, book] = await Promise.all([cardMediaWithin(row, MEDIA_BUDGET_MS), bookMediaWithin(row, MEDIA_BUDGET_MS)]);
+  return cardPage(row, originOf(req), media, book);
 }

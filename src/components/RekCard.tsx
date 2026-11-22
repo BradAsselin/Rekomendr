@@ -125,6 +125,9 @@ type Props = {
   // S18b — the snap lane's anchor: it is the title you asked about, so it
   // is never dismissed — its D2 cluster is ☆ · Save, no ×.
   noDismiss?: boolean;
+  // S41 — a shared card opened in the app: "From [Name]", one quiet line
+  // over the title (the card page's own "pick" blue). Unset elsewhere.
+  fromLine?: string;
 };
 
 // Approved wording (Brad, S17).
@@ -175,7 +178,13 @@ const RekCard: React.FC<Props> = ({
   onSwipeLeft,
   onSwipeRight,
   noDismiss,
+  fromLine,
 }) => {
+  const fromEl = fromLine ? (
+    <div className="mb-0.5 text-[13px] font-semibold text-[#2D5AB5]" data-testid="from-line">
+      {fromLine}
+    </div>
+  ) : null;
   const titleText = year != null ? `${title} (${year})` : title;
   const directional = !!(onSwipeLeft || onSwipeRight);
 
@@ -226,7 +235,10 @@ const RekCard: React.FC<Props> = ({
             {poster}
             <div className="min-w-0 flex-1">
               <div className="flex items-start justify-between gap-1">
-                <div className="min-w-0 pt-0.5">{titleEl}</div>
+                <div className="min-w-0 pt-0.5">
+                  {fromEl}
+                  {titleEl}
+                </div>
                 <div className="-mr-2 -mt-2 flex shrink-0 items-center" onClick={(e) => e.stopPropagation()}>
                   {starSlot && <span className="flex h-11 w-11 items-center justify-center">{starSlot}</span>}
                   <button
@@ -250,6 +262,12 @@ const RekCard: React.FC<Props> = ({
                 </div>
               </div>
               {factsLine && <div className="mt-0.5 text-[13px] text-gray-600">{factsLine}</div>}
+              {/* S42 — "You liked this in November." S43: Movies/TV too. */}
+              {markerLine && (
+                <div className="mt-0.5 text-[13px] text-gray-600" data-testid="marker-line">
+                  {markerLine}
+                </div>
+              )}
               <p className={`mt-2 text-[15px] leading-relaxed text-gray-900${shortLead ? VS_BAND : ""}`} data-vs-line={shortLead ? "" : undefined}>
                 {shortLead && <span className={VS_LEAD}>{shortLead} </span>}
                 {short}
@@ -346,6 +364,7 @@ const RekCard: React.FC<Props> = ({
     >
       <div className={dimmed ? "opacity-70 transition-opacity" : "transition-opacity"}>
       {genreLine}
+      {fromEl}
 
       {/* TITLE + THUMBS — media titles link out to their Google info page
           (new tab; expand stays on "Show details" below). Otherwise the

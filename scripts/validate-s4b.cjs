@@ -317,17 +317,18 @@ const src = (f) => fs.readFileSync(path.join(ROOT, f), "utf8");
   out("\n4. The manifest the home-screen icon is born with");
   const claimForShared = signClaim(RECEIVER, shared.id);
   let m = await (await manifestRoute.GET(new Request(`http://local/api/manifest?card=${shared.id}&claim=${encodeURIComponent(claimForShared)}`))).json();
-  check("start_url opens onto the saved card with the claim", m.start_url, `/?card=${shared.id}&claim=${encodeURIComponent(claimForShared)}`);
+  // S41 — the icon opens HOME: the start URL carries the claim alone.
+  check("start_url opens home, carrying the claim only (S41)", m.start_url, `/?claim=${encodeURIComponent(claimForShared)}`);
   check("…everything else is the static manifest", [m.name, m.display, m.scope, m.id], ["Rekomendr", "standalone", "/", "/"]);
   m = await (await manifestRoute.GET(new Request("http://local/api/manifest?card=https://evil.example&claim=x"))).json();
   check("junk params → start_url '/' (no open redirect)", m.start_url, "/");
 
-  out("\n5. The card page: Save + 'Snap your own →'");
+  out("\n5. The card page: Save + 'Find more like this →' (S41)");
   const res = await page.GET(new Request(`https://www.rekomendr.ai/a/${shared.id}`, { headers: { host: "www.rekomendr.ai" } }), { params: { id: shared.id } });
   const html = await res.text();
   check("Save links into the app with the card + save=1", html.includes(`<a class="save" href="/?card=${shared.id}&amp;save=1"`), true);
   check("Save sits in the top block, before the Watch action", html.indexOf('class="save"') > 0 && html.indexOf('class="save"') < html.indexOf('class="actions"'), true);
-  check("'Snap your own →' at the bottom of the card", /<div class="own"><a href="\/">Snap your own →<\/a><\/div><\/article>/.test(html), true);
+  check("'Find more like this →' at the bottom of the card, opening the app on it (S41)", html.includes(`<div class="own"><a href="/?card=${shared.id}" data-open-app>Find more like this →</a></div></article>`), true);
   check("the old brand CTA is gone", html.includes("Get reks for anything"), false);
 
   out("\n6. The whole loop, counted: receiver opens → saves → shares their own");
@@ -347,18 +348,18 @@ const src = (f) => fs.readFileSync(path.join(ROOT, f), "utf8");
 
   out("\n7. Client wiring (source)");
   const pg = src("app/page.tsx");
-  check("adopts the claimed id only on a fresh install", /if \(!BOOT_HAD_CLIENT_ID\) \{\s*localStorage\.setItem\(CLIENT_ID_KEY, r\.clientId\)/.test(pg), true);
+  check("adopts the claimed id only on a fresh install", /&& !BOOT_HAD_CLIENT_ID\) \{\s*localStorage\.setItem\(CLIENT_ID_KEY, r\.clientId\)/.test(pg), true);
   check("claim redeemed BEFORE the launch is logged", pg.indexOf('"/api/card/claim"') < pg.indexOf('kind: "standalone_launch"'), true);
   check("standalone launch logged once per app session", pg.includes('sessionStorage.getItem("rekomendr.launch_logged")'), true);
-  check("save=1 dropped from the URL after saving (a reload can't re-save)", /const next = `\/\?card=\$\{encodeURIComponent\(cardId\)\}\$\{claim \?/.test(pg), true);
-  check("home-screen offer only after a Save, never standalone, respects snooze", pg.includes("if (anchor.saved && opts.save && !isStandalone() && !installOfferSnoozed()) setInstallOffer(true);"), true);
-  check("setInstallOffer(true) appears nowhere else", (pg.match(/setInstallOffer\(true\)/g) || []).length, 1);
+  // S41 — once the card is open the address bar keeps the claim at most
+  // (no card, no save=1): a reload can't re-save, and an icon added opens home.
+  check("save=1 and the card dropped from the URL once open (S41)", pg.includes('window.history.replaceState(null, "", claim ? `/?claim=${encodeURIComponent(claim)}` : "/");'), true);
+  check("the S4b after-Save coach is gone (S41: Get the app instead)", [pg.includes("setInstallOffer"), fs.existsSync(path.join(ROOT, "src/components/InstallCoach.tsx"))], [false, false]);
   const ib = src("src/components/InstallButton.tsx");
   check("header install button removed (capture-only, renders nothing)", [/return null;\s*\}\s*$/.test(ib.trim() + "\n"), ib.includes("<button")], [true, false]);
   check("…but the service worker still registers", ib.includes('navigator.serviceWorker.register("/sw.js")'), true);
-  const coach = src("src/components/InstallCoach.tsx");
-  check("iOS coach: Share → Add to Home Screen → Add, with the ⋯ note", [coach.includes("Tap Share"), coach.includes("Add to Home Screen</span>"), coach.includes(">Add</span>"), coach.includes("tap ⋯ first")], [true, true, true, true]);
-  check("Android: the real install prompt", coach.includes("runInstallPrompt()"), true);
+  // S41 — the steps live in the Get the app sheet (validate-s41-get-app).
+  check("Android: the real install prompt (S41: src/lib/getApp.ts)", src("src/lib/getApp.ts").includes("runInstallPrompt()"), true);
   const ip = src("src/lib/installPrompt.ts");
   const loadIP = () => {
     const m2 = {};

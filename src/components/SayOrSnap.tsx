@@ -1,6 +1,6 @@
 'use client';
 import React, { useEffect, useState } from 'react';
-import { Camera, Mic } from 'lucide-react';
+import { Camera, Mic, X } from 'lucide-react';
 import { askCandidate, askedIds, entryById, noneWatched, rememberAsked, type WatchAsk } from '../lib/watchAsk';
 import { getSearchEntries } from '../lib/recentSearches';
 import { fetchSavedLists } from '../lib/userPrefs';
@@ -8,6 +8,7 @@ import { postersHidden } from '../lib/posterPref';
 import { useWatchedMarks } from '../lib/useWatchedMarks';
 import { WatchedToast } from './WatchedControl';
 import { sendMeasure } from '../lib/measureClient';
+import { getAppAskDue, hadResults, noteGetAppDismissed, openGetApp } from '../lib/getApp';
 
 // S24b — the home screen's big button, split in two: Say it starts voice
 // (the search box's own mic), Snap it opens the camera, and the Reks Ray
@@ -72,6 +73,35 @@ function useWatchAsk() {
   return { ask, end };
 }
 
+// S41 — "Put Rekomendr on your home screen" (docs/2026-11-22_get_the_app_
+// launch.md, item 4; board H4), in the nudge line's place for one visit:
+// in the browser only (never from the home-screen icon), only after the
+// person's first search that showed results, and never on a visit that
+// has "Did you watch one of these?" to ask (that one wins; this waits).
+// × or the sheet's "Got it" keeps it away 14 days; three times, for good.
+// Brad-approved wording (2026-11-22).
+export const HOME_ASK_LINE = 'Put Rekomendr on your home screen';
+export const HOME_ASK_HOW = 'How';
+let visitHomeAsk: boolean | null = null;
+
+function useHomeAsk(watchAskDue: boolean) {
+  const [on, setOn] = useState(false);
+  useEffect(() => {
+    if (visitHomeAsk === null) {
+      visitHomeAsk = !watchAskDue && hadResults() && getAppAskDue();
+      if (visitHomeAsk) sendMeasure({ event: 'home_ask_shown' });
+    }
+    setOn(visitHomeAsk);
+    // Decided once per visit, on the first home.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const end = () => {
+    visitHomeAsk = false;
+    setOn(false);
+  };
+  return { on, end };
+}
+
 export default function SayOrSnap({ onSay, onSnap }: Props) {
   const [nudge, setNudge] = useState(0);
   useEffect(() => {
@@ -80,6 +110,11 @@ export default function SayOrSnap({ onSay, onSnap }: Props) {
   }, []);
   const { ask, end } = useWatchAsk();
   const marks = useWatchedMarks();
+  // The watch ask is due when this visit has (or may get) its question.
+  const [watchDue] = useState(
+    () => !!visitAsk || (!postersHidden() && !!askCandidate(getSearchEntries(), Date.now(), askedIds()))
+  );
+  const homeAsk = useHomeAsk(watchDue);
 
   return (
     <div className="flex flex-1 flex-col items-center w-full mt-[5px] [@media(max-height:700px)]:mt-[17px]">
@@ -137,6 +172,35 @@ export default function SayOrSnap({ onSay, onSnap }: Props) {
               {ASK_NOT_YET}
             </button>
           </div>
+        </div>
+      ) : homeAsk.on ? (
+        <div className="mt-4 flex min-h-[40px] items-center justify-center gap-1" data-testid="home-get-app">
+          <p className="text-center text-[14px] leading-5 text-gray-300">{HOME_ASK_LINE}</p>
+          <button
+            type="button"
+            data-testid="home-get-app-how"
+            onClick={() => {
+              sendMeasure({ event: 'home_ask_how' });
+              homeAsk.end();
+              void openGetApp();
+            }}
+            className="px-2 py-3 text-[14px] font-semibold text-blue-300 underline underline-offset-2"
+          >
+            {HOME_ASK_HOW}
+          </button>
+          <button
+            type="button"
+            aria-label="Close"
+            data-testid="home-get-app-x"
+            onClick={() => {
+              sendMeasure({ event: 'home_ask_x' });
+              noteGetAppDismissed();
+              homeAsk.end();
+            }}
+            className="flex h-11 w-8 items-center justify-center text-gray-400"
+          >
+            <X size={16} aria-hidden="true" />
+          </button>
         </div>
       ) : (
         <>

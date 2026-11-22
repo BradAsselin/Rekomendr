@@ -11,12 +11,9 @@ import RekSnapResults, {
   type SnapResult,
 } from "../src/components/RekSnapResults";
 import RecipeModal from "../src/components/RecipeModal";
-import InstallCoach from "../src/components/InstallCoach";
-import {
-  installOfferSnoozed,
-  isStandalone,
-  pointManifestAt,
-} from "../src/lib/installPrompt";
+import GetAppLine from "../src/components/GetAppLine";
+import { isStandalone, pointManifestAt } from "../src/lib/installPrompt";
+import { getAppAskDue, noteGetAppDismissed, noteResultsShown, openGetApp } from "../src/lib/getApp";
 import { getMoreLikeThisSet, getTop5FromEngine, type Rek } from "../src/engine/rekomendrEngine";
 import { fetchCompareLines, fetchSlots, type RefIn, type SlotRequest } from "../src/lib/slotsClient";
 import {
@@ -71,6 +68,7 @@ import {
 import { isHealthMedical } from "../src/lib/categoryGates";
 import { goTosFor, logGoToEvent, syncGoTos } from "../src/lib/goTos";
 import { BAR_CATEGORY } from "../src/lib/goToCategory";
+import { publishBarCategory } from "../src/lib/barCategory";
 
 // S24a — what steers a recipe: the person's own words naming a title
 // (S13c, never stored) first, then the refs chosen in "Compare to…".
@@ -634,8 +632,10 @@ export default function Page() {
     { dish: string; detectedItem?: string } | null
   >(null);
 
-  // S4b — the add-to-home-screen offer, raised only by a Save.
-  const [installOffer, setInstallOffer] = useState(false);
+  // S41 — the set a shared card opened ("Open Rekomendr"): after its
+  // picks, one quiet line offers the home screen (browser only, and only
+  // when the ask is due). Any other set on screen drops the line.
+  const [cardAskFor, setCardAskFor] = useState<SnapResult | null>(null);
 
   // S8a — the bar's category, mirrored here (it rides each snap as a hint),
   // and the one way a snap moves the bar: bump `n` with the new value.
@@ -703,6 +703,7 @@ export default function Page() {
   const rememberSet = (draft: EntryDraft, category: string, picks: EntryPick[], restore: SearchRestore) => {
     // Health wall (§2.2): a health set never becomes a Recent entry.
     if (!picks.length || isHealthMedical(category.trim().toLowerCase())) return;
+    noteResultsShown(); // S41 — home's "Get the app" ask waits for this
     activeEntryRef.current = draft.id;
     upsertSearchEntry({ ...draft, category, picks, restore, facts: {} });
     // S40 — a count that this search reached the screen: how it started,
@@ -837,15 +838,23 @@ export default function Page() {
   }, []);
 
   // S4b — a shared card, opened in the app as the anchor. `save` = the
-  // person tapped Save on the card: keep it under their anonymous id, show
-  // it saved, and offer the home screen. The URL then carries the card and
-  // the signed claim, which is what an icon added from here opens with —
-  // Safari and the home-screen app don't share storage on iOS.
+  // person tapped "Save it for later" on the card: keep it under their
+  // anonymous id and show it saved.
+  // S41 (docs/2026-11-22_get_the_app_launch.md, item 3; board H3) — "Open
+  // Rekomendr": the card on top, labeled "From [Name]", and its picks
+  // below as a More like this set: "Compare to [Title]" unchecked and
+  // standalone lines for a movie or show (§2.14), the wine anchor with
+  // Compare to checked for a bottle, and a Recent entry "More like
+  // [Title]". The address bar drops the card once it is open, and the
+  // manifest carries only the claim: an icon added from here opens home.
   const openCardFromLink = async (cardId: string, opts: { save: boolean }) => {
     const snapId = ++snapIdRef.current;
+    startCompareOff();
+    clearMlt();
     searchIdRef.current++;
     lastActivityRef.current = Date.now();
     setSnapError(null);
+    setSearchError(null);
     setSnapResult(null);
     setLateReks(null);
     setReksPending(false);
@@ -880,37 +889,84 @@ export default function Page() {
       }
       if (snapId !== snapIdRef.current) return;
 
-      const needsReks = anchor.results.similar.length === 0;
+      const name = anchor.detected_item.name;
+      const rawCategory = anchor.detected_item.category;
+      const draft = draftOf("mlt", `More like ${name}`);
+      const seed: MltSeed | null = anchor.media
+        ? {
+            category: anchor.media.kind === "movie" ? "Movies" : "TV Shows",
+            name,
+            year: anchor.detected_item.year ?? null,
+            tmdbKind: anchor.media.kind,
+            tmdbId: anchor.media.id,
+          }
+        : null;
+      setMltSeed(seed);
+      const barCat = barCategoryForSnap(rawCategory);
+      if (barCat) setBarCategoryHint((h) => ({ value: barCat, n: h.n + 1 }));
+
       setSnapResult(anchor);
       setSnapLoading(false);
-      setReksPending(needsReks);
+      setReksPending(true);
 
-      // Drop save=1 (a reload must not save again); keep card + claim.
-      const next = `/?card=${encodeURIComponent(cardId)}${claim ? `&claim=${encodeURIComponent(claim)}` : ""}`;
+      // The card is open: the address bar keeps the claim at most (a
+      // reload must not save again, and an icon added now opens home).
       try {
-        window.history.replaceState(null, "", next);
+        window.history.replaceState(null, "", claim ? `/?claim=${encodeURIComponent(claim)}` : "/");
       } catch {}
-      if (claim) pointManifestAt(cardId, claim);
-      if (anchor.saved && opts.save && !isStandalone() && !installOfferSnoozed()) setInstallOffer(true);
+      if (claim) pointManifestAt(claim);
 
-      if (needsReks) {
-        const late = await fetchCardReks(anchor);
+      let shown: SnapResult | null = null;
+      // A bottle opens as the wine anchor (taste bars, price band, Compare
+      // to checked): the typed-wine read of its name supplies the picks,
+      // while the card keeps its own text and token.
+      if (!anchor.media && isWineCategory(rawCategory)) {
+        const typed = await resolveTypedAnchor(name, "Wine").catch((err) => {
+          console.warn("[card-open] wine anchor unavailable — plain picks instead", {
+            error: err instanceof Error ? err.message : String(err),
+          });
+          return null;
+        });
+        if (snapId !== snapIdRef.current) return;
+        if (typed?.wine && typed.results.similar.length > 0) {
+          shown = { ...anchor, wine: typed.wine, results: typed.results };
+          setSnapResult(shown);
+          setReksPending(false);
+        }
+      }
+      let askOn: SnapResult = anchor;
+      if (shown) {
+        askOn = shown;
+      } else {
+        const late = anchor.media ? await fetchTypedReks(anchor.media, null, true) : await fetchCardReks(anchor);
         if (snapId !== snapIdRef.current) return;
         setLateReks(late);
         setReksPending(false);
+        shown = { ...anchor, results: { ...anchor.results, similar: late.reks } };
       }
+      // After the picks, in the browser only, and only when the ask is due.
+      if (shownList(shown).length > 0 && getAppAskDue()) setCardAskFor(askOn);
+      rememberSet(
+        draft,
+        seed?.category ?? rawCategory,
+        picksFromSnap(shownList(shown), rawCategory),
+        snapRestoreOf(shown, seed, false)
+      );
     } catch (err) {
       console.warn("[card-open] failed", err);
       if (snapId !== snapIdRef.current) return;
       setSnapLoading(false);
+      setReksPending(false);
       setSnapError("This rek isn’t here anymore.");
     }
   };
 
-  // S4b — arrival: a card link (/?card=…&save=1), a home-screen launch,
-  // or both (the first launch of an icon added after a Save carries
-  // ?card=…&claim=…). Order matters: adopt the claimed id FIRST, so the
-  // launch and the save are counted under the person who saved in Safari.
+  // S4b — arrival: a card link (/?card=…, or …&save=1 from "Save it for
+  // later"), a home-screen launch, or the first launch of an icon added
+  // after a Save (/?claim=…). Order matters: adopt the claimed id FIRST,
+  // so the launch is counted under the person who saved in Safari.
+  // S41 — an icon start (home screen + claim) lands on HOME, never on the
+  // card: the save came along with the adopted id and is in Saved.
   useEffect(() => {
     const q = new URLSearchParams(window.location.search);
     const cardId = q.get("card");
@@ -918,7 +974,6 @@ export default function Page() {
     const save = q.get("save") === "1";
     const standalone = isStandalone();
     void (async () => {
-      let claimedCard: string | null = null;
       if (standalone && claim) {
         try {
           const r = await fetch("/api/card/claim", {
@@ -926,14 +981,11 @@ export default function Page() {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ claim }),
           }).then((x) => x.json());
-          if (r?.ok && typeof r.clientId === "string") {
-            claimedCard = typeof r.card === "string" ? r.card : null;
-            // Adopt only on a fresh install (no id of its own yet): the
-            // saved card, the name and the history come along with it.
-            if (!BOOT_HAD_CLIENT_ID) {
-              localStorage.setItem(CLIENT_ID_KEY, r.clientId);
-              console.info("[card-claim] adopted the saving browser's id");
-            }
+          // Adopt only on a fresh install (no id of its own yet): the
+          // saved card, the name and the history come along with it.
+          if (r?.ok && typeof r.clientId === "string" && !BOOT_HAD_CLIENT_ID) {
+            localStorage.setItem(CLIENT_ID_KEY, r.clientId);
+            console.info("[card-claim] adopted the saving browser's id");
           }
         } catch {
           // a failed claim just opens the app normally
@@ -952,10 +1004,14 @@ export default function Page() {
           }
         } catch {}
       }
-      const openId = cardId ?? claimedCard;
-      // A claim means the card was saved: re-saving is idempotent (same row
-      // for an adopted id; an import for a device that had its own id).
-      if (openId) await openCardFromLink(openId, { save: save || !!claimedCard });
+      if (standalone && claim) {
+        console.info("[card-claim] icon start — opening home");
+        try {
+          window.history.replaceState(null, "", "/");
+        } catch {}
+        return;
+      }
+      if (cardId) await openCardFromLink(cardId, { save });
     })();
     // Mount-once: the arrival URL is read exactly once.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1919,6 +1975,8 @@ export default function Page() {
           onCategoryChange={(c) => {
             barCategoryRef.current = c;
             setBarCategory(c);
+            // S42 — the top bar's Watched tile reads "Read" in Books.
+            publishBarCategory(c);
             // S31 — a category change drops the More like this choice.
             setMltSeed((m) => (m && m.category !== c ? null : m));
             if (c !== "Wine") setMltWine(false);
@@ -1963,6 +2021,18 @@ export default function Page() {
               onWatchedChange={handleWatchedChange}
               onChainSet={rememberChain}
               onFacts={onCardFacts}
+              after={
+                /* S41 — after a shared card's picks, in the browser only. */
+                cardAskFor && cardAskFor === snapResult && !reksPending ? (
+                  <GetAppLine
+                    onGet={() => void openGetApp()}
+                    onClose={() => {
+                      noteGetAppDismissed();
+                      setCardAskFor(null);
+                    }}
+                  />
+                ) : null
+              }
             />
           ) : !hasSearched && !loading ? (
             <div className="flex flex-1 flex-col">
@@ -2042,8 +2112,6 @@ export default function Page() {
           }}
         />
       )}
-
-      <InstallCoach open={installOffer} onClose={() => setInstallOffer(false)} />
 
       {activeRecipe && (
         <RecipeModal
