@@ -294,7 +294,7 @@ const CompareSheet: React.FC<{
               data-testid={`compare-tab-${t}`}
               className={`h-9 rounded-lg text-[13px] ${tab === t ? "bg-white font-semibold text-gray-900 shadow-sm" : "text-gray-600"}`}
             >
-              {t}
+              {t === "Watched" && category === "Books" ? "Read" : t}
             </button>
           ))}
         </div>

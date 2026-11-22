@@ -68,6 +68,7 @@ import {
 import { isHealthMedical } from "../src/lib/categoryGates";
 import { goTosFor, logGoToEvent, syncGoTos } from "../src/lib/goTos";
 import { BAR_CATEGORY } from "../src/lib/goToCategory";
+import { publishBarCategory } from "../src/lib/barCategory";
 
 // S24a — what steers a recipe: the person's own words naming a title
 // (S13c, never stored) first, then the refs chosen in "Compare to…".
@@ -1974,6 +1975,8 @@ export default function Page() {
           onCategoryChange={(c) => {
             barCategoryRef.current = c;
             setBarCategory(c);
+            // S42 — the top bar's Watched tile reads "Read" in Books.
+            publishBarCategory(c);
             // S31 — a category change drops the More like this choice.
             setMltSeed((m) => (m && m.category !== c ? null : m));
             if (c !== "Wine") setMltWine(false);

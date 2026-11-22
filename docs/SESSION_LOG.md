@@ -713,3 +713,48 @@ From now on every test client id starts with `anon_agent_` (in CURRENT_STATE.md)
 
 **§0 check: consistent.** The ask is quiet, appears at most once every 14 days, stops for good after three no's, and never shows to someone who already has the app. Counts hold no device and no content. The card's text is untouched.
 
+_(Session 41 merged as `3baa0bc`, PR #136, after the preview check: `pw-s41-get-app` 37/37 on the preview; a live wine card opened in the app, `pw-s41-wine-live` 4/4.)_
+
+## Session 42 — Books get the Movies/TV card, with "Read it" — 2026-11-22 — branch auto/s42-books-card
+**Brief:** `docs/2026-11-22_books_card_launch.md`. Brad approved "Read it", "Read", "Mark as read" and the tile reading "Read" in Books. Merge when green.
+
+### SHIPPED
+- **The card:** Books results use the D2 card (`ResultsV4`, `layout="d2"`), the same component Movies/TV use. Cover on the left (the poster's box, 76×114, same radius; Show/Hide posters applies), title and year, the author in the facts line, the description, Show details, + More like this, Read it bottom left. Swipe left = Not for me, right = Save, each with Undo, as on Movies/TV.
+- **Top right:** ☆ · Save · ×, no thumbs.
+- **Tag line ("Mystery · Cozy"): dropped.** Movies/TV D2 cards have none.
+- **"You liked this in November."** stays on Books cards. The D2 card now draws its marker line, and only Books passes one.
+- **Covers:** Open Library (free, no key, no account), through `/api/covers` (`src/lib/openLibrary.ts`). It looks up the ISBN cover first, then searches by title plus author. Only the title (author and ISBN when known) leave the server: no cookies, no client id, a generic User-Agent. The year only picks between same-titled editions, on our server. Cached in memory (hits 30 days, misses 1 day) and through Next's fetch cache. An outage isn't remembered. A miss shows the poster placeholder. Covers load with no referrer.
+- **Read it:** the pill reads Read it, then Read; the screen-reader label is "Mark as read"; the toast is "Read · Undo". It is the same Watched mark (`/api/signals/watched`, category Books).
+- **Lists:** the top-bar tile and the sheet's tab read Read while the bar is on Books (`src/lib/barCategory.ts`, this visit only), Watched otherwise. The count and the list are unchanged. Book rows in the list are labeled Read. Compare to's Watched tab reads Read in Books.
+- **Snap lane:** book cards there say Read it / Read too (they keep their older card).
+- "Did you watch one of these?" stays Movies/TV (unchanged).
+
+### COVER HIT RATE (live Open Library, 20 books, title + year only)
+- **19/20 covers, 19/20 authors**, 166–1,960 ms each, uncached.
+- The miss, *A Man Called Ove*, is correct: Open Library's records of that book have no cover, and the only covered results are "Summary of…" knockoffs, which the matcher refuses.
+- Books tried: The Thursday Murder Club, Magpie Murders, The Maid, Arsenic and Adobo, Murder at the Vicarage, The No. 1 Ladies' Detective Agency, A Man Called Ove, Project Hail Mary, The House in the Cerulean Sea, Gone Girl, The Silent Patient, Tomorrow, and Tomorrow, and Tomorrow, Lessons in Chemistry, The Seven Husbands of Evelyn Hugo, Where the Crawdads Sing, Legends & Lattes, The Cuckoo's Calling, Dial A for Aunties, The Guest List, Death on the Nile.
+
+### HOW THE OLD THUMBS MAP
+- **Thumbs down → ×.** Both write `dislike` and dismiss with a backfill; × adds Undo (the row is removed again).
+- **Thumbs up → Save (bookmark).** Thumbs up wrote `like` and moved the card to the trail; Save writes `save` and does the same. Both count as a past like for "You liked this in …" and steering (`LIKE_ACTIONS`: like, save, more_like_this). ☆ (go-to) is the stronger mark.
+- **`like` is no longer written from book cards**, the same as Movies/TV since S17.
+- **Save → Save.** Unchanged, except that un-saving now removes the row (the D2 rule).
+
+### FOUND, NOT FIXED
+- D2 cards (Movies/TV) never drew their marker line, so "Start with this one" on a screen set and "You liked this in …" haven't shown on Movies/TV since S17. Left as is so Movies/TV stay unchanged.
+- **No Share on book cards.** The doc lists Share, but the search lane's Share signs TMDb's synopsis and books have no signed source. Signing Open Library text, or the line itself, is a minting decision (ledger #18/#19) for Brad.
+- Snap-lane book cards (a snapped book's picks) keep the older card with thumbs; only their wording changed.
+- The empty Watched list still says "Nothing marked watched yet." under a Read tab in Books (no approved wording for it).
+
+### YOUR CALL
+- The author line: the bare name ("Anthony Horowitz"), with no "by".
+- The facts line has no page count or series.
+- Books keep "You liked this in …" while Movies/TV don't show it (above).
+
+### TESTS
+- New `validate-s42-books` 33/33 and `pw-s42-books` 20/20.
+- `pw-s31-mlt` 36/36 (Movies, Books, Wine), `pw-s29-home-square` 53/53, `pw-s40-watch-ask` 25/25, `pw-s36-recent` 40/40, `pw-s30-list-hints` 35/35, `pw-s33-reroll` 10/10, `pw-s26b-shelf` 45/45, `pw-s41-get-app` 36/36.
+- All 64 validator suites, tsc, lint and build pass. s15, s16a, s17b and s24b were updated where they pinned "D2 = Movies/TV only" and the Watched wording.
+
+**§0 check: consistent.** Book cards now read and act like the rest; the lookup carries a book's title and nothing about the person.
+

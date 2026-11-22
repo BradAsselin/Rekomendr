@@ -7,12 +7,27 @@
 // S24b — the mockup's pill: outlined, a check circle and "Watched it";
 // marked, it fills navy and reads "Watched". `compact` keeps the bare
 // check (the Saved page's rows, where the tab already says Watched).
+// S42 — a book reads "Read it" / "Read" (screen reader: "Mark as read"),
+// the toast "Read · Undo" (Brad-approved, docs/2026-11-22_books_card_launch.md).
+// Same mark underneath: for a book, watched means read.
 
 import React from "react";
 import { CircleCheck } from "lucide-react";
 import type { WatchedItem } from "../lib/useWatchedMarks";
+import { goToCategoryFor } from "../lib/goToCategory";
 
-export const WatchedButton: React.FC<{ on: boolean; onToggle: () => void; compact?: boolean }> = ({ on, onToggle, compact }) =>
+// Is this category's mark "read" (a book) rather than "watched"?
+export const isReadCategory = (raw: unknown) => goToCategoryFor(raw) === "books";
+
+export const WATCHED_WORDS = { verb: "Watched it", done: "Watched", label: "Watched" } as const;
+export const READ_WORDS = { verb: "Read it", done: "Read", label: "Mark as read" } as const;
+
+export const WatchedButton: React.FC<{ on: boolean; onToggle: () => void; compact?: boolean; read?: boolean }> = ({
+  on,
+  onToggle,
+  compact,
+  read,
+}) =>
   compact ? (
     <button
       type="button"
@@ -21,7 +36,7 @@ export const WatchedButton: React.FC<{ on: boolean; onToggle: () => void; compac
         onToggle();
       }}
       aria-pressed={on}
-      aria-label="Watched"
+      aria-label={read ? READ_WORDS.done : WATCHED_WORDS.label}
       data-testid="watched"
       className="-my-1.5 -ml-1.5 py-1.5 pl-1.5 pr-2 flex items-center gap-1 text-sm"
     >
@@ -40,6 +55,7 @@ export const WatchedButton: React.FC<{ on: boolean; onToggle: () => void; compac
         onToggle();
       }}
       aria-pressed={on}
+      aria-label={read ? READ_WORDS.label : undefined}
       data-testid="watched"
       // The vertical padding widens the tap target without growing the row.
       className="-my-1.5 py-1.5 flex items-center"
@@ -50,7 +66,7 @@ export const WatchedButton: React.FC<{ on: boolean; onToggle: () => void; compac
         }`}
       >
         <CircleCheck size={16} strokeWidth={on ? 2 : 1.8} aria-hidden="true" />
-        {on ? "Watched" : "Watched it"}
+        {read ? (on ? READ_WORDS.done : READ_WORDS.verb) : on ? WATCHED_WORDS.done : WATCHED_WORDS.verb}
       </span>
     </button>
   );
@@ -67,7 +83,7 @@ export const WatchedToast: React.FC<{
       className="fixed left-1/2 -translate-x-1/2 z-50 rounded-full bg-gray-900 text-white text-sm shadow-lg px-4 py-2 flex items-center gap-1"
       style={{ bottom: "calc(env(safe-area-inset-bottom, 0px) + 20px)" }}
     >
-      <span>Watched ·</span>
+      <span>{isReadCategory(item.category) ? READ_WORDS.done : WATCHED_WORDS.done} ·</span>
       <button
         type="button"
         onClick={() => onUndo(item)}
@@ -80,8 +96,9 @@ export const WatchedToast: React.FC<{
 
 // S17 — the search lane's one toast, for every undoable act on a D2 card.
 // Approved wording only: "Not for me · Undo", "Saved · Undo",
-// "Watched · Undo", "Posters hidden · Undo". The newest replaces the last.
-export type UndoToastLabel = "Not for me" | "Saved" | "Watched" | "Posters hidden";
+// "Watched · Undo", "Posters hidden · Undo"; S42 adds "Read · Undo".
+// The newest replaces the last.
+export type UndoToastLabel = "Not for me" | "Saved" | "Watched" | "Read" | "Posters hidden";
 
 export const UndoToast: React.FC<{ label: UndoToastLabel | null; onUndo: () => void }> = ({ label, onUndo }) =>
   label ? (
