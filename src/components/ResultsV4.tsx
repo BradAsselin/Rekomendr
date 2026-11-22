@@ -14,7 +14,7 @@ import { isGoTo, logGoToEvent } from "../lib/goTos";
 import { goToCategoryFor } from "../lib/goToCategory";
 import { noteSetShown } from "../lib/screenVisit";
 import { goToShortName } from "../lib/slotsClient";
-import { postJson, tmdbCardSnapshot } from "../lib/shareSnapshot";
+import { bookCardSnapshot, postJson, tmdbCardSnapshot } from "../lib/shareSnapshot";
 import RekSkeleton, { RekSkeletonCard } from "./RekSkeleton";
 import RekTrail, { TrailRow } from "./RekTrail";
 import ShortlistStrip, { type ShortlistItem } from "./ShortlistStrip";
@@ -853,8 +853,19 @@ const ResultsV4: React.FC<ResultsProps> = ({
   // title up and signs what TMDb returns). Books and wine: no Share yet.
   const shareLane: "Movies" | "TV Shows" | null =
     category === "Movies" || category === "TV Shows" ? category : null;
+  // S43 — Books too (Brad, 2026-11-22): the card's own description line
+  // (never a "vs." line), its cover and author stored by the card page.
   const shareFor = (rek: Rek) =>
-    shareLane ? (
+    books ? (
+      <ShareRow
+        key={`Books|${rek.id}`}
+        title={rek.title}
+        getSnapshot={() =>
+          bookCardSnapshot({ title: rek.title, year: rek.year || null, short: rek.baseShort ?? rek.short }, getAnonymousClientId(), postJson)
+        }
+        onTap={() => noteAct("share", rek)}
+      />
+    ) : shareLane ? (
       <ShareRow
         key={`${shareLane}|${rek.id}`}
         title={rek.title}
@@ -1108,7 +1119,7 @@ const ResultsV4: React.FC<ResultsProps> = ({
                     }
                     title={rek.title}
                     year={rek.year}
-                    markerLine={d2 ? (books ? rek.resurfacedNote : undefined) : rek.resurfacedNote ?? rek.screenNote}
+                    markerLine={d2 ? rek.resurfacedNote : rek.resurfacedNote ?? rek.screenNote}
                     layout={d2 ? "d2" : "classic"}
                     poster={d2 ? posterFor(rek) : undefined}
                     factsLine={d2 ? factsOf(rek) : undefined}
@@ -1178,7 +1189,7 @@ const ResultsV4: React.FC<ResultsProps> = ({
                    on the D2 card (it lived beside the Shortlist strip, which
                    is gone); the slot itself still runs. A screen set's
                    "Start with this one" stays — it's that set's answer. */
-                markerLine={d2 ? (books ? rek.resurfacedNote : undefined) : rek.resurfacedNote ?? rek.screenNote}
+                markerLine={d2 ? rek.resurfacedNote : rek.resurfacedNote ?? rek.screenNote}
                 short={view(rek).short}
                 long={rek.long}
                 watchedSlot={watchedFor(rek, true)}

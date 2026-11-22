@@ -169,7 +169,7 @@ for (const level of ["warn", "info", "error"]) console[level] = () => {};
     // S17 — D2 (Movies/TV) frontier cards keep only the screen note on the marker line.
     // S42 — the D2 card now draws its marker line (Books' "You liked this in …"), so
     // Movies/TV pass none: what they showed (nothing; D2 never drew it) is unchanged.
-    [(read("src/components/ResultsV4.tsx").match(/markerLine=\{d2 \? (rek\.screenNote|undefined|\(books \? rek\.resurfacedNote : undefined\)) : rek\.resurfacedNote \?\? rek\.screenNote\}/g) || []).length, read("src/components/DescriptorLine.tsx").includes("...(rek.facts ?? [])")], [2, true]);
+    [(read("src/components/ResultsV4.tsx").match(/markerLine=\{d2 \? (rek\.screenNote|undefined|\(books \? rek\.resurfacedNote : undefined\)|rek\.resurfacedNote) : rek\.resurfacedNote \?\? rek\.screenNote\}/g) || []).length, read("src/components/DescriptorLine.tsx").includes("...(rek.facts ?? [])")], [2, true]);
   void words;
 
   console.log(`\n${passed} passed, ${failed} failed.`);

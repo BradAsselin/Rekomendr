@@ -12,7 +12,9 @@
 // the HTTP reads go through Next's fetch cache, like the TMDb bundles.
 
 export type BookQuery = { title: string; author?: string | null; isbn?: string | null; year?: number | null };
-export type BookCover = { coverUrl: string | null; author: string | null };
+// `found`: Open Library has a book of this exact (normalized) title — the
+// book-card mint requires it (S43). A cover is not required for that.
+export type BookCover = { coverUrl: string | null; author: string | null; found?: boolean };
 
 const UA = "Rekomendr/1.0 (+https://www.rekomendr.ai)";
 const SEARCH = "https://openlibrary.org/search.json";
@@ -104,22 +106,27 @@ export async function lookupBook(q: BookQuery, now = Date.now()): Promise<BookCo
   })();
   let coverUrl: string | null = null;
   let author: string | null = q.author?.trim() || null;
+  let found = false;
   if (isbnUrl) {
     const r = await get(isbnUrl, { method: "HEAD" });
-    if (r?.ok) coverUrl = isbnUrl.replace("?default=false", "");
+    if (r?.ok) {
+      coverUrl = isbnUrl.replace("?default=false", "");
+      found = true;
+    }
   }
   if (!coverUrl || !author) {
     const r = await get(searchUrl as string);
     const data = r?.ok ? await r.json().catch(() => null) : null;
     const doc = pickDoc(Array.isArray(data?.docs) ? data.docs : [], q);
+    if (doc) found = true;
     if (!coverUrl) coverUrl = coverOf(doc);
     if (!author && Array.isArray(doc?.author_name) && typeof doc!.author_name![0] === "string") author = doc!.author_name![0];
     if (!r || !r.ok) {
       // An outage is not a miss: don't remember it.
-      return { coverUrl, author };
+      return { coverUrl, author, found };
     }
   }
-  const value = { coverUrl, author };
+  const value = { coverUrl, author, found };
   if (cache.size >= CACHE_MAX) cache.delete(cache.keys().next().value as string);
   cache.set(key, { at: now, value });
   return value;

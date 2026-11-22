@@ -86,13 +86,13 @@ const bar = require(path.join(OUT, "src/lib/barCategory.js"));
 
   calls.length = 0;
   let r = await ol.lookupBook({ title: "Magpie Murders", year: 2016 });
-  check("a title finds its own book (not the 'Summary of…' knockoff), with the author", r, { coverUrl: "https://covers.openlibrary.org/b/id/8189045-M.jpg", author: "Anthony Horowitz" });
+  check("a title finds its own book (not the 'Summary of…' knockoff), with the author", r, { coverUrl: "https://covers.openlibrary.org/b/id/8189045-M.jpg", author: "Anthony Horowitz", found: true });
   check("…one request, no cookies, a generic User-Agent naming the app", [calls.length, calls[0].init.credentials, calls[0].init.headers["User-Agent"], Object.keys(calls[0].init.headers).sort()], [1, "omit", "Rekomendr/1.0 (+https://www.rekomendr.ai)", ["Accept", "User-Agent"]]);
   calls.length = 0;
   r = await ol.lookupBook({ title: "Magpie Murders", year: 2016 });
   check("…cached: the same book asks nothing again", [calls.length, r.author], [0, "Anthony Horowitz"]);
   r = await ol.lookupBook({ title: "A Man Called Ove", year: 2012 });
-  check("no cover on the real book → a miss (never a different book's cover)", r, { coverUrl: null, author: null });
+  check("no cover on the real book → a miss (never a different book's cover)", r, { coverUrl: null, author: null, found: true });
   r = await ol.lookupBook({ title: "Dracula", year: 1975 });
   check("same title, two editions: the card's year picks", r.coverUrl, "https://covers.openlibrary.org/b/id/222-M.jpg");
   calls.length = 0;
@@ -137,7 +137,8 @@ const bar = require(path.join(OUT, "src/lib/barCategory.js"));
   check("the author is the facts line; a miss keeps none", rv.includes("facts: r.facts ?? (c?.author ? [c.author] : [])"), true);
   check("only the title goes out from the card (and the year, kept on our server)", rv.includes("items: need.map((r) => ({ title: r.title, year: r.year || null }))"), true);
   check("the same Watched mark ('read' is the word only)", [rv.includes('<WatchedButton on={watched.isWatched(rek.title)} read={books}'), rv.includes('showToast(books ? "Read" : "Watched"')], [true, true]);
-  check("'You liked this in …' kept on Books; Movies/TV pass no marker (unchanged)", (rv.match(/markerLine=\{d2 \? \(books \? rek\.resurfacedNote : undefined\) : rek\.resurfacedNote \?\? rek\.screenNote\}/g) || []).length, 2);
+  // S43 — Movies/TV show it too (Brad).
+  check("'You liked this in …' on every D2 card (S43: Movies/TV too)", (rv.match(/markerLine=\{d2 \? (\(books \? rek\.resurfacedNote : undefined\)|rek\.resurfacedNote) : rek\.resurfacedNote \?\? rek\.screenNote\}/g) || []).length, 2);
   const card = src("src/components/RekCard.tsx");
   const d2 = card.slice(card.indexOf('if (layout === "d2")'), card.indexOf("if (!directional) return card;"));
   check("the D2 card has no thumbs and no tag line", [/Thumbs|ThumbsUp|SignalButtons/.test(d2), d2.includes("{genreLine}")], [false, false]);

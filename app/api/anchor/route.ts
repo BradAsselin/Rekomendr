@@ -35,6 +35,7 @@ import {
 import { chooseMediaReks, guardTaste } from "../../../src/lib/mediaReks";
 import { NEW_TO_ME_NOTICE } from "../../../src/lib/snapTitleGuard";
 import { capGate } from "../../../src/lib/apiUsage";
+import { lookupBook } from "../../../src/lib/openLibrary";
 import {
   maybeSimulateOpenAIFailure,
   openAIFailureResponse,
@@ -220,6 +221,38 @@ async function card(body: any): Promise<Response> {
   );
 }
 
+// S43 — Share on a search-lane book card (Brad, 2026-11-22): the card's
+// own description line is what the card shows. Books have no synopsis
+// source to sign (S7 signed TMDb's for movies), so this signs the line the
+// card carries, behind three guards:
+//   1. the title must be a real book on Open Library (an exact normalized
+//      title match) — no card for a book that isn't there;
+//   2. moderation on the name and line at the share flip, failing closed
+//      (/api/share, unchanged) — a minted row is private until it passes;
+//   3. the caps: this route's text cap, 30 mints and 20 flips a day.
+// Ledger #19 amended for books by Brad's call; the long tier stays the
+// lazy completion's (server-written), never the browser's.
+async function bookCard(body: any): Promise<Response> {
+  const title = typeof body?.title === "string" ? body.title.trim() : "";
+  const short = typeof body?.short === "string" ? body.short.trim() : "";
+  const year = Number.isInteger(body?.year) ? (body.year as number) : null;
+  const clientId = cleanClientId(body?.clientId);
+  if (!clientId || !title || title.length > 200 || !short || short.length > 2000) {
+    return Response.json({ ok: false, reason: "bad_request" }, { status: 400 });
+  }
+  const capped = await capGate(clientId, "reksnap-text");
+  if (capped) return capped;
+  const book = await lookupBook({ title, year }).catch(() => null);
+  if (!book?.found) {
+    console.info("[book-card] no Open Library match — no card", { year });
+    return Response.json({ ok: false, reason: "not_found" }, { status: 200 });
+  }
+  const category = "Books";
+  const token = signAnchor({ name: title, category, short, long: null, clientId });
+  if (!token) return Response.json({ ok: false, reason: "disabled" }, { status: 200 });
+  return Response.json({ ok: true, item: { name: title, category, short }, token }, { status: 200 });
+}
+
 async function reks(body: any): Promise<Response> {
   const kind: MediaKind | null =
     body?.kind === "movie" || body?.kind === "tv" ? body.kind : null;
@@ -267,6 +300,7 @@ async function handlePostUncounted(req: Request): Promise<Response> {
     const body = await req.json().catch(() => ({}));
     if (body?.action === "resolve") return await resolve(body);
     if (body?.action === "card") return await card(body);
+    if (body?.action === "book-card") return await bookCard(body);
     if (body?.action === "open") return await open(body);
     if (body?.action === "reks") {
       maybeSimulateOpenAIFailure();

@@ -327,7 +327,7 @@ const event = (kind, cardId, clientId) => recordCardEvent({ kind, card: cardId, 
   check("og:title carries 'from <name>'", p7.html.includes('property="og:title" content="Lioness · from Katrina"'), true);
   check("card says “Katrina’s pick”", p7.html.includes(">Katrina’s pick<"), true);
   check("poster from TMDb's image host", p7.html.includes('src="https://image.tmdb.org/t/p/w342/lioness.jpg"'), true);
-  check("CSP allows exactly that image host and same-origin script", /img-src 'self' https:\/\/image\.tmdb\.org;/.test(p7.headers.get("content-security-policy")) && /script-src 'self';/.test(p7.headers.get("content-security-policy")), true);
+  check("CSP allows exactly that image host and same-origin script", /img-src 'self' https:\/\/image\.tmdb\.org( https:\/\/covers\.openlibrary\.org)?;/ /* S43: book covers */.test(p7.headers.get("content-security-policy")) && /script-src 'self';/.test(p7.headers.get("content-security-policy")), true);
   const iAct = p7.html.indexOf('class="actions"');
   const iSyn = p7.html.indexOf("<p>Cruz");
   check("Watch + Trailer come BEFORE the synopsis (above the fold)", iAct > 0 && iAct < iSyn, true);
