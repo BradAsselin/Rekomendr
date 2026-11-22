@@ -87,9 +87,11 @@ const jsxText = (src) =>
     (w) => w && !/[=;()\n]/.test(w)
   );
 const menuWords = [...new Set([...jsxText(menu), ...(menu.match(/"(Hide posters|Show posters)"/g) || []).map((m) => m.slice(1, -1))])];
-check("menu strings", menuWords.filter((w) => !["Share", "Hide posters", "Show posters", "More options"].includes(w)), []);
+// S41 — "Add to Home Screen" (Brad-approved, docs/2026-11-22_get_the_app_launch.md).
+check("menu strings", menuWords.filter((w) => !["Share", "Hide posters", "Show posters", "More options", "Add to Home Screen"].includes(w)), []);
 // S29 — the nudge lines live in NUDGES (pinned in validate-s29).
-check("pair strings", [...new Set(jsxText(pair))].filter((w) => !["Say it", "Snap it", "powered by Reks Ray™"].includes(w)), []);
+// S41 — the home ask's × reads "Close" to a screen reader (its words live in HOME_ASK_*).
+check("pair strings", [...new Set(jsxText(pair))].filter((w) => !["Say it", "Snap it", "powered by Reks Ray™", "Close"].includes(w)), []);
 check("pill strings", [...new Set([...jsxText(watched), ...(watched.match(/"(Watched it|Watched)"/g) || []).map((m) => m.slice(1, -1))])].filter((w) => !["Watched", "Watched it", "Watched ·", "Undo"].includes(w)), []);
 check("auth strings unchanged from S2b", ["Sign in", "Sign out", "Check your email — the sign-in link is on its way.", "you@email.com", "Sending...", "Send sign-in link", "Couldn’t send the link — give it another go."].every((t) => auth.includes(t)), true);
 // S25 — Brad's word for it.

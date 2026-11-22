@@ -674,3 +674,42 @@ From now on every test client id starts with `anon_agent_` (in CURRENT_STATE.md)
 
 **§0 check: consistent.** No app change.
 
+## Session 41 — Get the app (shared card → home screen) + wine Compare to by color — 2026-11-22 — branch auto/s41-get-the-app
+**Brief:** `docs/2026-11-22_get_the_app_launch.md` (boards H1–H4). Brad approved the wording listed in the doc. Merge when green.
+
+### SHIPPED
+- **Shared card page (H1):** the "Rekomendr" title bar is replaced by a header: the Rekomendr.AI logo, "[Name] sent you a pick", **Open Rekomendr** and **Get the app**, and "Free · no App Store needed · find more like this one". Save reads **Save it for later**. "Snap your own →" is now **Find more like this →** and goes where Open Rekomendr goes. In standalone mode Get the app and its line are hidden and Open Rekomendr fills the row. The snapshot text, og tags and the one same-origin script are unchanged (checked byte for byte against main's page and against production for two real cards).
+- **Get the app (H2):** one sheet, written once (`src/lib/getAppSheet.ts`) and shown both on the card page (`public/card.js`) and in the app (`GetAppHost.tsx`). Android uses Chrome's stored install prompt when there is one. Never shown when installed.
+- **Open Rekomendr (H3):** the card opens on top with **From [Name]**, its star and save, and its picks below as a More like this set: Compare to [Title] ☐ for movies and TV, standalone lines, and a Recent entry "More like [Title]". A wine card opens as the wine anchor (typed-bottle path), so Compare to starts checked. In the browser, after the picks: "Like it? Put Rekomendr on your home screen." with Get the app and ×.
+- **Home (H4):** "Put Rekomendr on your home screen" with How and ×, in the nudge line's place. It shows in the browser only, after the first search that showed results. After × or Got it it waits 14 days; after three dismissals it never returns (device only). "Did you watch one of these?" wins. **Add to Home Screen** is in the ⋯ menu (hidden when installed).
+- **Home-screen icon:** opens home, never the card. The per-save manifest now carries only the claim (`/?claim=…`). The app adopts the saving browser's id and lands on home. The card page links the static manifest (start_url "/"). The S4b coach that popped up after a Save is retired.
+- **Icon:** the 192/512 icons were marked "any maskable" but the ring runs to the edge, so Android would clip it. They are now "any", with padded maskable copies. Name ("Rekomendr") and splash color (#2D5AB5) checked; unchanged.
+- **Counts:** eight count-only kinds (getapp_open, install_accepted, install_dismissed, getapp_got_it, home_ask_shown, home_ask_how, home_ask_x, card_open_app) through `/api/signals` kind "measure". Each stores its kind only, no device id. They show in the stats page's Use block. Home-screen launches stay counted as before.
+- **Wine Compare to by color:** same color as the result first, the rest under "Other styles", on every tab. Color comes from the label's words (grape, style, region); an unknown bottle stays in the first group. Nothing is blocked.
+
+### iOS SAFARI STEPS AS BUILT, AND HOW THEY WERE VERIFIED
+- Safari 27+ (Brad's screenshot layout): 1. Tap the menu ≡ at the bottom of Safari. 2. Tap Share. 3. Tap Add to Home Screen, then Add. The arrow points bottom-left.
+- Safari 26: the same steps, starting with ⋯ at the bottom right.
+- Older Safari: Share at the bottom → Add to Home Screen → Add.
+- Chosen by Safari's own version in the user agent (`Version/27`); an unreadable version gets the newest steps.
+- Verified against Apple's iPhone User Guide ("Open as Web App": page menu → Share → Add to Home Screen → Add; Open as Web App is on by default) and reports on iOS 27's compact bar (the bottom-right button now opens tabs; Share moved during the betas). **Not verified on a real iPhone**: Brad's check, step 2.
+
+### MIGRATION — BLOCKED, Brad runs it
+- Backup taken: **`backups/2026-11-22-1659-s41.sql`** (722,195 bytes, dump-complete footer, 53 tables).
+- The permission check blocked the DDL, as in S39/S40. Nothing was changed.
+- **BRAD MUST:** `! S41_BACKUP=backups/2026-11-22-1659-s41.sql bash scripts/run-s41-get-app-counts.sh` (widens `measure_events_kind_check`; adds a no-device check for the new kinds; Block 4 ends in ROLLBACK). Compare the output with the EXPECTED lines in `docs/sql/2026-11-22_s41-get-app-counts.sql`.
+- Until then the new counts are refused by the table and logged (`[signals] … insert`); nothing changes for the person.
+
+### YOUR CALL (not in the approved list)
+- The sheet's other variants: Safari 26 (⋯ at the bottom right), older Safari (Share at the bottom), Android menu steps ("Tap the menu ⋮ at the top of Chrome", "Add to Home screen", "Install").
+- In another app's browser: "Open this page in Safari first, then tap Get the app." (Chrome on Android), "Copy link" → "Link copied".
+- People who moved Safari's tabs to Top or Bottom see Share directly; the steps assume the default compact bar.
+- Stats page labels for the eight counts.
+
+### TESTS
+- New `validate-s41-get-app` 80/80; new `pw-s41-get-app` 37/37 at 390×844 and 375×667 (a real movie card and a real wine card, read only).
+- `pw-s40-watch-ask` 25/25, `pw-s29-home-square` 53/53.
+- All 63 validator suites, tsc, lint and build pass. s4b and s24b updated where they pinned what this build changes (icon opens the card, "Snap your own →", the after-Save coach, menu and home words).
+
+**§0 check: consistent.** The ask is quiet, appears at most once every 14 days, stops for good after three no's, and never shows to someone who already has the app. Counts hold no device and no content. The card's text is untouched.
+

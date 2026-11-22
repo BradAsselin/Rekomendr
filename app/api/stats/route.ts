@@ -407,7 +407,7 @@ function measureHtml(m: Measure): string {
   return (
     `<h2>THE TEST (cards)</h2><p>From ${BLOCK1_SINCE}. Weeks start Monday, New York time, newest first. The primary number is “Receivers who made their own”.</p>${house}${b1}` +
     `<h2>Quality</h2><p>From ${MEASURE_SINCE}. Sets and times are what reached the screen: picks shown, and the time from the ask to the set. Retries, gave-up and errors are counted on the server and hold no device.</p>${b2}` +
-    `<h2>Use</h2><p>From ${MEASURE_SINCE}. The “Did you watch one of these?” counts hold no device, so “outside the house” shows —.</p>${b3}` +
+    `<h2>Use</h2><p>From ${MEASURE_SINCE}. The “Did you watch one of these?” and Get the app counts hold no device, so “outside the house” shows —. Home-screen launches stay in the table above (“Installs”).</p>${b3}` +
     `<p>Device counts before 2026-11-10 are overstated: early browser tests used real-format ids (Session 38).</p>`
   );
 }

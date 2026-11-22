@@ -1,11 +1,13 @@
-// src/lib/installPrompt.ts — S4b, browser side. Add-to-home-screen, offered
-// AFTER Save only (never on page open):
+// src/lib/installPrompt.ts — S4b, browser side. Add-to-home-screen plumbing:
 //   * Android/Chrome: the real install prompt. Chrome fires
 //     `beforeinstallprompt` early; it is captured once at app start
-//     (InstallButton.tsx, now capture-only) and held here until a Save.
-//   * iPhone/iPad Safari: there is no install API, so a coach sheet shows
-//     the three taps (InstallCoach.tsx).
+//     (InstallButton.tsx, capture-only) and held here until asked for.
+//   * iPhone/iPad Safari: there is no install API, so a sheet shows the
+//     three taps.
 //   * Already running from the home screen: nothing, ever.
+// S41 — who asks, when, and the sheet itself live in src/lib/getApp.ts,
+// src/lib/getAppSheet.ts and GetAppHost.tsx ("Get the app"); the S4b coach
+// that opened by itself after a Save is gone.
 
 export type BeforeInstallPromptEvent = Event & {
   prompt: () => Promise<void>;
@@ -67,34 +69,13 @@ export function isIOSSafari(): boolean {
 }
 
 // Point the page's manifest at the per-save start URL, so the icon added
-// next opens onto the saved card and carries the claim (iOS storage).
-export function pointManifestAt(cardId: string, claim: string) {
+// next carries the claim (iOS storage). S41: the claim only — the icon
+// opens home, never the card.
+export function pointManifestAt(claim: string) {
   try {
     const link = document.querySelector<HTMLLinkElement>('link[rel="manifest"]');
-    if (link) {
-      link.href = `/api/manifest?card=${encodeURIComponent(cardId)}&claim=${encodeURIComponent(claim)}`;
-    }
+    if (link) link.href = `/api/manifest?claim=${encodeURIComponent(claim)}`;
   } catch {
-    // no manifest link: Safari falls back to the page URL, which carries
-    // the same card + claim (the caller sets it)
-  }
-}
-
-const DISMISS_KEY = "rekomendr.a2hs_dismissed_at";
-// A dismissed offer stays away for a week, then may return after a Save.
-const DISMISS_MS = 7 * 24 * 60 * 60 * 1000;
-export function installOfferSnoozed(): boolean {
-  try {
-    const at = Number(localStorage.getItem(DISMISS_KEY));
-    return Number.isFinite(at) && at > 0 && Date.now() - at < DISMISS_MS;
-  } catch {
-    return false;
-  }
-}
-export function snoozeInstallOffer() {
-  try {
-    localStorage.setItem(DISMISS_KEY, String(Date.now()));
-  } catch {
-    // ignore
+    // no manifest link: nothing to point
   }
 }

@@ -1,26 +1,24 @@
 // app/api/manifest/route.ts
-// S4b — the web-app manifest with a per-save start URL. After Save, the
-// page points its <link rel="manifest"> here, so "Add to Home Screen"
-// installs an icon that opens straight onto the saved card and carries the
-// claim (the iOS separate-storage hand-off). Everything else is the static
-// public/manifest.json, unchanged. Only `card` and `claim` are carried, and
-// only in their own validated shapes — no open redirect, no other params.
+// S4b — the web-app manifest with a per-save start URL: after a Save, the
+// page points its <link rel="manifest"> here, so the icon added next
+// carries the claim (the iOS separate-storage hand-off).
+// S41 (docs/2026-11-22_get_the_app_launch.md, item 2) — the icon opens the
+// app's HOME, never the card: the start URL carries the claim alone
+// ("/?claim=…"), so the home-screen app still adopts the id that saved
+// the card in Safari (the save is there, in Saved) but lands on home.
+// Everything else is the static public/manifest.json, unchanged. Only a
+// claim in its own validated shape is carried — no open redirect.
 
 import manifest from "../../../public/manifest.json";
 
 export const dynamic = "force-dynamic";
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const CLAIM_RE = /^[A-Za-z0-9_-]{10,500}\.[A-Za-z0-9_-]{20,100}$/;
 
 export async function GET(req: Request): Promise<Response> {
   const url = new URL(req.url);
-  const card = url.searchParams.get("card") ?? "";
   const claim = url.searchParams.get("claim") ?? "";
-  const start =
-    UUID_RE.test(card) && CLAIM_RE.test(claim)
-      ? `/?card=${card.toLowerCase()}&claim=${encodeURIComponent(claim)}`
-      : "/";
+  const start = CLAIM_RE.test(claim) ? `/?claim=${encodeURIComponent(claim)}` : "/";
   return new Response(JSON.stringify({ ...manifest, start_url: start, id: "/" }), {
     headers: {
       "Content-Type": "application/manifest+json",
